@@ -1,0 +1,20 @@
+[package]
+name = "soc-presence"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+soc-core.workspace = true
+soc-db.workspace = true
+slint.workspace = true
+
+[build-dependencies]
+slint-build.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-app-kit.workspace = true
+
+[dev-dependencies]
+soc-config.workspace = true

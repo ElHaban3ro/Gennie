@@ -1,0 +1,12 @@
+[package]
+name = "soc"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+soc-config.workspace = true
+soc-db.workspace = true
+soc-core.workspace = true
+soc-presence.workspace = true
