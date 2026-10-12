@@ -9,3 +9,6 @@ Revisión: inventario y exclusiones con git check-ignore, búsqueda acotada de p
 Acceso SSH: host-key inicial no disponible; huella Ed25519 contrastada con [GitHub oficial](https://docs.github.com/es/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints). Se usa archivo temporal de confianza en .verification y StrictHostKeyChecking=yes solo para los comandos de entrega, sin desactivar verificaciones ni modificar configuración global.
 
 Push ordinario de main solicitado; hashes y resultado definitivo se reportan al usuario después de ejecutarlo y verificar remoto. Este registro conserva intención y revisión, no sustituye la evidencia del comando ni concede autorizaciones futuras.
+
+## Incorporación concurrente durante la entrega
+Después de subir los cuatro commits iniciales, se detectaron ocho archivos modificados por el chat «Desactiva opciones actuales de la UI». Se verificó la petición directa del usuario y que ese trabajo estaba terminado: desactivar M/A/Espacio/Escape/clic derecho y quitar ayuda, conservar clic y menú nativo, reservar preferencias para configuración futura. Se incluyen en un quinto commit coherente, sin sobrescribir ni excluir ese trabajo. El chat de esa tarea reportó 13 tests, build, formato, Clippy e invariantes verdes; no se repiten en esta entrega ni se toma esa comprobación como validación runtime.

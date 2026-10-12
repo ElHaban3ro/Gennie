@@ -124,7 +124,7 @@ impl PresenceModule {
                     match result {
                         Ok(reduced) => {
                             ui.set_reduced_motion(reduced);
-                            ui.set_status_text("Guardado · M · A · ESC".into());
+                            ui.set_status_text("Guardado".into());
                         }
                         Err(_) => ui.set_status_text("Error al guardar · ver registro".into()),
                     }
@@ -132,6 +132,7 @@ impl PresenceModule {
             },
         );
         let weak = ui.as_weak();
+        // Reservado para la configuración futura; la UI no invoca este callback.
         ui.on_motion_changed(move || {
             if let Some(ui) = weak.upgrade() {
                 if ui.get_persist_pending() {
@@ -143,7 +144,7 @@ impl PresenceModule {
                         ui.set_persist_pending(true);
                         ui.set_status_text("Guardando preferencia…".into());
                     }
-                    Err(_) => ui.set_status_text("Error al guardar · reintentar M".into()),
+                    Err(_) => ui.set_status_text("Error al guardar".into()),
                 }
             }
         });
@@ -171,7 +172,6 @@ impl PresenceModule {
                 }
             },
         );
-        desktop::prepare(ui.window())?;
         ui.show()?;
         let fatal_error = std::rc::Rc::new(std::cell::RefCell::new(None));
         let startup_error = fatal_error.clone();

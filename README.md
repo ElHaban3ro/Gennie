@@ -10,10 +10,9 @@ cargo run --locked -p soc
 ```
 .env local ya preparado con `SOC_DATABASE_PATH=data/soc.sqlite3`; al copiar checkout, crear `.env` a partir de `.env.example`. La ruta es obligatoria y relativa al cwd, sin default oculto. No abre puerto ni necesita credenciales.
 
-- Clic en la cara o Espacio: dormida ↔ activa.
-- Clic secundario en la cara o Escape con foco: salir.
-- M con foco: guardar movimiento reducido en SQLite.
-- A con foco o menú soc → Acerca de soc: información y atribución Slint. Menú soc → Salir también cierra.
+- Clic en la cara: dormida ↔ activa.
+- Menú soc → Salir: cerrar. Menú soc → Acerca de soc: información y atribución Slint.
+- Atajos M, A, Espacio y Escape, cierre con clic secundario y ayuda sobre la cara desactivados. Movimiento reducido conserva su preferencia y soporte interno para una configuración posterior.
 
 Para una evaluación aislada: `SOC_DATABASE_PATH=/tmp/soc-review.sqlite3 cargo run --locked -p soc`. No borrar datos existentes para repetir la demostración.
 

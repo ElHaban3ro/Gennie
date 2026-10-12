@@ -30,18 +30,6 @@ pub fn initialize() -> Result<()> {
     Ok(())
 }
 
-pub fn prepare(window: &slint::Window) -> Result<()> {
-    window.on_winit_window_event(|_, event| {
-        if let winit::event::WindowEvent::KeyboardInput { event, .. } = event
-            && event.state == winit::event::ElementState::Pressed
-            && event.logical_key == winit::keyboard::Key::Named(winit::keyboard::NamedKey::Escape)
-        {
-            let _ = slint::quit_event_loop();
-        }
-        slint::winit_030::EventResult::Propagate
-    });
-    Ok(())
-}
 pub fn position(window: &slint::Window) -> Result<()> {
     window
         .with_winit_window(|native| -> Result<()> {

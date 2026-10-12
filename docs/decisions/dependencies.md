@@ -14,7 +14,7 @@ Elección delegada para esta construcción. Comprobado con API oficial crates.io
 Winit 0.30.13 resuelto por Slint y usado mediante reexport; no segunda versión directa. API unstable se aísla y exige revisar al subir Slint. Transparencia y always-on-top son capacidades de plataforma, no garantías universales.
 
 ## Licencia
-Slint permite elección Royalty-free para desktop, GPLv3 o comercial. Para esta base local se incorpora AboutSlint accesible con A y desde el menú nativo soc → Acerca de soc. No se decide licencia de distribución del código del proyecto ni se publica nada. Revisar condiciones exactas al distribuir o incorporar embedded: [licencia versionada](https://github.com/slint-ui/slint/blob/v1.18.1/LICENSE.md), [texto royalty-free](https://github.com/slint-ui/slint/blob/v1.18.1/LICENSES/LicenseRef-Slint-Royalty-free-2.0.md).
+Slint permite elección Royalty-free para desktop, GPLv3 o comercial. Para esta base local se incorpora AboutSlint accesible desde el menú nativo soc → Acerca de soc. No se ha decidido licencia de distribución del proyecto ni se ha publicado un binario; la entrega Git posterior está registrada por separado. Revisar condiciones exactas al distribuir o incorporar embedded: [licencia versionada](https://github.com/slint-ui/slint/blob/v1.18.1/LICENSE.md), [texto royalty-free](https://github.com/slint-ui/slint/blob/v1.18.1/LICENSES/LicenseRef-Slint-Royalty-free-2.0.md).
 
 ## Avisos y límites
 Consultada [RustSec advisory-db](https://github.com/RustSec/advisory-db) actual: rusqlite RUSTSEC-2020-0014 y 2021-0128 están corregidos en la versión elegida; sha2 RUSTSEC-2021-0100 afecta 0.9.7, no 0.11.0. No directorio encontrado para slint/slint-build/dotenvy en ese snapshot; esto no prueba ausencia de vulnerabilidad ni compromiso.
