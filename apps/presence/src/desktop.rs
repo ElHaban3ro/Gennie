@@ -50,6 +50,7 @@ pub fn position(window: &slint::Window) -> Result<()> {
             {
                 use winit::platform::macos::WindowExtMacOS;
                 native.set_has_shadow(false);
+                configure_spaces(native)?;
             }
             if let Some(monitor) = native
                 .current_monitor()
@@ -107,6 +108,29 @@ pub fn update_hit_test(_window: &slint::Window, _diameter: f32) -> Result<()> {
 fn contains_circle(x: f64, y: f64, center_x: f64, center_y: f64, radius: f64) -> bool {
     (x - center_x).powi(2) + (y - center_y).powi(2) <= radius.powi(2)
 }
+#[cfg(target_os = "macos")]
+fn configure_spaces(native: &winit::window::Window) -> Result<()> {
+    use objc2_app_kit::{NSView, NSWindowCollectionBehavior as Behavior};
+    use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    let handle = native.window_handle()?;
+    let RawWindowHandle::AppKit(raw) = handle.as_raw() else {
+        return Err("Ventana nativa no AppKit".into());
+    };
+    // SAFETY: Winit garantiza que ns_view es el NSView de este handle vivo.
+    // Se usa solo en el hilo principal; ni el préstamo ni el puntero escapan.
+    let view = unsafe { raw.ns_view.cast::<NSView>().as_ref() };
+    let window = view
+        .window()
+        .ok_or("La vista de presencia no tiene NSWindow")?;
+    // Conservar políticas ajenas; estas alternativas son incompatibles con el overlay.
+    let behavior = window.collectionBehavior()
+        & !(Behavior::MoveToActiveSpace | Behavior::FullScreenPrimary | Behavior::FullScreenNone);
+    window.setCollectionBehavior(
+        behavior | Behavior::CanJoinAllSpaces | Behavior::FullScreenAuxiliary,
+    );
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -19,4 +19,4 @@ rusqlite = { version = "=0.40.2", default-features = false, features = ["bundled
 sha2 = { version = "=0.11.0", default-features = false }
 dotenvy = "=0.15.7"
 
-objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["std", "NSEvent"] }
+objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["std", "NSEvent", "NSView", "NSWindow"] }
