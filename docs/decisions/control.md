@@ -1,6 +1,6 @@
 # D-016 — Control local por voz con Laya
 
-Historial de la primera integración. El filtro de frases y la configuración descritos aquí se reemplazan por [D-017](semantic-control.md), fuente vigente para la interpretación semántica.
+Historial de la primera integración. El filtro de frases y la configuración descritos aquí se reemplazan por [D-017](semantic-control.md), fuente vigente para la interpretación semántica. El destino predeterminado actual del dictado y `god_call` se describen en [D-021](llm-conversation.md).
 
 Petición del usuario, 2026-10-12: usar Laya multilingüe y el flujo del diagrama adjunto. El README del benchmark es referencia histórica; sus reglas no reemplazan el flujo. El usuario confirmó usar el atajo actual directamente para órdenes.
 

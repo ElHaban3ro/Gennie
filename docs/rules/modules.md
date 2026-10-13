@@ -10,7 +10,9 @@ Nombres: minúsculas ASCII/dígitos/underscore; rechazar duplicados. No normaliz
 ## Lifecycle y comunicación
 Start no entra en el event loop, es idempotente y serializado; stop detiene solo recursos propios y es idempotente. UI inicia explícitamente en main después de start. Si falla start, limpiar ese módulo y los iniciados en orden inverso, conservar error original y registrar secundarios. Cierre de UI solicita shutdown, detiene módulos y cierra DB al final.
 
-Presencia consume Controllers públicos de transcription y decisions mediante dependencias opcionales acíclicas. Para nuevas comunicaciones: llamada pública si dependencia real acíclica; trait/DTO en contracts para ciclo; bus para hechos sin respuesta. Un broadcast es efímero y acotado: manejar lag y reconstruir desde fuente, publicar después de commit, no prometer entrega durable. No convertir tablas de otras apps en interfaz implícita.
+Presencia consume Controllers públicos de transcription, decisions y llm mediante dependencias opcionales acíclicas. `soc-llm` posee la conversación de SOC y aísla el proveedor Codex en `codex.rs`; bootstrap solo compone y entrega el Controller a presencia. Para nuevas comunicaciones: llamada pública si dependencia real acíclica; trait/DTO en contracts para ciclo; bus para hechos sin respuesta. Un broadcast es efímero y acotado: manejar lag y reconstruir desde fuente, publicar después de commit, no prometer entrega durable. No convertir tablas de otras apps en interfaz implícita.
+
+`soc-tts` es una dependencia opcional de presence, compuesta por bootstrap y sin ciclo. Posee su Controller y recursos propios; ver [D-022](../decisions/tts.md).
 
 ## Dependencias
 Antes de añadir/actualizar: verificar versión exacta en registro oficial y mantenedor, MSRV/plataforma/features/licencia y avisos RustSec o del mantenedor. Guardar fuentes, fecha y límites en docs/decisions/dependencies.md. Lockfile versionado; no afirmar ausencia de vulnerabilidades porque no haya avisos. Revisar tránsito y artefacto objetivo; no habilitar Qt, servidores, red o tray sin necesidad. Winit unstable API se aísla en desktop.rs y requiere reevaluar al actualizar Slint.

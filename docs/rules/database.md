@@ -19,3 +19,11 @@ Worker termina antes de DB.close; clones quedan cerrados juntos. No borrar DB pa
 `decision_preferences` añade en 0002 los ajustes de Laya, con fila única id=1, preload y plazo de liberación opcional. SQL y validación exigen entre 60 y 7200 segundos en minutos enteros o NULL. No transforma decision_attempts. Guardado transaccional en el worker de decisions y confirmación posterior al commit.
 
 `decisions` posee decision_attempts: pending antes del efecto, verified solo tras comprobación y commit, failed/uncertain separados. Efectos de OS y SQLite no comparten transacción; no prometer atomicidad entre ambos ni reproducir intentos pendientes. Al reiniciar se marcan uncertain, sin reintento. Una instancia de control por DB. No persistir voz/texto; evidence conserva bundles/identificadores musicales. Ver [decisión](../decisions/control.md).
+
+## Voz de salida
+`tts_preferences` es una fila propia de `soc-tts` con enabled, voice, speed_percent y updated_at UTC. No contiene forma de onda ni ruta de audio. Su migración 0001 se aplica incluso si el módulo está apagado; guardado transaccional y validación también en Rust.
+
+## Conversación LLM
+`codex_conversation` es la tabla del proveedor Codex dentro de soc-llm y contiene una sola fila con `thread_id` y fecha UTC. Guardar el ID confirmado antes del primer turno para reanudar tras cierre o fallo. `llm_preferences` contiene una fila de permisos booleanos, modelo y esfuerzo; la migración 0002 añade esta tabla con los defaults acordados sin modificar 0001 ni los hilos existentes. No guardar audio ni credenciales en SQLite. Presence guarda por petición del usuario los mensajes finalizados en `presence_history`. La migración 0001 de llm respeta la tabla preexistente y no modifica el historial anterior de codex.
+
+`presence_history` pertenece a presence y nace en su migración 0002, sin cambiar 0001. Guarda por orden de inserción emisor (`user`, `assistant` o `system`), texto final y fecha UTC. Incluye transcripciones finales, respuestas del proveedor, resultados de control local y la separación «Nuevo chat iniciado». No guarda parciales ni estados de carga. Una cola acotada escribe fuera de main y drena al cerrar; un fallo de escritura debe mostrarse. El historial anterior a esta migración no se reconstruye automáticamente.

@@ -1,5 +1,9 @@
 # Índice de decisiones
 
+- [Voz de salida de SOC D-022](tts.md): Kokoro MLX local, preferencias y reproducción de respuestas.
+
+- [Conversación de SOC D-021](llm-conversation.md): destino predeterminado de la voz, hilo único y estado de conexión.
+
 - [Operación musical D-020](music-routing.md): separación de operación y aplicación, música genérica, veto de efectos y límites comprobados.
 
 - [Ajustes de Laya D-019](laya-settings.md): precarga, plazo configurable y conservación en memoria, independientes de Nemotron.
