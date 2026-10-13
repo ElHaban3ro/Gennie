@@ -1,0 +1,60 @@
+{
+  "method": "Baseline captured before fixes; unchanged corpus; family-separated development and holdout; no actions. Questions were explored only on development; rejected candidates were not installed. CPU comparison, MPS final evaluation separate.",
+  "corpus_sha256": "a82c78ff28d2a85c8d8d83df21f50d668801ac2016ff52b7f428e2820d221413",
+  "comparison": {
+    "before": {
+      "count": 220,
+      "passed": 62,
+      "false_executions": 16,
+      "wrong_actions": 0,
+      "expected_executions": 83,
+      "correct_executions": 42,
+      "nonexecuting_inputs": 137,
+      "device": "cpu",
+      "source_sha256": "6f27ba17a05a74ae6e93f4d888ac194646401cc7493d6e46b73184eb1a23c5d8",
+      "splits": [
+        {
+          "split": "development",
+          "count": 166,
+          "passed": 40,
+          "false_executions": 14,
+          "wrong_actions": 0
+        },
+        {
+          "split": "holdout",
+          "count": 54,
+          "passed": 22,
+          "false_executions": 2,
+          "wrong_actions": 0
+        }
+      ]
+    },
+    "after": {
+      "count": 220,
+      "passed": 62,
+      "false_executions": 16,
+      "wrong_actions": 0,
+      "expected_executions": 83,
+      "correct_executions": 42,
+      "nonexecuting_inputs": 137,
+      "device": "cpu",
+      "source_sha256": "cee71b35947e981f76763c897fac103505f9a0a88e22aee25955773df6025687",
+      "splits": [
+        {
+          "split": "development",
+          "count": 166,
+          "passed": 40,
+          "false_executions": 14,
+          "wrong_actions": 0
+        },
+        {
+          "split": "holdout",
+          "count": 54,
+          "passed": 22,
+          "false_executions": 2,
+          "wrong_actions": 0
+        }
+      ]
+    }
+  }
+}

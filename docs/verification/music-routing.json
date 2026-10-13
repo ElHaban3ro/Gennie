@@ -1,0 +1,243 @@
+{
+  "execution": "none",
+  "context": "simulated",
+  "count": 13,
+  "passed": 13,
+  "elapsed_seconds": 5.12,
+  "results": [
+    {
+      "request": {
+        "text": "Pausa la música."
+      },
+      "expected_action": "pause_music",
+      "expected_target": "com.spotify.client",
+      "prediction": {
+        "route": "complete",
+        "action": "pause_music",
+        "probability": 0.9988,
+        "target": "com.spotify.client",
+        "requested_action": "pause_music",
+        "availability": {
+          "status": "available",
+          "reason": null
+        }
+      },
+      "passed": true
+    },
+    {
+      "request": {
+        "text": "Pausa la música.",
+        "last_action": "open_app",
+        "last_target": "com.apple.Music"
+      },
+      "expected_action": "pause_music",
+      "expected_target": "com.spotify.client",
+      "prediction": {
+        "route": "complete",
+        "action": "pause_music",
+        "probability": 0.9988,
+        "target": "com.spotify.client",
+        "requested_action": "pause_music",
+        "availability": {
+          "status": "available",
+          "reason": null
+        }
+      },
+      "passed": true
+    },
+    {
+      "request": {
+        "text": "Reanuda la música."
+      },
+      "expected_action": "play_music",
+      "expected_target": "com.spotify.client",
+      "prediction": {
+        "route": "complete",
+        "action": "play_music",
+        "probability": 0.9998,
+        "target": "com.spotify.client",
+        "requested_action": "play_music",
+        "availability": {
+          "status": "available",
+          "reason": null
+        }
+      },
+      "passed": true
+    },
+    {
+      "request": {
+        "text": "Siguiente canción."
+      },
+      "expected_action": "next_track",
+      "expected_target": "com.spotify.client",
+      "prediction": {
+        "route": "complete",
+        "action": "next_track",
+        "probability": 0.9952,
+        "target": "com.spotify.client",
+        "requested_action": "next_track",
+        "availability": {
+          "status": "available",
+          "reason": null
+        }
+      },
+      "passed": true
+    },
+    {
+      "request": {
+        "text": "Canción anterior."
+      },
+      "expected_action": "previous_track",
+      "expected_target": "com.spotify.client",
+      "prediction": {
+        "route": "complete",
+        "action": "previous_track",
+        "probability": 0.9735,
+        "target": "com.spotify.client",
+        "requested_action": "previous_track",
+        "availability": {
+          "status": "available",
+          "reason": null
+        }
+      },
+      "passed": true
+    },
+    {
+      "request": {
+        "text": "Pausa Spotify."
+      },
+      "expected_action": "pause_music",
+      "expected_target": "com.spotify.client",
+      "prediction": {
+        "route": "complete",
+        "action": "pause_music",
+        "probability": 0.9997,
+        "target": "com.spotify.client",
+        "requested_action": "pause_music",
+        "availability": {
+          "status": "available",
+          "reason": null
+        }
+      },
+      "passed": true
+    },
+    {
+      "request": {
+        "text": "No pauses la música."
+      },
+      "expected_action": null,
+      "expected_target": null,
+      "prediction": {
+        "route": "no_order",
+        "action": null,
+        "probability": null,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "passed": true
+    },
+    {
+      "request": {
+        "text": "Nunca pauses Spotify."
+      },
+      "expected_action": null,
+      "expected_target": null,
+      "prediction": {
+        "route": "no_order",
+        "action": null,
+        "probability": null,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "passed": true
+    },
+    {
+      "request": {
+        "text": "Ayer pausé la música."
+      },
+      "expected_action": null,
+      "expected_target": null,
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "probability": null,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "passed": true
+    },
+    {
+      "request": {
+        "text": "¿Qué significa pausar la música?"
+      },
+      "expected_action": null,
+      "expected_target": null,
+      "prediction": {
+        "route": "no_order",
+        "action": null,
+        "probability": null,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "passed": true
+    },
+    {
+      "request": {
+        "text": "Abre Música."
+      },
+      "expected_action": "open_app",
+      "expected_target": "com.apple.Music",
+      "prediction": {
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.apple.Music",
+        "probability": 0.9996,
+        "requested_action": "open_app",
+        "availability": {
+          "status": "available",
+          "reason": null
+        }
+      },
+      "passed": true
+    },
+    {
+      "request": {
+        "text": "Abre Discord."
+      },
+      "expected_action": "open_app",
+      "expected_target": "com.hnc.Discord",
+      "prediction": {
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.hnc.Discord",
+        "probability": 0.9788,
+        "requested_action": "open_app",
+        "availability": {
+          "status": "available",
+          "reason": null
+        }
+      },
+      "passed": true
+    },
+    {
+      "request": {
+        "text": "No abras Música."
+      },
+      "expected_action": null,
+      "expected_target": null,
+      "prediction": {
+        "route": "no_order",
+        "action": null,
+        "probability": null,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "passed": true
+    }
+  ]
+}

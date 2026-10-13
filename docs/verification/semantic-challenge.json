@@ -1,0 +1,3388 @@
+{
+  "count": 210,
+  "correct": 76,
+  "false_executions": 1,
+  "routes": {
+    "ambiguous": 154,
+    "god_call": 50,
+    "complete": 4,
+    "no_order": 2
+  },
+  "context": "simulated",
+  "execution": "none",
+  "adapter": ".verification/decision-domain-typed",
+  "results": [
+    {
+      "id": "challenge-0006",
+      "text": "bueno vamos a navegar, abre el navegador",
+      "expected": "open_browser",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_browser",
+        "probability": 0.9535351395606995,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 125.12275000335649
+    },
+    {
+      "id": "challenge-0010",
+      "text": "oye Safari, me lo puedes abrir",
+      "expected": "open_safari",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_safari",
+        "probability": 0.9929686188697815,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 39.68000000168104
+    },
+    {
+      "id": "challenge-0026",
+      "text": "Chrome porfa, lo puedes abrir",
+      "expected": "open_chrome",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_chrome",
+        "probability": 0.9998663663864136,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 143.85629100434016
+    },
+    {
+      "id": "challenge-0034",
+      "text": "oye abre dis cord que me están esperando",
+      "expected": "open_discord",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_browser",
+        "probability": 0.9928198456764221,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 229.44658300548326
+    },
+    {
+      "id": "challenge-0040",
+      "text": "me abres la ventana para ver mis archivos",
+      "expected": "open_files",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_files",
+        "probability": 0.4427206814289093,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 40.09174999373499
+    },
+    {
+      "id": "challenge-0051",
+      "text": "saca el lanzador de apps que quiero elegir una",
+      "expected": "open_app_menu",
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "probability": 0.9127054214477539,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 40.527834004024044
+    },
+    {
+      "id": "challenge-0063",
+      "text": "inicia Spotify porfa",
+      "expected": "open_spotify",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_spotify",
+        "probability": 0.9999951124191284,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 101.02587500296067
+    },
+    {
+      "id": "challenge-0072",
+      "text": "sácame la aplicación Música",
+      "expected": "open_music",
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "probability": 0.8530001044273376,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 36.583541994332336
+    },
+    {
+      "id": "challenge-0086",
+      "text": "pausa la canción, ya te digo cuándo seguimos",
+      "expected": "pause_music",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "pause_music",
+        "probability": 0.9958859086036682,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 36.57262500200886
+    },
+    {
+      "id": "challenge-0097",
+      "text": "pon otra vez a sonar la canción que estaba pausada",
+      "expected": "play_music",
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "probability": 0.5811278820037842,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 39.17470801388845
+    },
+    {
+      "id": "challenge-0109",
+      "text": "quiero otra canción, la que sigue",
+      "expected": "next_track",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "next_track",
+        "probability": 0.7272174954414368,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 36.43691699835472
+    },
+    {
+      "id": "challenge-0113",
+      "text": "dale al botón de canción anterior",
+      "expected": "previous_track",
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "probability": 0.5885064601898193,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 40.20320800191257
+    },
+    {
+      "id": "challenge-0177",
+      "text": "decide si debería abrir Safari o Chrome",
+      "expected": "god_call",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_chrome",
+        "probability": 0.6214171051979065,
+        "target": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 36.48037499806378
+    },
+    {
+      "id": "challenge-0000",
+      "text": "oye necesito navegar, me abres el navegador",
+      "expected": "open_browser",
+      "prediction": {
+        "route": "complete",
+        "action": "open_browser",
+        "probability": 0.9881613254547119,
+        "target": "com.apple.Safari",
+        "requested_action": "open_browser",
+        "availability": {
+          "status": "available",
+          "reason": null
+        }
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 102.74858299817424
+    },
+    {
+      "id": "challenge-0012",
+      "text": "hazme el favor y abre Safari",
+      "expected": "open_safari",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_safari",
+        "probability": 0.9218292832374573,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 36.59708399209194
+    },
+    {
+      "id": "challenge-0021",
+      "text": "necesito que arranques Chrome",
+      "expected": "open_chrome",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_chrome",
+        "probability": 0.9994396567344666,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 94.44016699853819
+    },
+    {
+      "id": "challenge-0199",
+      "text": "haz lo mismo otra vez",
+      "expected": "open_discord",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_discord",
+        "probability": 0.9566845297813416,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 100.67800000251736
+    },
+    {
+      "id": "challenge-0044",
+      "text": "sácame el gestor de archivos",
+      "expected": "open_files",
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "probability": 0.994880199432373,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 35.63754200877156
+    },
+    {
+      "id": "challenge-0054",
+      "text": "me pones el launchpad",
+      "expected": "open_app_menu",
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "probability": 0.8296511173248291,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 37.002291996032
+    },
+    {
+      "id": "challenge-0060",
+      "text": "me abres Spotify que voy a elegir algo",
+      "expected": "open_spotify",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_spotify",
+        "probability": 0.9990148544311523,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 101.36904199316632
+    },
+    {
+      "id": "challenge-0075",
+      "text": "inicia la aplicación Música porfa",
+      "expected": "open_music",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_music",
+        "probability": 0.9041760563850403,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 103.53437501180451
+    },
+    {
+      "id": "challenge-0081",
+      "text": "déjame la música pausada un momentico",
+      "expected": "pause_music",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "pause_music",
+        "probability": 0.7739058136940002,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 36.57566699257586
+    },
+    {
+      "id": "challenge-0094",
+      "text": "que continúe la canción por favor",
+      "expected": "play_music",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "next_track",
+        "probability": 0.5170854926109314,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 36.447708000196144
+    },
+    {
+      "id": "challenge-0100",
+      "text": "esta no me gusta, pon la canción que viene",
+      "expected": "next_track",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "next_track",
+        "probability": 0.8572075963020325,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 36.325417007901706
+    },
+    {
+      "id": "challenge-0119",
+      "text": "quiero volver a escuchar la que sonó antes",
+      "expected": "previous_track",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "previous_track",
+        "probability": 0.6467642188072205,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 36.63062500709202
+    },
+    {
+      "id": "challenge-0138",
+      "text": "crea un recordatorio para escuchar música",
+      "expected": "god_call",
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "probability": 0.7986918687820435,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 36.52929099916946
+    },
+    {
+      "id": "challenge-0008",
+      "text": "necesito el navegador, lo puedes abrir",
+      "expected": "open_browser",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_browser",
+        "probability": 0.9997128844261169,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 95.704334002221
+    },
+    {
+      "id": "challenge-0013",
+      "text": "sácame Safari que tengo que consultar algo",
+      "expected": "open_safari",
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "probability": 0.657677412033081,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 35.99999999278225
+    },
+    {
+      "id": "challenge-0022",
+      "text": "oye abre Google Chrome un segundo",
+      "expected": "open_chrome",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_chrome",
+        "probability": 0.9985713958740234,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 93.7975419947179
+    },
+    {
+      "id": "challenge-0200",
+      "text": "repítelo",
+      "expected": "open_discord",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_discord",
+        "probability": 0.5537240505218506,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 33.970374992350116
+    },
+    {
+      "id": "challenge-0042",
+      "text": "quiero entrar al explorador de archivos",
+      "expected": "open_files",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_files",
+        "probability": 0.9939279556274414,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 93.61866599647328
+    },
+    {
+      "id": "challenge-0050",
+      "text": "me muestras el menú donde están todas las aplicaciones",
+      "expected": "open_app_menu",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_app_menu",
+        "probability": 0.9886336326599121,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 108.16629100008868
+    },
+    {
+      "id": "challenge-0061",
+      "text": "oye necesito Spotify abierto",
+      "expected": "open_spotify",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_spotify",
+        "probability": 0.9999971389770508,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 96.70475000166334
+    },
+    {
+      "id": "challenge-0076",
+      "text": "me lanzas Apple Music",
+      "expected": "open_music",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_music",
+        "probability": 0.9988394379615784,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 91.01920800458174
+    },
+    {
+      "id": "challenge-0089",
+      "text": "a ver calla la música un segundo, ponla en pausa",
+      "expected": "pause_music",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "pause_music",
+        "probability": 0.8951234221458435,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 39.85549999924842
+    },
+    {
+      "id": "challenge-0090",
+      "text": "ya puedes seguir poniendo la música",
+      "expected": "play_music",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "play_music",
+        "probability": 0.8271209597587585,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 36.6269160003867
+    },
+    {
+      "id": "challenge-0103",
+      "text": "dale al botón de siguiente canción",
+      "expected": "next_track",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "next_track",
+        "probability": 0.9494612812995911,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 36.51299999910407
+    },
+    {
+      "id": "challenge-0118",
+      "text": "no esta, la canción anterior",
+      "expected": "previous_track",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "previous_track",
+        "probability": 0.6976479291915894,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 36.135916991042905
+    },
+    {
+      "id": "challenge-0207",
+      "text": "haz lo mismo otra vez",
+      "expected": "god_call",
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "probability": 0.7723293304443359,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 33.60491700004786
+    },
+    {
+      "id": "challenge-0007",
+      "text": "quiero entrar a internet, ábreme el navegador",
+      "expected": "open_browser",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_browser",
+        "probability": 0.9952659606933594,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 103.3486670057755
+    },
+    {
+      "id": "challenge-0014",
+      "text": "a ver, vamos a abrir Safari",
+      "expected": "open_safari",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_safari",
+        "probability": 0.9774761199951172,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 38.38104198803194
+    },
+    {
+      "id": "challenge-0020",
+      "text": "me abres el Chrome de Google",
+      "expected": "open_chrome",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_chrome",
+        "probability": 0.993415355682373,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 95.65916699648369
+    },
+    {
+      "id": "challenge-0031",
+      "text": "pon el Discord, porfa",
+      "expected": "open_discord",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_discord",
+        "probability": 0.9880293011665344,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 95.43687499535736
+    },
+    {
+      "id": "challenge-0043",
+      "text": "oye abre la app con la que veo mis archivos",
+      "expected": "open_files",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_app_menu",
+        "probability": 0.832467257976532,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 37.42345800856128
+    },
+    {
+      "id": "challenge-0053",
+      "text": "quiero ver el menú de apps",
+      "expected": "open_app_menu",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_app_menu",
+        "probability": 0.9977705478668213,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 95.5730410059914
+    },
+    {
+      "id": "challenge-0062",
+      "text": "sácame la app de Spotify",
+      "expected": "open_spotify",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_spotify",
+        "probability": 0.9942470788955688,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 94.19508400605991
+    },
+    {
+      "id": "challenge-0071",
+      "text": "me abres Apple Music que quiero elegir algo",
+      "expected": "open_music",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_music",
+        "probability": 0.9996330738067627,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 96.89012500166427
+    },
+    {
+      "id": "challenge-0088",
+      "text": "para lo que está sonando",
+      "expected": "pause_music",
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "probability": 0.7017209529876709,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 35.957041996880434
+    },
+    {
+      "id": "challenge-0095",
+      "text": "reanuda lo que estaba escuchando",
+      "expected": "play_music",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "play_music",
+        "probability": 0.9126206040382385,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 37.93754200160038
+    },
+    {
+      "id": "challenge-0101",
+      "text": "me cambias a la próxima pista",
+      "expected": "next_track",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "next_track",
+        "probability": 0.7537816762924194,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 38.417792005930096
+    },
+    {
+      "id": "challenge-0196",
+      "text": "repítelo",
+      "expected": "previous_track",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "previous_track",
+        "probability": 0.9211338758468628,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 35.9845830098493
+    },
+    {
+      "id": "challenge-0163",
+      "text": "pasa a la próxima página",
+      "expected": "god_call",
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "probability": 0.7494072914123535,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 34.723167002084665
+    },
+    {
+      "id": "challenge-0009",
+      "text": "hazme el favor de abrir el navegador",
+      "expected": "open_browser",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_browser",
+        "probability": 0.9969622492790222,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 94.81891698669642
+    },
+    {
+      "id": "challenge-0016",
+      "text": "Safari porfa, ábrelo",
+      "expected": "open_safari",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_safari",
+        "probability": 0.41292327642440796,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 36.39187500812113
+    },
+    {
+      "id": "challenge-0027",
+      "text": "sácame el Google Chrome",
+      "expected": "open_chrome",
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "probability": 0.9673223495483398,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 33.10629200132098
+    },
+    {
+      "id": "challenge-0198",
+      "text": "otra vez porfa",
+      "expected": "open_discord",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_discord",
+        "probability": 0.4703219532966614,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 37.84595799515955
+    },
+    {
+      "id": "challenge-0047",
+      "text": "hazme el favor de abrir el administrador de archivos",
+      "expected": "open_files",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_files",
+        "probability": 0.7750256061553955,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 35.858165996614844
+    },
+    {
+      "id": "challenge-0058",
+      "text": "hazme el favor de abrir Launchpad",
+      "expected": "open_app_menu",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_browser",
+        "probability": 0.4287759065628052,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 36.02337499614805
+    },
+    {
+      "id": "challenge-0069",
+      "text": "abre Spotify que quiero ver mi biblioteca",
+      "expected": "open_spotify",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_spotify",
+        "probability": 0.9999983310699463,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 93.26633298769593
+    },
+    {
+      "id": "challenge-0078",
+      "text": "vamos a Apple Music, ábrelo",
+      "expected": "open_music",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_music",
+        "probability": 0.9970153570175171,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 99.56804099783767
+    },
+    {
+      "id": "challenge-0204",
+      "text": "repítelo",
+      "expected": "pause_music",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "pause_music",
+        "probability": 0.991777777671814,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 33.127292001154274
+    },
+    {
+      "id": "challenge-0091",
+      "text": "quita la pausa y que siga la canción",
+      "expected": "play_music",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "pause_music",
+        "probability": 0.8112756609916687,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 36.50179199757986
+    },
+    {
+      "id": "challenge-0192",
+      "text": "repítelo",
+      "expected": "next_track",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "next_track",
+        "probability": 0.8053674101829529,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 37.16304099361878
+    },
+    {
+      "id": "challenge-0114",
+      "text": "vuelve una pista atrás porfa",
+      "expected": "previous_track",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "previous_track",
+        "probability": 0.9636994004249573,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 36.45462500571739
+    },
+    {
+      "id": "challenge-0120",
+      "text": "abre la que te dije antes",
+      "expected": "god_call",
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "probability": 0.6523242592811584,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 36.46462499455083
+    },
+    {
+      "id": "challenge-0004",
+      "text": "me traes el navegador",
+      "expected": "open_browser",
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "probability": 0.528163492679596,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 33.20600000733975
+    },
+    {
+      "id": "challenge-0011",
+      "text": "necesito tener Safari abierto",
+      "expected": "open_safari",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_safari",
+        "probability": 0.9375647902488708,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 34.47458399750758
+    },
+    {
+      "id": "challenge-0025",
+      "text": "hazme el favor de iniciar Google Chrome",
+      "expected": "open_chrome",
+      "prediction": {
+        "route": "complete",
+        "action": "open_chrome",
+        "probability": 0.9956268072128296,
+        "target": "com.google.Chrome",
+        "requested_action": "open_chrome",
+        "availability": {
+          "status": "available",
+          "reason": null
+        }
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 96.39074999722652
+    },
+    {
+      "id": "challenge-0036",
+      "text": "me pones la aplicación Discord",
+      "expected": "open_discord",
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "probability": 0.9664525389671326,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 36.98704100679606
+    },
+    {
+      "id": "challenge-0048",
+      "text": "vamos al Finder porfa",
+      "expected": "open_files",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_files",
+        "probability": 0.9999693632125854,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 94.03979100170545
+    },
+    {
+      "id": "challenge-0052",
+      "text": "abre el panel con todas mis aplicaciones",
+      "expected": "open_app_menu",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_app_menu",
+        "probability": 0.9096905589103699,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 36.778915993636474
+    },
+    {
+      "id": "challenge-0064",
+      "text": "pon el Spotify un momento",
+      "expected": "open_spotify",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_spotify",
+        "probability": 0.9999101161956787,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 91.73504200589377
+    },
+    {
+      "id": "challenge-0073",
+      "text": "necesito Apple Music abierto",
+      "expected": "open_music",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_music",
+        "probability": 0.998735249042511,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 91.46658300596755
+    },
+    {
+      "id": "challenge-0080",
+      "text": "pausa eso que está sonando, que no escucho",
+      "expected": "pause_music",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "pause_music",
+        "probability": 0.999936580657959,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 37.46229199168738
+    },
+    {
+      "id": "challenge-0096",
+      "text": "ya terminé, sigue reproduciendo la música",
+      "expected": "play_music",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "pause_music",
+        "probability": 0.7718338966369629,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 36.064333995454945
+    },
+    {
+      "id": "challenge-0102",
+      "text": "pásame una canción más adelante",
+      "expected": "next_track",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "next_track",
+        "probability": 0.9044316411018372,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 36.419791998923756
+    },
+    {
+      "id": "challenge-0112",
+      "text": "me pones la canción que sonó antes de esta",
+      "expected": "previous_track",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "previous_track",
+        "probability": 0.987444281578064,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 37.019625000539236
+    },
+    {
+      "id": "challenge-0132",
+      "text": "no me cambies de canción",
+      "expected": "god_call",
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "probability": 0.43699803948402405,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 36.579416002496146
+    },
+    {
+      "id": "challenge-0005",
+      "text": "arranca el navegador por favor, quiero consultar algo",
+      "expected": "open_browser",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_browser",
+        "probability": 0.8455960750579834,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 36.00216699123848
+    },
+    {
+      "id": "challenge-0019",
+      "text": "por favor inicia Safari",
+      "expected": "open_safari",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_safari",
+        "probability": 0.9704911112785339,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 34.5867079886375
+    },
+    {
+      "id": "challenge-0023",
+      "text": "ponme Chrome que voy a consultar algo",
+      "expected": "open_chrome",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_chrome",
+        "probability": 0.9962471127510071,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 95.80708401335869
+    },
+    {
+      "id": "challenge-0037",
+      "text": "a ver vamos al Discord",
+      "expected": "open_discord",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_discord",
+        "probability": 0.9986061453819275,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 95.30529200856108
+    },
+    {
+      "id": "challenge-0041",
+      "text": "pon el Finder que voy a mirar una carpeta",
+      "expected": "open_files",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_files",
+        "probability": 0.9945356845855713,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 96.31329200055916
+    },
+    {
+      "id": "challenge-0057",
+      "text": "pon el lanzador donde elijo las aplicaciones",
+      "expected": "open_app_menu",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_app_menu",
+        "probability": 0.9999858140945435,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 99.81158300070092
+    },
+    {
+      "id": "challenge-0068",
+      "text": "Spotify por favor, lo quiero abrir",
+      "expected": "open_spotify",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_spotify",
+        "probability": 0.9999947547912598,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 96.2938330048928
+    },
+    {
+      "id": "challenge-0074",
+      "text": "pon la app Música de Apple",
+      "expected": "open_music",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_music",
+        "probability": 0.9999160766601562,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 95.96166698611341
+    },
+    {
+      "id": "challenge-0085",
+      "text": "que la música se quede en pausa porfa",
+      "expected": "pause_music",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "pause_music",
+        "probability": 0.9989712238311768,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 36.116834002314135
+    },
+    {
+      "id": "challenge-0093",
+      "text": "haz que vuelva a sonar la música",
+      "expected": "play_music",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "play_music",
+        "probability": 0.853667140007019,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 37.090083002112806
+    },
+    {
+      "id": "challenge-0193",
+      "text": "de nuevo",
+      "expected": "next_track",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "next_track",
+        "probability": 0.561407744884491,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 36.66887500730809
+    },
+    {
+      "id": "challenge-0197",
+      "text": "de nuevo",
+      "expected": "previous_track",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "previous_track",
+        "probability": 0.8066796064376831,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 36.833124991972
+    },
+    {
+      "id": "challenge-0145",
+      "text": "pon el sonido en los auriculares",
+      "expected": "god_call",
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "probability": 0.9412078261375427,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 37.03429100278299
+    },
+    {
+      "id": "challenge-0003",
+      "text": "abre mi navegador de siempre porfa",
+      "expected": "open_browser",
+      "prediction": {
+        "route": "no_order",
+        "action": null,
+        "probability": 0.828123927116394,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 36.70937501010485
+    },
+    {
+      "id": "challenge-0018",
+      "text": "bueno abre el Safari",
+      "expected": "open_safari",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_safari",
+        "probability": 0.48467856645584106,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 33.185583000886254
+    },
+    {
+      "id": "challenge-0024",
+      "text": "a ver abre el crom",
+      "expected": "open_chrome",
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "probability": 0.7470995187759399,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 33.843124998384155
+    },
+    {
+      "id": "challenge-0201",
+      "text": "de nuevo",
+      "expected": "open_discord",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_discord",
+        "probability": 0.9206698536872864,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 93.1161669868743
+    },
+    {
+      "id": "challenge-0046",
+      "text": "necesito el explorador de archivos abierto",
+      "expected": "open_files",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_files",
+        "probability": 0.9918426275253296,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 96.75554199202452
+    },
+    {
+      "id": "challenge-0056",
+      "text": "oye muéstrame la lista de apps",
+      "expected": "open_app_menu",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_app_menu",
+        "probability": 0.692425012588501,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 36.57529200427234
+    },
+    {
+      "id": "challenge-0066",
+      "text": "hazme el favor de abrir Spotify",
+      "expected": "open_spotify",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_spotify",
+        "probability": 0.999941349029541,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 95.63779100426473
+    },
+    {
+      "id": "challenge-0070",
+      "text": "abre la app que se llama Música de Apple",
+      "expected": "open_music",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_music",
+        "probability": 0.9999945163726807,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 94.21195900358725
+    },
+    {
+      "id": "challenge-0205",
+      "text": "de nuevo",
+      "expected": "pause_music",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "pause_music",
+        "probability": 0.9989007711410522,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 33.317000008537434
+    },
+    {
+      "id": "challenge-0099",
+      "text": "puedes continuar la música",
+      "expected": "play_music",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "play_music",
+        "probability": 0.9901014566421509,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 33.71050000714604
+    },
+    {
+      "id": "challenge-0190",
+      "text": "otra vez porfa",
+      "expected": "next_track",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "next_track",
+        "probability": 0.9747940897941589,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 36.301125001045875
+    },
+    {
+      "id": "challenge-0194",
+      "text": "otra vez porfa",
+      "expected": "previous_track",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "previous_track",
+        "probability": 0.9575684666633606,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 36.700999989989214
+    },
+    {
+      "id": "challenge-0122",
+      "text": "busca mis mensajes de ayer en Discord",
+      "expected": "god_call",
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "probability": 0.8831660747528076,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 36.11016599461436
+    },
+    {
+      "id": "challenge-0001",
+      "text": "sácame el navegador que voy a mirar una cosa",
+      "expected": "open_browser",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_browser",
+        "probability": 0.9788848757743835,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 99.90270900016185
+    },
+    {
+      "id": "challenge-0015",
+      "text": "me lanzas Safari un momentico",
+      "expected": "open_safari",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_safari",
+        "probability": 0.9998863935470581,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 38.63104099582415
+    },
+    {
+      "id": "challenge-0029",
+      "text": "vamos al Chrome, ábrelo",
+      "expected": "open_chrome",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_chrome",
+        "probability": 0.9973959922790527,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 97.69520800909959
+    },
+    {
+      "id": "challenge-0032",
+      "text": "necesito entrar a Discord, ábrelo",
+      "expected": "open_discord",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_discord",
+        "probability": 0.9954761862754822,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 93.7605409999378
+    },
+    {
+      "id": "challenge-0045",
+      "text": "me abres Finder un momentico",
+      "expected": "open_files",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_files",
+        "probability": 1.0,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 96.27533299499191
+    },
+    {
+      "id": "challenge-0059",
+      "text": "me abres el menú de todas las apps",
+      "expected": "open_app_menu",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_app_menu",
+        "probability": 0.9869083166122437,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 36.61866699985694
+    },
+    {
+      "id": "challenge-0067",
+      "text": "vamos a Spotify, ábrelo",
+      "expected": "open_spotify",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_spotify",
+        "probability": 0.9999276399612427,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 95.3564160008682
+    },
+    {
+      "id": "challenge-0079",
+      "text": "abre la aplicación Apple Music que quiero mirar mi biblioteca",
+      "expected": "open_music",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_music",
+        "probability": 0.9949723482131958,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 99.6387499908451
+    },
+    {
+      "id": "challenge-0203",
+      "text": "haz lo mismo otra vez",
+      "expected": "pause_music",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "pause_music",
+        "probability": 0.9579917788505554,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 36.738916009198874
+    },
+    {
+      "id": "challenge-0098",
+      "text": "dale a play porfa",
+      "expected": "play_music",
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "probability": 0.8526949882507324,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 33.803500002250075
+    },
+    {
+      "id": "challenge-0106",
+      "text": "oye vamos a la próxima canción",
+      "expected": "next_track",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "next_track",
+        "probability": 0.9546654224395752,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 36.20799999043811
+    },
+    {
+      "id": "challenge-0115",
+      "text": "pon la que estaba antes de esta canción",
+      "expected": "previous_track",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "next_track",
+        "probability": 0.9043238759040833,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 36.104291008086875
+    },
+    {
+      "id": "challenge-0146",
+      "text": "cambia la canción a velocidad doble",
+      "expected": "god_call",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "next_track",
+        "probability": 0.45987221598625183,
+        "target": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 36.445792007725686
+    },
+    {
+      "id": "challenge-0002",
+      "text": "a ver, pon el browser en marcha",
+      "expected": "open_browser",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_browser",
+        "probability": 0.8886337280273438,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 35.95449999556877
+    },
+    {
+      "id": "challenge-0017",
+      "text": "pon Safari que voy a navegar",
+      "expected": "open_safari",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_safari",
+        "probability": 0.994083821773529,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 36.98795799573418
+    },
+    {
+      "id": "challenge-0028",
+      "text": "bueno quiero abrir Chrome",
+      "expected": "open_chrome",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_chrome",
+        "probability": 0.9978203773498535,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 97.37800000584684
+    },
+    {
+      "id": "challenge-0030",
+      "text": "me abres Discord que voy a hablar con los chicos",
+      "expected": "open_discord",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_discord",
+        "probability": 0.9964097142219543,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 101.37516701070126
+    },
+    {
+      "id": "challenge-0049",
+      "text": "a ver, abre la ventana del explorador de archivos",
+      "expected": "open_files",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_files",
+        "probability": 0.9394639730453491,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 95.70345800602809
+    },
+    {
+      "id": "challenge-0055",
+      "text": "abre el menú de las aplicaciones instaladas",
+      "expected": "open_app_menu",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_app_menu",
+        "probability": 0.7720631957054138,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 38.60945798805915
+    },
+    {
+      "id": "challenge-0065",
+      "text": "me lanzas Spotify",
+      "expected": "open_spotify",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_spotify",
+        "probability": 0.9999759197235107,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 92.81650000775699
+    },
+    {
+      "id": "challenge-0077",
+      "text": "hazme el favor de abrir la app Música",
+      "expected": "open_music",
+      "prediction": {
+        "route": "complete",
+        "action": "open_music",
+        "probability": 0.9997814297676086,
+        "target": "com.apple.Music",
+        "requested_action": "open_music",
+        "availability": {
+          "status": "available",
+          "reason": null
+        }
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 94.89633399061859
+    },
+    {
+      "id": "challenge-0087",
+      "text": "me dejas de reproducir la música un rato",
+      "expected": "pause_music",
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "probability": 0.3738698661327362,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 36.019999999552965
+    },
+    {
+      "id": "challenge-0092",
+      "text": "oye vuelve a darle play",
+      "expected": "play_music",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "previous_track",
+        "probability": 0.8514101505279541,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 35.16075000516139
+    },
+    {
+      "id": "challenge-0191",
+      "text": "haz lo mismo otra vez",
+      "expected": "next_track",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "next_track",
+        "probability": 0.996554970741272,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 36.42887499881908
+    },
+    {
+      "id": "challenge-0116",
+      "text": "oye vamos a la canción anterior",
+      "expected": "previous_track",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "previous_track",
+        "probability": 0.5212253928184509,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 37.94045800168533
+    },
+    {
+      "id": "challenge-0175",
+      "text": "vuelve dos canciones atrás",
+      "expected": "god_call",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "previous_track",
+        "probability": 0.933552622795105,
+        "target": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 35.53820800152607
+    },
+    {
+      "id": "challenge-0035",
+      "text": "hazme el favor de abrir Discord",
+      "expected": "open_discord",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_discord",
+        "probability": 0.9993002414703369,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 93.9497079962166
+    },
+    {
+      "id": "challenge-0084",
+      "text": "hazme el favor de pausar la reproducción musical",
+      "expected": "pause_music",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "pause_music",
+        "probability": 0.9922196865081787,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 36.595375000615604
+    },
+    {
+      "id": "challenge-0105",
+      "text": "pon la que viene después de esta",
+      "expected": "next_track",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "previous_track",
+        "probability": 0.8211910724639893,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 36.748040991369635
+    },
+    {
+      "id": "challenge-0117",
+      "text": "me retrocedes a la pista de antes",
+      "expected": "previous_track",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "previous_track",
+        "probability": 0.8253448605537415,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 36.8007920042146
+    },
+    {
+      "id": "challenge-0209",
+      "text": "de nuevo",
+      "expected": "god_call",
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "probability": 0.8436126112937927,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 37.063040988869034
+    },
+    {
+      "id": "challenge-0033",
+      "text": "inicia Discord un momentico",
+      "expected": "open_discord",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_discord",
+        "probability": 0.9999663829803467,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 93.62995901028626
+    },
+    {
+      "id": "challenge-0083",
+      "text": "pon en pausa la canción que suena ahora",
+      "expected": "pause_music",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "pause_music",
+        "probability": 0.9921576976776123,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 36.028250004164875
+    },
+    {
+      "id": "challenge-0104",
+      "text": "salta esta canción porfa",
+      "expected": "next_track",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "next_track",
+        "probability": 0.9923769235610962,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 33.93770899856463
+    },
+    {
+      "id": "challenge-0111",
+      "text": "regresa a la pista que acabamos de escuchar",
+      "expected": "previous_track",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "previous_track",
+        "probability": 0.5272903442382812,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 36.89508300158195
+    },
+    {
+      "id": "challenge-0172",
+      "text": "abre la app de música o pon música, como quieras",
+      "expected": "god_call",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_music",
+        "probability": 0.34262317419052124,
+        "target": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 101.72329199849628
+    },
+    {
+      "id": "challenge-0038",
+      "text": "Discord, me lo puedes abrir por favor",
+      "expected": "open_discord",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_discord",
+        "probability": 0.9780704379081726,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 100.35362500639167
+    },
+    {
+      "id": "challenge-0082",
+      "text": "oye para la canción, necesito hablar",
+      "expected": "pause_music",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "next_track",
+        "probability": 0.4228590130805969,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 38.029749994166195
+    },
+    {
+      "id": "challenge-0107",
+      "text": "me avanzas a la siguiente pista",
+      "expected": "next_track",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "next_track",
+        "probability": 0.9766470193862915,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 37.28437499376014
+    },
+    {
+      "id": "challenge-0195",
+      "text": "haz lo mismo otra vez",
+      "expected": "previous_track",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "previous_track",
+        "probability": 0.9964128136634827,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 36.10287499031983
+    },
+    {
+      "id": "challenge-0130",
+      "text": "qué diferencia hay entre pausar y detener",
+      "expected": "god_call",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "pause_music",
+        "probability": 0.9945471286773682,
+        "target": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 36.64204099914059
+    },
+    {
+      "id": "challenge-0039",
+      "text": "abre Discord que tengo un mensaje pendiente",
+      "expected": "open_discord",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_discord",
+        "probability": 0.9806475043296814,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 96.69399999256711
+    },
+    {
+      "id": "challenge-0202",
+      "text": "otra vez porfa",
+      "expected": "pause_music",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "pause_music",
+        "probability": 0.9970778226852417,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 36.74358299758751
+    },
+    {
+      "id": "challenge-0108",
+      "text": "sáltate esta y pon la siguiente",
+      "expected": "next_track",
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "probability": 0.9926425814628601,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 36.617000005207956
+    },
+    {
+      "id": "challenge-0110",
+      "text": "la de antes estaba buena, vuelve a esa canción",
+      "expected": "previous_track",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "previous_track",
+        "probability": 0.754654586315155,
+        "target": null,
+        "availability": null
+      },
+      "correct": false,
+      "false_execution": false,
+      "milliseconds": 37.36633299558889
+    },
+    {
+      "id": "challenge-0140",
+      "text": "abre la carpeta donde guardé la foto",
+      "expected": "god_call",
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "probability": 0.25485387444496155,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 36.78420800133608
+    },
+    {
+      "id": "challenge-0156",
+      "text": "cierra la ventana del explorador",
+      "expected": "god_call",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_files",
+        "probability": 0.9861356019973755,
+        "target": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 95.79112500068732
+    },
+    {
+      "id": "challenge-0167",
+      "text": "añade esta canción a favoritos",
+      "expected": "god_call",
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "probability": 0.5546587705612183,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 33.645749994320795
+    },
+    {
+      "id": "challenge-0185",
+      "text": "abre el navegador en un sitio seguro",
+      "expected": "god_call",
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "probability": 0.49676722288131714,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 36.81283300102223
+    },
+    {
+      "id": "challenge-0149",
+      "text": "abre Teams",
+      "expected": "god_call",
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "probability": 0.8557919859886169,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 32.88845800852869
+    },
+    {
+      "id": "challenge-0148",
+      "text": "abre VLC",
+      "expected": "god_call",
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "probability": 0.9587205052375793,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 32.82770900113974
+    },
+    {
+      "id": "challenge-0206",
+      "text": "otra vez porfa",
+      "expected": "god_call",
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "probability": 0.9764633178710938,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 33.34437499870546
+    },
+    {
+      "id": "challenge-0157",
+      "text": "maximiza Safari",
+      "expected": "god_call",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_browser",
+        "probability": 0.3882444202899933,
+        "target": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 38.63770799944177
+    },
+    {
+      "id": "challenge-0180",
+      "text": "dime qué significa god_call",
+      "expected": "god_call",
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "probability": 0.5588180422782898,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 36.21612499409821
+    },
+    {
+      "id": "challenge-0187",
+      "text": "abre una aplicación al azar",
+      "expected": "god_call",
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "probability": 0.8975352048873901,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 33.606124998186715
+    },
+    {
+      "id": "challenge-0186",
+      "text": "necesito que borres la caché de Safari",
+      "expected": "god_call",
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "probability": 0.3609141707420349,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 36.71008298988454
+    },
+    {
+      "id": "challenge-0141",
+      "text": "me buscas el PDF de ayer",
+      "expected": "god_call",
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "probability": 0.9966062307357788,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 37.193334006587975
+    },
+    {
+      "id": "challenge-0128",
+      "text": "cuéntame qué ventajas tiene Safari",
+      "expected": "god_call",
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "probability": 0.7228189706802368,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 36.092125010327436
+    },
+    {
+      "id": "challenge-0174",
+      "text": "salta tres canciones",
+      "expected": "god_call",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "next_track",
+        "probability": 0.5210798382759094,
+        "target": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 34.06833398912568
+    },
+    {
+      "id": "challenge-0126",
+      "text": "pon la canción que tengo en la cabeza",
+      "expected": "god_call",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "next_track",
+        "probability": 0.5405827760696411,
+        "target": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 37.72604200639762
+    },
+    {
+      "id": "challenge-0147",
+      "text": "abre YouTube Music",
+      "expected": "god_call",
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "probability": 0.48079216480255127,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 33.33583399944473
+    },
+    {
+      "id": "challenge-0181",
+      "text": "escribe un comando para pausar la música",
+      "expected": "god_call",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "pause_music",
+        "probability": 0.5918386578559875,
+        "target": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 36.37375000107568
+    },
+    {
+      "id": "challenge-0134",
+      "text": "si fuera mañana te diría abre Discord",
+      "expected": "god_call",
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "probability": 0.6741757988929749,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 36.437290997128
+    },
+    {
+      "id": "challenge-0176",
+      "text": "pon la siguiente canción si es mejor que esta",
+      "expected": "god_call",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "next_track",
+        "probability": 0.7871482968330383,
+        "target": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 35.81862500868738
+    },
+    {
+      "id": "challenge-0121",
+      "text": "quiero que hagas algo con la música",
+      "expected": "god_call",
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "probability": 0.7893678545951843,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 36.153458000626415
+    },
+    {
+      "id": "challenge-0127",
+      "text": "cuál es la canción que está sonando",
+      "expected": "god_call",
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "probability": 0.3723631501197815,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 36.462249991018325
+    },
+    {
+      "id": "challenge-0152",
+      "text": "abre Firefox",
+      "expected": "god_call",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_browser",
+        "probability": 0.9739848375320435,
+        "target": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 92.75820800394285
+    },
+    {
+      "id": "challenge-0171",
+      "text": "adelanta a la canción de antes",
+      "expected": "god_call",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "previous_track",
+        "probability": 0.47728562355041504,
+        "target": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 37.76945800927933
+    },
+    {
+      "id": "challenge-0125",
+      "text": "abre ese programa que tiene el icono azul",
+      "expected": "god_call",
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "probability": 0.5054473280906677,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 36.68633299821522
+    },
+    {
+      "id": "challenge-0158",
+      "text": "abre una ventana privada en Chrome",
+      "expected": "god_call",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_chrome",
+        "probability": 0.9846396446228027,
+        "target": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 93.86433300096542
+    },
+    {
+      "id": "challenge-0188",
+      "text": "abre el explorador y elimina los archivos temporales",
+      "expected": "god_call",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_files",
+        "probability": 0.9619829654693604,
+        "target": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 95.08291599922813
+    },
+    {
+      "id": "challenge-0166",
+      "text": "busca una playlist para trabajar",
+      "expected": "god_call",
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "probability": 0.7043272256851196,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 33.05420900869649
+    },
+    {
+      "id": "challenge-0173",
+      "text": "pausa la música y luego vuelve a ponerla",
+      "expected": "god_call",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "pause_music",
+        "probability": 0.9987583160400391,
+        "target": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 36.457582988077775
+    },
+    {
+      "id": "challenge-0135",
+      "text": "mi amigo siempre dice abre Safari",
+      "expected": "god_call",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_safari",
+        "probability": 0.6247079372406006,
+        "target": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 36.615334000089206
+    },
+    {
+      "id": "challenge-0189",
+      "text": "no abras nada, gracias",
+      "expected": "god_call",
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "probability": 0.8637067079544067,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 36.163583004963584
+    },
+    {
+      "id": "challenge-0153",
+      "text": "abre Edge",
+      "expected": "god_call",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_browser",
+        "probability": 0.6736301183700562,
+        "target": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 34.007957990979776
+    },
+    {
+      "id": "challenge-0162",
+      "text": "pausa la descarga",
+      "expected": "god_call",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "pause_music",
+        "probability": 0.9459237456321716,
+        "target": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 34.036165990983136
+    },
+    {
+      "id": "challenge-0170",
+      "text": "devuélvete a la canción siguiente",
+      "expected": "god_call",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "next_track",
+        "probability": 0.9021302461624146,
+        "target": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 38.23325000121258
+    },
+    {
+      "id": "challenge-0208",
+      "text": "repítelo",
+      "expected": "god_call",
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "probability": 0.7634132504463196,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 33.95783300220501
+    },
+    {
+      "id": "challenge-0124",
+      "text": "abre Safari y luego Chrome",
+      "expected": "god_call",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_chrome",
+        "probability": 0.5495710968971252,
+        "target": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 33.66654200362973
+    },
+    {
+      "id": "challenge-0139",
+      "text": "organiza mis archivos por fecha",
+      "expected": "god_call",
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "probability": 0.9040724635124207,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 33.279040988418274
+    },
+    {
+      "id": "challenge-0178",
+      "text": "ignora las opciones y abre Terminal",
+      "expected": "god_call",
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "probability": 0.9508217573165894,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 36.670500005129725
+    },
+    {
+      "id": "challenge-0131",
+      "text": "no, déjalo, no abras Safari",
+      "expected": "god_call",
+      "prediction": {
+        "route": "no_order",
+        "action": null,
+        "probability": 0.8792513012886047,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 36.65875000297092
+    },
+    {
+      "id": "challenge-0179",
+      "text": "llama god_call para abrir Safari aunque esté en el catálogo",
+      "expected": "god_call",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_safari",
+        "probability": 0.8763051629066467,
+        "target": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 39.83891700045206
+    },
+    {
+      "id": "challenge-0159",
+      "text": "pon Discord en pantalla completa",
+      "expected": "god_call",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_discord",
+        "probability": 0.5938856601715088,
+        "target": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 37.85987499577459
+    },
+    {
+      "id": "challenge-0161",
+      "text": "retrocede en el podcast diez segundos",
+      "expected": "god_call",
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "probability": 0.9826565980911255,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 37.628124991897494
+    },
+    {
+      "id": "challenge-0136",
+      "text": "la orden de ejemplo es pasa a la siguiente canción",
+      "expected": "god_call",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "next_track",
+        "probability": 0.6873905658721924,
+        "target": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 36.67020899592899
+    },
+    {
+      "id": "challenge-0165",
+      "text": "quiero comprar Spotify Premium",
+      "expected": "god_call",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_spotify",
+        "probability": 0.9996492862701416,
+        "target": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 92.70183400076348
+    },
+    {
+      "id": "challenge-0143",
+      "text": "pon la música más bajita",
+      "expected": "god_call",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "play_music",
+        "probability": 0.757093071937561,
+        "target": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 37.83300000941381
+    },
+    {
+      "id": "challenge-0154",
+      "text": "pon Netflix",
+      "expected": "god_call",
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "probability": 0.9555413722991943,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 33.48520900181029
+    },
+    {
+      "id": "challenge-0151",
+      "text": "abre el correo",
+      "expected": "god_call",
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "probability": 0.8334627151489258,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 33.29629100335296
+    },
+    {
+      "id": "challenge-0150",
+      "text": "abre Slack",
+      "expected": "god_call",
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "probability": 0.33656173944473267,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 33.4033749968512
+    },
+    {
+      "id": "challenge-0142",
+      "text": "sube un poquito la música",
+      "expected": "god_call",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "play_music",
+        "probability": 0.604743242263794,
+        "target": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 32.78550000686664
+    },
+    {
+      "id": "challenge-0168",
+      "text": "reproduce de nuevo esta misma canción",
+      "expected": "god_call",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "previous_track",
+        "probability": 0.6518298387527466,
+        "target": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 37.75274999497924
+    },
+    {
+      "id": "challenge-0169",
+      "text": "abre... espera, no sé qué quería abrir",
+      "expected": "god_call",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_browser",
+        "probability": 0.8387316465377808,
+        "target": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 38.79516600864008
+    },
+    {
+      "id": "challenge-0183",
+      "text": "me puedes ayudar a instalar Apple Music",
+      "expected": "god_call",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_music",
+        "probability": 0.8347353935241699,
+        "target": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 96.5536670119036
+    },
+    {
+      "id": "challenge-0155",
+      "text": "muéstrame el calendario",
+      "expected": "god_call",
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "probability": 0.7917842268943787,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 37.02445900125895
+    },
+    {
+      "id": "challenge-0160",
+      "text": "pasa al siguiente vídeo",
+      "expected": "god_call",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "next_track",
+        "probability": 0.9492233991622925,
+        "target": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 35.552667002775706
+    },
+    {
+      "id": "challenge-0137",
+      "text": "solo repite lo que digo: abre Discord",
+      "expected": "god_call",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_discord",
+        "probability": 0.9197753667831421,
+        "target": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 95.1768329978222
+    },
+    {
+      "id": "challenge-0184",
+      "text": "instala Discord y luego ábrelo",
+      "expected": "god_call",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_discord",
+        "probability": 0.9979214072227478,
+        "target": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 94.09587499976624
+    },
+    {
+      "id": "challenge-0164",
+      "text": "abre un documento de texto",
+      "expected": "god_call",
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "probability": 0.923610270023346,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 33.781958001782186
+    },
+    {
+      "id": "challenge-0182",
+      "text": "solo dime si entendiste: abre Discord",
+      "expected": "god_call",
+      "prediction": {
+        "route": "complete",
+        "action": "open_discord",
+        "probability": 0.9851727485656738,
+        "target": "com.hnc.Discord",
+        "requested_action": "open_discord",
+        "availability": {
+          "status": "available",
+          "reason": null
+        }
+      },
+      "correct": false,
+      "false_execution": true,
+      "milliseconds": 93.35220900538843
+    },
+    {
+      "id": "challenge-0133",
+      "text": "no quiero que pauses la música",
+      "expected": "god_call",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "pause_music",
+        "probability": 0.9524599313735962,
+        "target": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 37.166207999689505
+    },
+    {
+      "id": "challenge-0123",
+      "text": "abre Discord y manda hola en el chat",
+      "expected": "god_call",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_discord",
+        "probability": 0.9666120409965515,
+        "target": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 94.02591700199991
+    },
+    {
+      "id": "challenge-0129",
+      "text": "explícame por qué no abre Chrome",
+      "expected": "god_call",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_chrome",
+        "probability": 0.9109542965888977,
+        "target": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 37.821874997462146
+    },
+    {
+      "id": "challenge-0144",
+      "text": "haz silencio sin pausar la reproducción",
+      "expected": "god_call",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "pause_music",
+        "probability": 0.705510675907135,
+        "target": null,
+        "availability": null
+      },
+      "correct": true,
+      "false_execution": false,
+      "milliseconds": 38.06108399294317
+    }
+  ]
+}

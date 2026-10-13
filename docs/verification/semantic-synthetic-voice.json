@@ -1,0 +1,124 @@
+{
+  "audio_source": "synthetic",
+  "microphone": false,
+  "execution": "none",
+  "context": "simulated",
+  "count": 7,
+  "transcribed": 6,
+  "correct": 1,
+  "false_executions": 0,
+  "records": [
+    {
+      "source_text": "abre Safari",
+      "expected": "open_safari",
+      "transcription": "Abre Safari",
+      "source": "synthetic_file",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_safari",
+        "probability": 0.9587438702583313,
+        "target": null,
+        "availability": null
+      },
+      "actual": "ambiguous",
+      "correct": false,
+      "false_execution": false
+    },
+    {
+      "source_text": "me abres el Finder un momentico",
+      "expected": "open_files",
+      "transcription": "Me abres el finder un momentico.",
+      "source": "synthetic_file",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_files",
+        "probability": 1.0,
+        "target": null,
+        "availability": null
+      },
+      "actual": "ambiguous",
+      "correct": false,
+      "false_execution": false
+    },
+    {
+      "source_text": "por favor inicia Discord",
+      "expected": "open_discord",
+      "transcription": "Por favor inicia Discord",
+      "source": "synthetic_file",
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_discord",
+        "probability": 0.9736107587814331,
+        "target": null,
+        "availability": null
+      },
+      "actual": "ambiguous",
+      "correct": false,
+      "false_execution": false
+    },
+    {
+      "source_text": "no abras Chrome",
+      "expected": "no_order",
+      "transcription": "No habrá Scrum",
+      "source": "synthetic_file",
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "probability": 0.8771283030509949,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "actual": "god_call",
+      "correct": false,
+      "false_execution": false
+    },
+    {
+      "source_text": "abre el",
+      "expected": "incomplete",
+      "transcription": "Abreel",
+      "source": "synthetic_file",
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "probability": 0.7757466435432434,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "actual": "god_call",
+      "correct": false,
+      "false_execution": false
+    },
+    {
+      "source_text": "hazlo",
+      "expected": "ambiguous",
+      "transcription": "",
+      "source": "synthetic_file",
+      "prediction": null,
+      "actual": "no_speech",
+      "correct": false,
+      "false_execution": false
+    },
+    {
+      "source_text": "crea una lista de reproducción",
+      "expected": "god_call",
+      "transcription": "Crea una lista de reproducción.",
+      "source": "synthetic_file",
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "probability": 0.8764138221740723,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "actual": "god_call",
+      "correct": true,
+      "false_execution": false
+    }
+  ]
+}

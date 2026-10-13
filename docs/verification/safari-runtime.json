@@ -1,0 +1,19 @@
+{
+  "execution": "none",
+  "context": "real_system",
+  "outcome": {
+    "prediction": {
+      "route": "complete",
+      "action": "open_safari",
+      "target": "com.apple.Safari",
+      "probability": 0.7558,
+      "requested_action": "open_safari",
+      "availability": {
+        "status": "available",
+        "reason": null
+      }
+    },
+    "verified": false,
+    "message": "Predicción disponible; sin ejecución."
+  }
+}

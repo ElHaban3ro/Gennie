@@ -1,0 +1,14 @@
+{
+  "count": 210,
+  "correct": 81,
+  "false_executions": 0,
+  "routes": {
+    "complete": 7,
+    "ambiguous": 155,
+    "god_call": 46,
+    "no_order": 2
+  },
+  "context": "simulated",
+  "execution": "none",
+  "adapter": null
+}

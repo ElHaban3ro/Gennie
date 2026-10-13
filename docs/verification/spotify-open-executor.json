@@ -1,0 +1,110 @@
+{
+  "scope": "native executor, first verification read fails by injection; no model or personal database",
+  "calls": [
+    {
+      "tool": "osascript",
+      "elapsed_ms": 61
+    },
+    {
+      "tool": "open",
+      "elapsed_ms": 54
+    },
+    {
+      "tool": "osascript",
+      "elapsed_ms": 221
+    },
+    {
+      "tool": "osascript",
+      "elapsed_ms": 67
+    },
+    {
+      "tool": "osascript",
+      "elapsed_ms": 64
+    },
+    {
+      "tool": "osascript",
+      "elapsed_ms": 91
+    },
+    {
+      "tool": "osascript",
+      "elapsed_ms": 119
+    },
+    {
+      "tool": "osascript",
+      "elapsed_ms": 110
+    },
+    {
+      "tool": "osascript",
+      "elapsed_ms": 109
+    },
+    {
+      "tool": "osascript",
+      "elapsed_ms": 132
+    },
+    {
+      "tool": "osascript",
+      "elapsed_ms": 223
+    },
+    {
+      "tool": "osascript",
+      "elapsed_ms": 313
+    },
+    {
+      "tool": "osascript",
+      "elapsed_ms": 793
+    }
+  ],
+  "observations": [
+    {
+      "spotify_running": true,
+      "frontmost": "com.openai.codex"
+    },
+    {
+      "spotify_running": true,
+      "frontmost": "com.apple.reminders"
+    },
+    {
+      "spotify_running": true,
+      "frontmost": "com.apple.reminders"
+    },
+    {
+      "spotify_running": true,
+      "frontmost": "com.apple.reminders"
+    },
+    {
+      "spotify_running": true,
+      "frontmost": "com.apple.reminders"
+    },
+    {
+      "spotify_running": true,
+      "frontmost": "com.apple.reminders"
+    },
+    {
+      "spotify_running": true,
+      "frontmost": "com.apple.reminders"
+    },
+    {
+      "spotify_running": true,
+      "frontmost": "com.apple.reminders"
+    },
+    {
+      "spotify_running": true,
+      "frontmost": "com.apple.reminders"
+    },
+    {
+      "spotify_running": true,
+      "frontmost": "com.apple.reminders"
+    },
+    {
+      "spotify_running": true,
+      "frontmost": "com.spotify.client"
+    }
+  ],
+  "fault_injected": true,
+  "effect": {
+    "verified": true,
+    "evidence": "{\"running_bundle\": \"com.spotify.client\", \"verification\": {\"stage\": \"application_verification\", \"observation_failure\": \"os_command_failed\"}}"
+  },
+  "foreground_restore_requested": true,
+  "foreground_restored": true
+}

@@ -1,0 +1,21 @@
+{
+  "context": "real_system",
+  "execution": "none",
+  "first_decision_ms": 3287,
+  "outcome": {
+    "message": "Predicción disponible; sin ejecución.",
+    "prediction": {
+      "action": "open_app",
+      "availability": {
+        "reason": null,
+        "status": "available"
+      },
+      "probability": 0.9997,
+      "requested_action": "open_app",
+      "route": "complete",
+      "target": "com.hnc.Discord"
+    },
+    "verified": false
+  },
+  "preload_ms": 67696
+}

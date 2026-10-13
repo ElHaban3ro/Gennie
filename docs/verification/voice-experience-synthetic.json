@@ -1,0 +1,147 @@
+{
+  "audio_source": "synthetic",
+  "microphone": false,
+  "execution": "none",
+  "context": "simulated",
+  "count": 7,
+  "transcribed": 6,
+  "correct": 3,
+  "false_executions": 0,
+  "records": [
+    {
+      "source_text": "abre Safari",
+      "expected": "open_safari",
+      "transcription": "Abre Safari",
+      "source": "synthetic_file",
+      "audio_seconds": 2.772125,
+      "audio_peak": 0.46995073556900024,
+      "prediction": {
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.apple.Safari",
+        "probability": 0.9922,
+        "requested_action": "open_app",
+        "availability": {
+          "status": "available",
+          "reason": null
+        }
+      },
+      "actual": "open_safari",
+      "correct": true,
+      "false_execution": false
+    },
+    {
+      "source_text": "me abres el Finder un momentico",
+      "expected": "open_files",
+      "transcription": "Me abres el finder un momentico.",
+      "source": "synthetic_file",
+      "audio_seconds": 3.664625,
+      "audio_peak": 0.5692784786224365,
+      "prediction": {
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.apple.finder",
+        "probability": 0.9901,
+        "requested_action": "open_app",
+        "availability": {
+          "status": "available",
+          "reason": null
+        }
+      },
+      "actual": "open_files",
+      "correct": true,
+      "false_execution": false
+    },
+    {
+      "source_text": "por favor inicia Discord",
+      "expected": "open_discord",
+      "transcription": "Por favor inicia Discord",
+      "source": "synthetic_file",
+      "audio_seconds": 3.301,
+      "audio_peak": 0.5048578977584839,
+      "prediction": {
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.hnc.Discord",
+        "probability": 0.9942,
+        "requested_action": "open_app",
+        "availability": {
+          "status": "available",
+          "reason": null
+        }
+      },
+      "actual": "open_discord",
+      "correct": true,
+      "false_execution": false
+    },
+    {
+      "source_text": "no abras Chrome",
+      "expected": "no_order",
+      "transcription": "No habrá Scrum",
+      "source": "synthetic_file",
+      "audio_seconds": 2.795,
+      "audio_peak": 0.6318747401237488,
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "probability": 0.7737,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "actual": "god_call",
+      "correct": false,
+      "false_execution": false
+    },
+    {
+      "source_text": "abre el",
+      "expected": "incomplete",
+      "transcription": "Abreel",
+      "source": "synthetic_file",
+      "audio_seconds": 2.47025,
+      "audio_peak": 0.4464151859283447,
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "probability": 0.4417,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "actual": "ambiguous",
+      "correct": false,
+      "false_execution": false
+    },
+    {
+      "source_text": "hazlo",
+      "expected": "ambiguous",
+      "transcription": "",
+      "source": "synthetic_file",
+      "audio_seconds": 2.3309375,
+      "audio_peak": 0.42400041222572327,
+      "prediction": null,
+      "actual": "no_speech",
+      "correct": false,
+      "false_execution": false
+    },
+    {
+      "source_text": "crea una lista de reproducción",
+      "expected": "god_call",
+      "transcription": "Crea una lista de reproducción.",
+      "source": "synthetic_file",
+      "audio_seconds": 3.6146875,
+      "audio_peak": 0.5251324772834778,
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "probability": 0.6156,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "actual": "ambiguous",
+      "correct": false,
+      "false_execution": false
+    }
+  ]
+}

@@ -1,0 +1,2967 @@
+{
+  "schema_version": 1,
+  "description": "Corpus independiente de experiencia de control por voz: decisiones sin efectos, redactado antes de observar predicciones.",
+  "context_assumption": "Apps indicadas instaladas; Spotify ejecutándose y reproduciendo, Apple Music instalada pero no ejecutándose; navegador predeterminado Safari y app en primer plano Finder. Solicitudes independientes salvo contexto explícito proporcionado. Ningún last_action procede de una predicción de otro caso.",
+  "split_policy": "SHA-256 del group módulo 4: cero es holdout; los demás development. Familias completas permanecen juntas. Holdout no se usa para ajustar el código.",
+  "label_policy": "executable exige una única apertura inmediata con acción y bundle correctos. route solo fija salidas inequívocas; si se omite, basta no ejecutar. La ruta exacta es una métrica separada de efectos incorrectos.",
+  "cases": [
+    {
+      "id": "discord_surface-01",
+      "group": "discord_surface",
+      "split": "holdout",
+      "request": {
+        "text": "Abre Discord."
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.hnc.Discord"
+      },
+      "note": "La orden ya tiene verbo y destino; elipsis final no elimina palabras ni introduce condición."
+    },
+    {
+      "id": "discord_surface-02",
+      "group": "discord_surface",
+      "split": "holdout",
+      "request": {
+        "text": "abre discord"
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.hnc.Discord"
+      },
+      "note": "La orden ya tiene verbo y destino; elipsis final no elimina palabras ni introduce condición."
+    },
+    {
+      "id": "discord_surface-03",
+      "group": "discord_surface",
+      "split": "holdout",
+      "request": {
+        "text": "ABRE DISCORD."
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.hnc.Discord"
+      },
+      "note": "La orden ya tiene verbo y destino; elipsis final no elimina palabras ni introduce condición."
+    },
+    {
+      "id": "discord_surface-04",
+      "group": "discord_surface",
+      "split": "holdout",
+      "request": {
+        "text": "Abre Discord!"
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.hnc.Discord"
+      },
+      "note": "La orden ya tiene verbo y destino; elipsis final no elimina palabras ni introduce condición."
+    },
+    {
+      "id": "discord_surface-05",
+      "group": "discord_surface",
+      "split": "holdout",
+      "request": {
+        "text": "¡Abre Discord!"
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.hnc.Discord"
+      },
+      "note": "La orden ya tiene verbo y destino; elipsis final no elimina palabras ni introduce condición."
+    },
+    {
+      "id": "discord_surface-06",
+      "group": "discord_surface",
+      "split": "holdout",
+      "request": {
+        "text": "  Abre Discord.  "
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.hnc.Discord"
+      },
+      "note": "La orden ya tiene verbo y destino; elipsis final no elimina palabras ni introduce condición."
+    },
+    {
+      "id": "discord_surface-07",
+      "group": "discord_surface",
+      "split": "holdout",
+      "request": {
+        "text": "Abre   Discord."
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.hnc.Discord"
+      },
+      "note": "La orden ya tiene verbo y destino; elipsis final no elimina palabras ni introduce condición."
+    },
+    {
+      "id": "discord_surface-08",
+      "group": "discord_surface",
+      "split": "holdout",
+      "request": {
+        "text": "Abre\nDiscord."
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.hnc.Discord"
+      },
+      "note": "La orden ya tiene verbo y destino; elipsis final no elimina palabras ni introduce condición."
+    },
+    {
+      "id": "discord_surface-09",
+      "group": "discord_surface",
+      "split": "holdout",
+      "request": {
+        "text": "Abre\tDiscord."
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.hnc.Discord"
+      },
+      "note": "La orden ya tiene verbo y destino; elipsis final no elimina palabras ni introduce condición."
+    },
+    {
+      "id": "discord_surface-10",
+      "group": "discord_surface",
+      "split": "holdout",
+      "request": {
+        "text": "Abre Discord."
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.hnc.Discord"
+      },
+      "note": "La orden ya tiene verbo y destino; elipsis final no elimina palabras ni introduce condición."
+    },
+    {
+      "id": "discord_surface-11",
+      "group": "discord_surface",
+      "split": "holdout",
+      "request": {
+        "text": "Abre Discord。"
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.hnc.Discord"
+      },
+      "note": "La orden ya tiene verbo y destino; elipsis final no elimina palabras ni introduce condición."
+    },
+    {
+      "id": "discord_surface-12",
+      "group": "discord_surface",
+      "split": "holdout",
+      "request": {
+        "text": "Abre Discord…"
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.hnc.Discord"
+      },
+      "note": "La orden ya tiene verbo y destino; elipsis final no elimina palabras ni introduce condición."
+    },
+    {
+      "id": "safari_surface-01",
+      "group": "safari_surface",
+      "split": "development",
+      "request": {
+        "text": "Abre Safari."
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.apple.Safari"
+      }
+    },
+    {
+      "id": "safari_surface-02",
+      "group": "safari_surface",
+      "split": "development",
+      "request": {
+        "text": "abre safari."
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.apple.Safari"
+      }
+    },
+    {
+      "id": "safari_surface-03",
+      "group": "safari_surface",
+      "split": "development",
+      "request": {
+        "text": "ABRE Safari"
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.apple.Safari"
+      }
+    },
+    {
+      "id": "safari_surface-04",
+      "group": "safari_surface",
+      "split": "development",
+      "request": {
+        "text": "¡abre Safari!"
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.apple.Safari"
+      }
+    },
+    {
+      "id": "safari_surface-05",
+      "group": "safari_surface",
+      "split": "development",
+      "request": {
+        "text": "Abre Safari, por favor."
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.apple.Safari"
+      }
+    },
+    {
+      "id": "safari_surface-06",
+      "group": "safari_surface",
+      "split": "development",
+      "request": {
+        "text": "Por favor: abre Safari."
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.apple.Safari"
+      }
+    },
+    {
+      "id": "finder_surface-01",
+      "group": "finder_surface",
+      "split": "development",
+      "request": {
+        "text": "Abre Finder."
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.apple.finder"
+      }
+    },
+    {
+      "id": "finder_surface-02",
+      "group": "finder_surface",
+      "split": "development",
+      "request": {
+        "text": "abre finder"
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.apple.finder"
+      }
+    },
+    {
+      "id": "finder_surface-03",
+      "group": "finder_surface",
+      "split": "development",
+      "request": {
+        "text": "Ábreme Finder."
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.apple.finder"
+      }
+    },
+    {
+      "id": "finder_surface-04",
+      "group": "finder_surface",
+      "split": "development",
+      "request": {
+        "text": "Abreme Finder."
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.apple.finder"
+      }
+    },
+    {
+      "id": "finder_surface-05",
+      "group": "finder_surface",
+      "split": "development",
+      "request": {
+        "text": "Abre el Finder."
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.apple.finder"
+      }
+    },
+    {
+      "id": "finder_surface-06",
+      "group": "finder_surface",
+      "split": "development",
+      "request": {
+        "text": "Abre Finder ahora."
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.apple.finder"
+      }
+    },
+    {
+      "id": "code_names-01",
+      "group": "code_names",
+      "split": "development",
+      "request": {
+        "text": "Abre Visual Studio Code."
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.microsoft.VSCode"
+      },
+      "note": "VS Code y VSCode son alias de producto; no autorizar coincidencias aproximadas con otras apps."
+    },
+    {
+      "id": "code_names-02",
+      "group": "code_names",
+      "split": "development",
+      "request": {
+        "text": "Abre VS Code."
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.microsoft.VSCode"
+      },
+      "note": "VS Code y VSCode son alias de producto; no autorizar coincidencias aproximadas con otras apps."
+    },
+    {
+      "id": "code_names-03",
+      "group": "code_names",
+      "split": "development",
+      "request": {
+        "text": "Abre VSCode."
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.microsoft.VSCode"
+      },
+      "note": "VS Code y VSCode son alias de producto; no autorizar coincidencias aproximadas con otras apps."
+    },
+    {
+      "id": "code_names-04",
+      "group": "code_names",
+      "split": "development",
+      "request": {
+        "text": "Por favor, abre Visual Studio Code."
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.microsoft.VSCode"
+      },
+      "note": "VS Code y VSCode son alias de producto; no autorizar coincidencias aproximadas con otras apps."
+    },
+    {
+      "id": "premiere_names-01",
+      "group": "premiere_names",
+      "split": "development",
+      "request": {
+        "text": "Abre Premiere."
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.adobe.PremierePro.26"
+      }
+    },
+    {
+      "id": "premiere_names-02",
+      "group": "premiere_names",
+      "split": "development",
+      "request": {
+        "text": "Abre Adobe Premiere Pro."
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.adobe.PremierePro.26"
+      }
+    },
+    {
+      "id": "premiere_names-03",
+      "group": "premiere_names",
+      "split": "development",
+      "request": {
+        "text": "Abre Premiere Pro, por favor."
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.adobe.PremierePro.26"
+      }
+    },
+    {
+      "id": "spotify_names-01",
+      "group": "spotify_names",
+      "split": "holdout",
+      "request": {
+        "text": "Abre Spotify."
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.spotify.client"
+      },
+      "note": "Abrir la aplicación no significa iniciar reproducción."
+    },
+    {
+      "id": "spotify_names-02",
+      "group": "spotify_names",
+      "split": "holdout",
+      "request": {
+        "text": "Por favor, abre Spotify."
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.spotify.client"
+      },
+      "note": "Abrir la aplicación no significa iniciar reproducción."
+    },
+    {
+      "id": "spotify_names-03",
+      "group": "spotify_names",
+      "split": "holdout",
+      "request": {
+        "text": "Abre la aplicación Spotify."
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.spotify.client"
+      },
+      "note": "Abrir la aplicación no significa iniciar reproducción."
+    },
+    {
+      "id": "music_names-01",
+      "group": "music_names",
+      "split": "development",
+      "request": {
+        "text": "Abre Música."
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.apple.Music"
+      },
+      "note": "Abrir la aplicación no significa iniciar reproducción."
+    },
+    {
+      "id": "music_names-02",
+      "group": "music_names",
+      "split": "development",
+      "request": {
+        "text": "Abre Apple Music."
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.apple.Music"
+      },
+      "note": "Abrir la aplicación no significa iniciar reproducción."
+    },
+    {
+      "id": "music_names-03",
+      "group": "music_names",
+      "split": "development",
+      "request": {
+        "text": "Abre la aplicación Música."
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.apple.Music"
+      },
+      "note": "Abrir la aplicación no significa iniciar reproducción."
+    },
+    {
+      "id": "polite_questions-01",
+      "group": "polite_questions",
+      "split": "development",
+      "request": {
+        "text": "¿Puedes abrir Discord?"
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.hnc.Discord"
+      },
+      "note": "Interrogativas usadas como petición cortés afirmativa; no son preguntas informativas."
+    },
+    {
+      "id": "polite_questions-02",
+      "group": "polite_questions",
+      "split": "development",
+      "request": {
+        "text": "¿Me puedes abrir Discord, por favor?"
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.hnc.Discord"
+      },
+      "note": "Interrogativas usadas como petición cortés afirmativa; no son preguntas informativas."
+    },
+    {
+      "id": "polite_questions-03",
+      "group": "polite_questions",
+      "split": "development",
+      "request": {
+        "text": "¿Podrías abrir Discord?"
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.hnc.Discord"
+      },
+      "note": "Interrogativas usadas como petición cortés afirmativa; no son preguntas informativas."
+    },
+    {
+      "id": "polite_questions-04",
+      "group": "polite_questions",
+      "split": "development",
+      "request": {
+        "text": "¿Serías tan amable de abrir Discord?"
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.hnc.Discord"
+      },
+      "note": "Interrogativas usadas como petición cortés afirmativa; no son preguntas informativas."
+    },
+    {
+      "id": "polite_questions-05",
+      "group": "polite_questions",
+      "split": "development",
+      "request": {
+        "text": "Me abres Discord, por favor."
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.hnc.Discord"
+      },
+      "note": "Interrogativas usadas como petición cortés afirmativa; no son preguntas informativas."
+    },
+    {
+      "id": "polite_questions-06",
+      "group": "polite_questions",
+      "split": "development",
+      "request": {
+        "text": "¿Abres Discord un momento?"
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.hnc.Discord"
+      },
+      "note": "Interrogativas usadas como petición cortés afirmativa; no son preguntas informativas."
+    },
+    {
+      "id": "polite_indirect-01",
+      "group": "polite_indirect",
+      "split": "development",
+      "request": {
+        "text": "Quiero que abras Safari."
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.apple.Safari"
+      },
+      "note": "Peticiones dirigidas al asistente; cuando puedas es cortesía sin condición externa."
+    },
+    {
+      "id": "polite_indirect-02",
+      "group": "polite_indirect",
+      "split": "development",
+      "request": {
+        "text": "Necesito que abras Safari."
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.apple.Safari"
+      },
+      "note": "Peticiones dirigidas al asistente; cuando puedas es cortesía sin condición externa."
+    },
+    {
+      "id": "polite_indirect-03",
+      "group": "polite_indirect",
+      "split": "development",
+      "request": {
+        "text": "Me gustaría que abrieras Safari."
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.apple.Safari"
+      },
+      "note": "Peticiones dirigidas al asistente; cuando puedas es cortesía sin condición externa."
+    },
+    {
+      "id": "polite_indirect-04",
+      "group": "polite_indirect",
+      "split": "development",
+      "request": {
+        "text": "Hazme el favor de abrir Safari."
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.apple.Safari"
+      },
+      "note": "Peticiones dirigidas al asistente; cuando puedas es cortesía sin condición externa."
+    },
+    {
+      "id": "polite_indirect-05",
+      "group": "polite_indirect",
+      "split": "development",
+      "request": {
+        "text": "Cuando puedas, abre Safari."
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.apple.Safari"
+      },
+      "note": "Peticiones dirigidas al asistente; cuando puedas es cortesía sin condición externa."
+    },
+    {
+      "id": "spoken_disfluencies-01",
+      "group": "spoken_disfluencies",
+      "split": "holdout",
+      "request": {
+        "text": "Eh, abre Discord."
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.hnc.Discord"
+      },
+      "note": "Muletillas y repetición del verbo no añaden otra acción."
+    },
+    {
+      "id": "spoken_disfluencies-02",
+      "group": "spoken_disfluencies",
+      "split": "holdout",
+      "request": {
+        "text": "Bueno, abre Discord."
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.hnc.Discord"
+      },
+      "note": "Muletillas y repetición del verbo no añaden otra acción."
+    },
+    {
+      "id": "spoken_disfluencies-03",
+      "group": "spoken_disfluencies",
+      "split": "holdout",
+      "request": {
+        "text": "A ver, abre Discord."
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.hnc.Discord"
+      },
+      "note": "Muletillas y repetición del verbo no añaden otra acción."
+    },
+    {
+      "id": "spoken_disfluencies-04",
+      "group": "spoken_disfluencies",
+      "split": "holdout",
+      "request": {
+        "text": "SOC, abre Discord."
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.hnc.Discord"
+      },
+      "note": "Muletillas y repetición del verbo no añaden otra acción."
+    },
+    {
+      "id": "spoken_disfluencies-05",
+      "group": "spoken_disfluencies",
+      "split": "holdout",
+      "request": {
+        "text": "Abre, por favor, Discord."
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.hnc.Discord"
+      },
+      "note": "Muletillas y repetición del verbo no añaden otra acción."
+    },
+    {
+      "id": "spoken_disfluencies-06",
+      "group": "spoken_disfluencies",
+      "split": "holdout",
+      "request": {
+        "text": "Abre... Discord."
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.hnc.Discord"
+      },
+      "note": "Muletillas y repetición del verbo no añaden otra acción."
+    },
+    {
+      "id": "spoken_disfluencies-07",
+      "group": "spoken_disfluencies",
+      "split": "holdout",
+      "request": {
+        "text": "Abre, abre Discord."
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.hnc.Discord"
+      },
+      "note": "Muletillas y repetición del verbo no añaden otra acción."
+    },
+    {
+      "id": "spoken_disfluencies-08",
+      "group": "spoken_disfluencies",
+      "split": "holdout",
+      "request": {
+        "text": "Mmm, abre Discord, porfa."
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.hnc.Discord"
+      },
+      "note": "Muletillas y repetición del verbo no añaden otra acción."
+    },
+    {
+      "id": "spoken_soft_requests-01",
+      "group": "spoken_soft_requests",
+      "split": "holdout",
+      "request": {
+        "text": "Ponme Safari en primer plano."
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.apple.Safari"
+      },
+      "note": "La operación open_app abre o enfoca una app inventariada."
+    },
+    {
+      "id": "spoken_soft_requests-02",
+      "group": "spoken_soft_requests",
+      "split": "holdout",
+      "request": {
+        "text": "Trae Safari al frente."
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.apple.Safari"
+      },
+      "note": "La operación open_app abre o enfoca una app inventariada."
+    },
+    {
+      "id": "spoken_soft_requests-03",
+      "group": "spoken_soft_requests",
+      "split": "holdout",
+      "request": {
+        "text": "Muéstrame Safari."
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.apple.Safari"
+      },
+      "note": "La operación open_app abre o enfoca una app inventariada."
+    },
+    {
+      "id": "spoken_soft_requests-04",
+      "group": "spoken_soft_requests",
+      "split": "holdout",
+      "request": {
+        "text": "Vuelve a abrir Safari."
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.apple.Safari"
+      },
+      "note": "La operación open_app abre o enfoca una app inventariada."
+    },
+    {
+      "id": "negation_plain-01",
+      "group": "negation_plain",
+      "split": "development",
+      "request": {
+        "text": "No abras Discord."
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "negation_plain-02",
+      "group": "negation_plain",
+      "split": "development",
+      "request": {
+        "text": "no abras discord"
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "negation_plain-03",
+      "group": "negation_plain",
+      "split": "development",
+      "request": {
+        "text": "NO ABRAS DISCORD."
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "negation_plain-04",
+      "group": "negation_plain",
+      "split": "development",
+      "request": {
+        "text": "Por favor, no abras Discord."
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "negation_plain-05",
+      "group": "negation_plain",
+      "split": "development",
+      "request": {
+        "text": "No abras Discord por favor."
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "negation_plain-06",
+      "group": "negation_plain",
+      "split": "development",
+      "request": {
+        "text": "Nunca abras Discord."
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "negation_plain-07",
+      "group": "negation_plain",
+      "split": "development",
+      "request": {
+        "text": "Jamás abras Discord."
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "negation_plain-08",
+      "group": "negation_plain",
+      "split": "development",
+      "request": {
+        "text": "No quiero que abras Discord."
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "negation_plain-09",
+      "group": "negation_plain",
+      "split": "development",
+      "request": {
+        "text": "No necesito que abras Discord."
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "negation_plain-10",
+      "group": "negation_plain",
+      "split": "development",
+      "request": {
+        "text": "Prefiero que no abras Discord."
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "negation_plain-11",
+      "group": "negation_plain",
+      "split": "development",
+      "request": {
+        "text": "Evita abrir Discord."
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "negation_plain-12",
+      "group": "negation_plain",
+      "split": "development",
+      "request": {
+        "text": "Deja Discord sin abrir."
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "negation_other_apps-01",
+      "group": "negation_other_apps",
+      "split": "development",
+      "request": {
+        "text": "No abras Safari."
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "negation_other_apps-02",
+      "group": "negation_other_apps",
+      "split": "development",
+      "request": {
+        "text": "No abras Finder."
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "negation_other_apps-03",
+      "group": "negation_other_apps",
+      "split": "development",
+      "request": {
+        "text": "No abras Spotify."
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "negation_other_apps-04",
+      "group": "negation_other_apps",
+      "split": "development",
+      "request": {
+        "text": "No abras Música."
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "negation_other_apps-05",
+      "group": "negation_other_apps",
+      "split": "development",
+      "request": {
+        "text": "No abras Visual Studio Code."
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "negation_other_apps-06",
+      "group": "negation_other_apps",
+      "split": "development",
+      "request": {
+        "text": "No abras Premiere."
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "negation_nested-01",
+      "group": "negation_nested",
+      "split": "development",
+      "request": {
+        "text": "No te estoy pidiendo que abras Discord."
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "negation_nested-02",
+      "group": "negation_nested",
+      "split": "development",
+      "request": {
+        "text": "Que diga Discord no significa que debas abrirlo."
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "negation_nested-03",
+      "group": "negation_nested",
+      "split": "development",
+      "request": {
+        "text": "No es una orden: abre Discord."
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "negation_nested-04",
+      "group": "negation_nested",
+      "split": "development",
+      "request": {
+        "text": "No hagas lo de abrir Safari."
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "negation_nested-05",
+      "group": "negation_nested",
+      "split": "development",
+      "request": {
+        "text": "No hace falta que abras Finder."
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "negation_nested-06",
+      "group": "negation_nested",
+      "split": "development",
+      "request": {
+        "text": "No abras Discord todavía."
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "cancel_standalone-01",
+      "group": "cancel_standalone",
+      "split": "development",
+      "request": {
+        "text": "Cancela."
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "cancel_standalone-02",
+      "group": "cancel_standalone",
+      "split": "development",
+      "request": {
+        "text": "Olvídalo."
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "cancel_standalone-03",
+      "group": "cancel_standalone",
+      "split": "development",
+      "request": {
+        "text": "Déjalo, no hagas nada."
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "cancel_standalone-04",
+      "group": "cancel_standalone",
+      "split": "development",
+      "request": {
+        "text": "Nada, ya no."
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "cancel_standalone-05",
+      "group": "cancel_standalone",
+      "split": "development",
+      "request": {
+        "text": "Espera, no ejecutes nada."
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "cancel_after_pending-01",
+      "group": "cancel_after_pending",
+      "split": "development",
+      "request": {
+        "text": "Cancela.",
+        "pending": "Abre Discord.",
+        "pending_action": "open_app"
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "cancel_after_pending-02",
+      "group": "cancel_after_pending",
+      "split": "development",
+      "request": {
+        "text": "Olvídalo.",
+        "pending": "Abre Discord.",
+        "pending_action": "open_app"
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "cancel_after_pending-03",
+      "group": "cancel_after_pending",
+      "split": "development",
+      "request": {
+        "text": "No, no abras Discord.",
+        "pending": "Abre Discord.",
+        "pending_action": "open_app"
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "cancel_after_pending-04",
+      "group": "cancel_after_pending",
+      "split": "development",
+      "request": {
+        "text": "Déjalo como está.",
+        "pending": "Abre Discord.",
+        "pending_action": "open_app"
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "cancel_after_pending-05",
+      "group": "cancel_after_pending",
+      "split": "development",
+      "request": {
+        "text": "Ya no quiero abrir ninguna aplicación.",
+        "pending": "Abre Discord.",
+        "pending_action": "open_app"
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "quoted_commands-01",
+      "group": "quoted_commands",
+      "split": "development",
+      "request": {
+        "text": "La frase es «abre Discord»."
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      },
+      "note": "Mención/cita no autoriza abrir la app. Repetir o traducir tampoco pertenece a open_app."
+    },
+    {
+      "id": "quoted_commands-02",
+      "group": "quoted_commands",
+      "split": "development",
+      "request": {
+        "text": "Dije: \"abre Discord\"."
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      },
+      "note": "Mención/cita no autoriza abrir la app. Repetir o traducir tampoco pertenece a open_app."
+    },
+    {
+      "id": "quoted_commands-03",
+      "group": "quoted_commands",
+      "split": "development",
+      "request": {
+        "text": "Repite la frase abre Discord."
+      },
+      "expected": {
+        "executable": false,
+        "route": "god_call"
+      },
+      "note": "Petición completa de repetir/traducir, fuera del catálogo. La frase mencionada no autoriza abrir Discord."
+    },
+    {
+      "id": "quoted_commands-04",
+      "group": "quoted_commands",
+      "split": "development",
+      "request": {
+        "text": "Traduce al inglés: abre Discord."
+      },
+      "expected": {
+        "executable": false,
+        "route": "god_call"
+      },
+      "note": "Petición completa de repetir/traducir, fuera del catálogo. La frase mencionada no autoriza abrir Discord."
+    },
+    {
+      "id": "quoted_commands-05",
+      "group": "quoted_commands",
+      "split": "development",
+      "request": {
+        "text": "Estoy escribiendo la instrucción abre Discord."
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      },
+      "note": "Mención/cita no autoriza abrir la app. Repetir o traducir tampoco pertenece a open_app."
+    },
+    {
+      "id": "quoted_commands-06",
+      "group": "quoted_commands",
+      "split": "development",
+      "request": {
+        "text": "El tutorial dice que abra Discord."
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      },
+      "note": "Mención/cita no autoriza abrir la app. Repetir o traducir tampoco pertenece a open_app."
+    },
+    {
+      "id": "quoted_commands-07",
+      "group": "quoted_commands",
+      "split": "development",
+      "request": {
+        "text": "Mi amigo me dijo que abriera Discord."
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      },
+      "note": "Mención/cita no autoriza abrir la app. Repetir o traducir tampoco pertenece a open_app."
+    },
+    {
+      "id": "quoted_commands-08",
+      "group": "quoted_commands",
+      "split": "development",
+      "request": {
+        "text": "La orden de ejemplo sería abrir Discord."
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      },
+      "note": "Mención/cita no autoriza abrir la app. Repetir o traducir tampoco pertenece a open_app."
+    },
+    {
+      "id": "quoted_questions-01",
+      "group": "quoted_questions",
+      "split": "development",
+      "request": {
+        "text": "¿Qué significa «abre Discord»?"
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "quoted_questions-02",
+      "group": "quoted_questions",
+      "split": "development",
+      "request": {
+        "text": "¿Entendiste la frase abre Discord?"
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "quoted_questions-03",
+      "group": "quoted_questions",
+      "split": "development",
+      "request": {
+        "text": "¿Cómo dirías abre Discord en inglés?"
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "quoted_questions-04",
+      "group": "quoted_questions",
+      "split": "development",
+      "request": {
+        "text": "¿Has oído que dije abre Discord?"
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "capability_questions-01",
+      "group": "capability_questions",
+      "split": "development",
+      "request": {
+        "text": "¿Puedes abrir aplicaciones como Discord?"
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      },
+      "note": "Consulta de capacidad/estado/instrucciones; no confundir con ¿puedes abrir Discord? dirigida a ejecutar."
+    },
+    {
+      "id": "capability_questions-02",
+      "group": "capability_questions",
+      "split": "development",
+      "request": {
+        "text": "¿Sabes cómo abrir Discord?"
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      },
+      "note": "Consulta de capacidad/estado/instrucciones; no confundir con ¿puedes abrir Discord? dirigida a ejecutar."
+    },
+    {
+      "id": "capability_questions-03",
+      "group": "capability_questions",
+      "split": "development",
+      "request": {
+        "text": "¿Cómo puedo abrir Safari?"
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      },
+      "note": "Consulta de capacidad/estado/instrucciones; no confundir con ¿puedes abrir Discord? dirigida a ejecutar."
+    },
+    {
+      "id": "capability_questions-04",
+      "group": "capability_questions",
+      "split": "development",
+      "request": {
+        "text": "¿Por qué no se abre Discord?"
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      },
+      "note": "Consulta de capacidad/estado/instrucciones; no confundir con ¿puedes abrir Discord? dirigida a ejecutar."
+    },
+    {
+      "id": "capability_questions-05",
+      "group": "capability_questions",
+      "split": "development",
+      "request": {
+        "text": "¿Está abierto Discord?"
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      },
+      "note": "Consulta de capacidad/estado/instrucciones; no confundir con ¿puedes abrir Discord? dirigida a ejecutar."
+    },
+    {
+      "id": "capability_questions-06",
+      "group": "capability_questions",
+      "split": "development",
+      "request": {
+        "text": "¿Tengo Discord instalado?"
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      },
+      "note": "Consulta de capacidad/estado/instrucciones; no confundir con ¿puedes abrir Discord? dirigida a ejecutar."
+    },
+    {
+      "id": "hypothetical-01",
+      "group": "hypothetical",
+      "split": "holdout",
+      "request": {
+        "text": "Si digo abre Discord, ¿qué harías?"
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "hypothetical-02",
+      "group": "hypothetical",
+      "split": "holdout",
+      "request": {
+        "text": "Si te pidiera abrir Safari, ¿lo abrirías?"
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "hypothetical-03",
+      "group": "hypothetical",
+      "split": "holdout",
+      "request": {
+        "text": "Imagínate que te digo abre Finder."
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "hypothetical-04",
+      "group": "hypothetical",
+      "split": "holdout",
+      "request": {
+        "text": "Supongamos que abres Discord."
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "hypothetical-05",
+      "group": "hypothetical",
+      "split": "holdout",
+      "request": {
+        "text": "Podríamos abrir Spotify después."
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "hypothetical-06",
+      "group": "hypothetical",
+      "split": "holdout",
+      "request": {
+        "text": "Si mañana necesito Discord, lo abriré."
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "past_reports-01",
+      "group": "past_reports",
+      "split": "development",
+      "request": {
+        "text": "Ayer abrí Discord."
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "past_reports-02",
+      "group": "past_reports",
+      "split": "development",
+      "request": {
+        "text": "Ya abrí Safari."
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "past_reports-03",
+      "group": "past_reports",
+      "split": "development",
+      "request": {
+        "text": "Antes usaba Finder para eso."
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "past_reports-04",
+      "group": "past_reports",
+      "split": "development",
+      "request": {
+        "text": "Te había pedido que abrieras Premiere."
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "past_reports-05",
+      "group": "past_reports",
+      "split": "development",
+      "request": {
+        "text": "Discord se abrió solo."
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "past_reports-06",
+      "group": "past_reports",
+      "split": "development",
+      "request": {
+        "text": "Acabo de abrir Visual Studio Code."
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "self_intention-01",
+      "group": "self_intention",
+      "split": "development",
+      "request": {
+        "text": "Voy a abrir Discord."
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "self_intention-02",
+      "group": "self_intention",
+      "split": "development",
+      "request": {
+        "text": "Estoy intentando abrir Safari."
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "self_intention-03",
+      "group": "self_intention",
+      "split": "development",
+      "request": {
+        "text": "Estaba pensando en abrir Spotify."
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "self_intention-04",
+      "group": "self_intention",
+      "split": "development",
+      "request": {
+        "text": "Quería contarte que abrí Música."
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "self_intention-05",
+      "group": "self_intention",
+      "split": "development",
+      "request": {
+        "text": "Me gusta abrir Finder al empezar."
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "self_intention-06",
+      "group": "self_intention",
+      "split": "development",
+      "request": {
+        "text": "Prefiero Discord a Safari."
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "deferred_requests-01",
+      "group": "deferred_requests",
+      "split": "development",
+      "request": {
+        "text": "Mañana abre Discord."
+      },
+      "expected": {
+        "executable": false,
+        "route": "god_call"
+      },
+      "note": "Petición real con programación/condición no soportada; nunca reducirla a apertura inmediata."
+    },
+    {
+      "id": "deferred_requests-02",
+      "group": "deferred_requests",
+      "split": "development",
+      "request": {
+        "text": "Abre Safari dentro de diez minutos."
+      },
+      "expected": {
+        "executable": false,
+        "route": "god_call"
+      },
+      "note": "Petición real con programación/condición no soportada; nunca reducirla a apertura inmediata."
+    },
+    {
+      "id": "deferred_requests-03",
+      "group": "deferred_requests",
+      "split": "development",
+      "request": {
+        "text": "Recuérdame abrir Discord esta noche."
+      },
+      "expected": {
+        "executable": false,
+        "route": "god_call"
+      },
+      "note": "Petición real con programación/condición no soportada; nunca reducirla a apertura inmediata."
+    },
+    {
+      "id": "deferred_requests-04",
+      "group": "deferred_requests",
+      "split": "development",
+      "request": {
+        "text": "Cuando termine la descarga, abre Premiere."
+      },
+      "expected": {
+        "executable": false,
+        "route": "god_call"
+      },
+      "note": "Petición real con programación/condición no soportada; nunca reducirla a apertura inmediata."
+    },
+    {
+      "id": "deferred_requests-05",
+      "group": "deferred_requests",
+      "split": "development",
+      "request": {
+        "text": "Si llega un mensaje de Ana, abre Discord."
+      },
+      "expected": {
+        "executable": false,
+        "route": "god_call"
+      },
+      "note": "Petición real con programación/condición no soportada; nunca reducirla a apertura inmediata."
+    },
+    {
+      "id": "unsupported_app_actions-01",
+      "group": "unsupported_app_actions",
+      "split": "holdout",
+      "request": {
+        "text": "Busca un mensaje de Ana en Discord."
+      },
+      "expected": {
+        "executable": false,
+        "route": "god_call"
+      }
+    },
+    {
+      "id": "unsupported_app_actions-02",
+      "group": "unsupported_app_actions",
+      "split": "holdout",
+      "request": {
+        "text": "Envía un mensaje a Luis en Discord."
+      },
+      "expected": {
+        "executable": false,
+        "route": "god_call"
+      }
+    },
+    {
+      "id": "unsupported_app_actions-03",
+      "group": "unsupported_app_actions",
+      "split": "holdout",
+      "request": {
+        "text": "Cierra Discord."
+      },
+      "expected": {
+        "executable": false,
+        "route": "god_call"
+      }
+    },
+    {
+      "id": "unsupported_app_actions-04",
+      "group": "unsupported_app_actions",
+      "split": "holdout",
+      "request": {
+        "text": "Desinstala Discord."
+      },
+      "expected": {
+        "executable": false,
+        "route": "god_call"
+      }
+    },
+    {
+      "id": "unsupported_app_actions-05",
+      "group": "unsupported_app_actions",
+      "split": "holdout",
+      "request": {
+        "text": "Actualiza Discord."
+      },
+      "expected": {
+        "executable": false,
+        "route": "god_call"
+      }
+    },
+    {
+      "id": "unsupported_app_actions-06",
+      "group": "unsupported_app_actions",
+      "split": "holdout",
+      "request": {
+        "text": "Abre un canal nuevo en Discord."
+      },
+      "expected": {
+        "executable": false,
+        "route": "god_call"
+      }
+    },
+    {
+      "id": "unsupported_app_actions-07",
+      "group": "unsupported_app_actions",
+      "split": "holdout",
+      "request": {
+        "text": "Silencia el micrófono de Discord."
+      },
+      "expected": {
+        "executable": false,
+        "route": "god_call"
+      }
+    },
+    {
+      "id": "unsupported_app_actions-08",
+      "group": "unsupported_app_actions",
+      "split": "holdout",
+      "request": {
+        "text": "Crea un servidor en Discord."
+      },
+      "expected": {
+        "executable": false,
+        "route": "god_call"
+      }
+    },
+    {
+      "id": "unsupported_other_apps-01",
+      "group": "unsupported_other_apps",
+      "split": "development",
+      "request": {
+        "text": "Busca gatos en Safari."
+      },
+      "expected": {
+        "executable": false,
+        "route": "god_call"
+      }
+    },
+    {
+      "id": "unsupported_other_apps-02",
+      "group": "unsupported_other_apps",
+      "split": "development",
+      "request": {
+        "text": "Abre una pestaña privada en Safari."
+      },
+      "expected": {
+        "executable": false,
+        "route": "god_call"
+      }
+    },
+    {
+      "id": "unsupported_other_apps-03",
+      "group": "unsupported_other_apps",
+      "split": "development",
+      "request": {
+        "text": "Cierra la ventana de Finder."
+      },
+      "expected": {
+        "executable": false,
+        "route": "god_call"
+      }
+    },
+    {
+      "id": "unsupported_other_apps-04",
+      "group": "unsupported_other_apps",
+      "split": "development",
+      "request": {
+        "text": "Borra la carpeta Descargas con Finder."
+      },
+      "expected": {
+        "executable": false,
+        "route": "god_call"
+      }
+    },
+    {
+      "id": "unsupported_other_apps-05",
+      "group": "unsupported_other_apps",
+      "split": "development",
+      "request": {
+        "text": "Exporta el vídeo en Premiere."
+      },
+      "expected": {
+        "executable": false,
+        "route": "god_call"
+      }
+    },
+    {
+      "id": "unsupported_other_apps-06",
+      "group": "unsupported_other_apps",
+      "split": "development",
+      "request": {
+        "text": "Abre el proyecto del cliente en Visual Studio Code."
+      },
+      "expected": {
+        "executable": false,
+        "route": "god_call"
+      }
+    },
+    {
+      "id": "unsupported_other_apps-07",
+      "group": "unsupported_other_apps",
+      "split": "development",
+      "request": {
+        "text": "Instala una extensión en Visual Studio Code."
+      },
+      "expected": {
+        "executable": false,
+        "route": "god_call"
+      }
+    },
+    {
+      "id": "unsupported_other_apps-08",
+      "group": "unsupported_other_apps",
+      "split": "development",
+      "request": {
+        "text": "Cambia el volumen de Spotify al veinte por ciento."
+      },
+      "expected": {
+        "executable": false,
+        "route": "god_call"
+      }
+    },
+    {
+      "id": "incomplete_fragments-01",
+      "group": "incomplete_fragments",
+      "split": "development",
+      "request": {
+        "text": "Abre"
+      },
+      "expected": {
+        "executable": false,
+        "route": "incomplete"
+      }
+    },
+    {
+      "id": "incomplete_fragments-02",
+      "group": "incomplete_fragments",
+      "split": "development",
+      "request": {
+        "text": "Abre la"
+      },
+      "expected": {
+        "executable": false,
+        "route": "incomplete"
+      }
+    },
+    {
+      "id": "incomplete_fragments-03",
+      "group": "incomplete_fragments",
+      "split": "development",
+      "request": {
+        "text": "Quiero que abras"
+      },
+      "expected": {
+        "executable": false,
+        "route": "incomplete"
+      }
+    },
+    {
+      "id": "incomplete_fragments-04",
+      "group": "incomplete_fragments",
+      "split": "development",
+      "request": {
+        "text": "Por favor abre el"
+      },
+      "expected": {
+        "executable": false,
+        "route": "incomplete"
+      }
+    },
+    {
+      "id": "incomplete_fragments-05",
+      "group": "incomplete_fragments",
+      "split": "development",
+      "request": {
+        "text": "Puedes abrirme"
+      },
+      "expected": {
+        "executable": false,
+        "route": "incomplete"
+      }
+    },
+    {
+      "id": "incomplete_fragments-06",
+      "group": "incomplete_fragments",
+      "split": "development",
+      "request": {
+        "text": "Abre la aplicación que"
+      },
+      "expected": {
+        "executable": false,
+        "route": "incomplete"
+      }
+    },
+    {
+      "id": "incomplete_target_suffix-01",
+      "group": "incomplete_target_suffix",
+      "split": "development",
+      "request": {
+        "text": "Abre Discord y"
+      },
+      "expected": {
+        "executable": false,
+        "route": "incomplete"
+      },
+      "note": "No ejecutar el primer segmento cuando el resto de la frase está sin terminar."
+    },
+    {
+      "id": "incomplete_target_suffix-02",
+      "group": "incomplete_target_suffix",
+      "split": "development",
+      "request": {
+        "text": "Abre Safari pero"
+      },
+      "expected": {
+        "executable": false,
+        "route": "incomplete"
+      },
+      "note": "No ejecutar el primer segmento cuando el resto de la frase está sin terminar."
+    },
+    {
+      "id": "incomplete_target_suffix-03",
+      "group": "incomplete_target_suffix",
+      "split": "development",
+      "request": {
+        "text": "No abras"
+      },
+      "expected": {
+        "executable": false
+      },
+      "note": "Negación con destino omitido: puede clasificarse no_order o incomplete; nunca debe ejecutar."
+    },
+    {
+      "id": "incomplete_target_suffix-04",
+      "group": "incomplete_target_suffix",
+      "split": "development",
+      "request": {
+        "text": "Si pudieras abrir"
+      },
+      "expected": {
+        "executable": false,
+        "route": "incomplete"
+      },
+      "note": "No ejecutar el primer segmento cuando el resto de la frase está sin terminar."
+    },
+    {
+      "id": "ambiguous_target-01",
+      "group": "ambiguous_target",
+      "split": "development",
+      "request": {
+        "text": "Abre esa aplicación."
+      },
+      "expected": {
+        "executable": false,
+        "route": "ambiguous"
+      },
+      "note": "Sin antecedente suministrado ni una orden completa independiente."
+    },
+    {
+      "id": "ambiguous_target-02",
+      "group": "ambiguous_target",
+      "split": "development",
+      "request": {
+        "text": "Abre la otra."
+      },
+      "expected": {
+        "executable": false,
+        "route": "ambiguous"
+      },
+      "note": "Sin antecedente suministrado ni una orden completa independiente."
+    },
+    {
+      "id": "ambiguous_target-03",
+      "group": "ambiguous_target",
+      "split": "development",
+      "request": {
+        "text": "Abre el programa de antes."
+      },
+      "expected": {
+        "executable": false,
+        "route": "ambiguous"
+      },
+      "note": "Sin antecedente suministrado ni una orden completa independiente."
+    },
+    {
+      "id": "ambiguous_target-04",
+      "group": "ambiguous_target",
+      "split": "development",
+      "request": {
+        "text": "Abre la que te dije."
+      },
+      "expected": {
+        "executable": false,
+        "route": "ambiguous"
+      },
+      "note": "Sin antecedente suministrado ni una orden completa independiente."
+    },
+    {
+      "id": "ambiguous_target-05",
+      "group": "ambiguous_target",
+      "split": "development",
+      "request": {
+        "text": "Ábrela."
+      },
+      "expected": {
+        "executable": false,
+        "route": "ambiguous"
+      },
+      "note": "Sin antecedente suministrado ni una orden completa independiente."
+    },
+    {
+      "id": "ambiguous_target-06",
+      "group": "ambiguous_target",
+      "split": "development",
+      "request": {
+        "text": "Discord."
+      },
+      "expected": {
+        "executable": false,
+        "route": "ambiguous"
+      },
+      "note": "Sin antecedente suministrado ni una orden completa independiente."
+    },
+    {
+      "id": "multiple_targets-01",
+      "group": "multiple_targets",
+      "split": "holdout",
+      "request": {
+        "text": "Abre Discord y Safari."
+      },
+      "expected": {
+        "executable": false,
+        "route": "ambiguous"
+      },
+      "note": "El contrato vigente admite una sola acción/destino; no elegir uno ni ejecutar parcialmente."
+    },
+    {
+      "id": "multiple_targets-02",
+      "group": "multiple_targets",
+      "split": "holdout",
+      "request": {
+        "text": "Abre Finder y luego Spotify."
+      },
+      "expected": {
+        "executable": false,
+        "route": "ambiguous"
+      },
+      "note": "El contrato vigente admite una sola acción/destino; no elegir uno ni ejecutar parcialmente."
+    },
+    {
+      "id": "multiple_targets-03",
+      "group": "multiple_targets",
+      "split": "holdout",
+      "request": {
+        "text": "Abre Safari o Discord."
+      },
+      "expected": {
+        "executable": false,
+        "route": "ambiguous"
+      },
+      "note": "El contrato vigente admite una sola acción/destino; no elegir uno ni ejecutar parcialmente."
+    },
+    {
+      "id": "multiple_targets-04",
+      "group": "multiple_targets",
+      "split": "holdout",
+      "request": {
+        "text": "Abre tanto Música como Spotify."
+      },
+      "expected": {
+        "executable": false,
+        "route": "ambiguous"
+      },
+      "note": "El contrato vigente admite una sola acción/destino; no elegir uno ni ejecutar parcialmente."
+    },
+    {
+      "id": "multiple_targets-05",
+      "group": "multiple_targets",
+      "split": "holdout",
+      "request": {
+        "text": "Abre Discord; abre Visual Studio Code."
+      },
+      "expected": {
+        "executable": false,
+        "route": "ambiguous"
+      },
+      "note": "El contrato vigente admite una sola acción/destino; no elegir uno ni ejecutar parcialmente."
+    },
+    {
+      "id": "multiple_targets-06",
+      "group": "multiple_targets",
+      "split": "holdout",
+      "request": {
+        "text": "Primero abre Premiere y después Safari."
+      },
+      "expected": {
+        "executable": false,
+        "route": "ambiguous"
+      },
+      "note": "El contrato vigente admite una sola acción/destino; no elegir uno ni ejecutar parcialmente."
+    },
+    {
+      "id": "compound_unsupported-01",
+      "group": "compound_unsupported",
+      "split": "development",
+      "request": {
+        "text": "Abre Discord y envía un mensaje a Ana."
+      },
+      "expected": {
+        "executable": false,
+        "route": "god_call"
+      },
+      "note": "La operación solicitada incluye una tarea fuera del catálogo; no ejecutar parcialmente la apertura."
+    },
+    {
+      "id": "compound_unsupported-02",
+      "group": "compound_unsupported",
+      "split": "development",
+      "request": {
+        "text": "Abre Safari y busca restaurantes."
+      },
+      "expected": {
+        "executable": false,
+        "route": "god_call"
+      },
+      "note": "La operación solicitada incluye una tarea fuera del catálogo; no ejecutar parcialmente la apertura."
+    },
+    {
+      "id": "compound_unsupported-03",
+      "group": "compound_unsupported",
+      "split": "development",
+      "request": {
+        "text": "Abre Premiere y exporta el proyecto."
+      },
+      "expected": {
+        "executable": false,
+        "route": "god_call"
+      },
+      "note": "La operación solicitada incluye una tarea fuera del catálogo; no ejecutar parcialmente la apertura."
+    },
+    {
+      "id": "compound_unsupported-04",
+      "group": "compound_unsupported",
+      "split": "development",
+      "request": {
+        "text": "Abre Finder y borra los archivos temporales."
+      },
+      "expected": {
+        "executable": false,
+        "route": "god_call"
+      },
+      "note": "La operación solicitada incluye una tarea fuera del catálogo; no ejecutar parcialmente la apertura."
+    },
+    {
+      "id": "same_turn_correction-01",
+      "group": "same_turn_correction",
+      "split": "development",
+      "request": {
+        "text": "Abre Discord, no, mejor Safari."
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.apple.Safari"
+      },
+      "note": "Corrección explícita con un único destino final; mencionar dos apps no convierte por sí solo la petición en ambigua."
+    },
+    {
+      "id": "same_turn_correction-02",
+      "group": "same_turn_correction",
+      "split": "development",
+      "request": {
+        "text": "No abras Discord; abre Safari."
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.apple.Safari"
+      },
+      "note": "Corrección explícita con un único destino final; mencionar dos apps no convierte por sí solo la petición en ambigua."
+    },
+    {
+      "id": "same_turn_correction-03",
+      "group": "same_turn_correction",
+      "split": "development",
+      "request": {
+        "text": "En vez de Discord, abre Safari."
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.apple.Safari"
+      },
+      "note": "Corrección explícita con un único destino final; mencionar dos apps no convierte por sí solo la petición en ambigua."
+    },
+    {
+      "id": "same_turn_correction-04",
+      "group": "same_turn_correction",
+      "split": "development",
+      "request": {
+        "text": "Abre Safari, no Discord."
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.apple.Safari"
+      },
+      "note": "Corrección explícita con un único destino final; mencionar dos apps no convierte por sí solo la petición en ambigua."
+    },
+    {
+      "id": "same_turn_cancel-01",
+      "group": "same_turn_cancel",
+      "split": "development",
+      "request": {
+        "text": "Abre Discord... no, cancela."
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "same_turn_cancel-02",
+      "group": "same_turn_cancel",
+      "split": "development",
+      "request": {
+        "text": "Abre Safari. Espera, mejor no."
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "same_turn_cancel-03",
+      "group": "same_turn_cancel",
+      "split": "development",
+      "request": {
+        "text": "Iba a decir abre Finder, pero olvídalo."
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "pending_choose_app-01",
+      "group": "pending_choose_app",
+      "split": "development",
+      "request": {
+        "text": "Discord.",
+        "pending": "Abre una aplicación.",
+        "pending_action": "open_app"
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.hnc.Discord"
+      },
+      "note": "Contexto proporcionado expresamente; no equivale a haber comprobado una ejecución previa."
+    },
+    {
+      "id": "pending_choose_app-02",
+      "group": "pending_choose_app",
+      "split": "development",
+      "request": {
+        "text": "La aplicación Discord.",
+        "pending": "Abre una aplicación.",
+        "pending_action": "open_app"
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.hnc.Discord"
+      },
+      "note": "Contexto proporcionado expresamente; no equivale a haber comprobado una ejecución previa."
+    },
+    {
+      "id": "pending_choose_app-03",
+      "group": "pending_choose_app",
+      "split": "development",
+      "request": {
+        "text": "Discord, por favor.",
+        "pending": "Abre una aplicación.",
+        "pending_action": "open_app"
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.hnc.Discord"
+      },
+      "note": "Contexto proporcionado expresamente; no equivale a haber comprobado una ejecución previa."
+    },
+    {
+      "id": "pending_repeat-01",
+      "group": "pending_repeat",
+      "split": "development",
+      "request": {
+        "text": "Abre Discord.",
+        "pending": "Abre Discord.",
+        "pending_action": "open_app"
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.hnc.Discord"
+      }
+    },
+    {
+      "id": "pending_repeat-02",
+      "group": "pending_repeat",
+      "split": "development",
+      "request": {
+        "text": "abre discord",
+        "pending": "Abre Discord.",
+        "pending_action": "open_app"
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.hnc.Discord"
+      }
+    },
+    {
+      "id": "pending_repeat-03",
+      "group": "pending_repeat",
+      "split": "development",
+      "request": {
+        "text": "Por favor, abre Discord.",
+        "pending": "Abre Discord.",
+        "pending_action": "open_app"
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.hnc.Discord"
+      }
+    },
+    {
+      "id": "pending_change_app-01",
+      "group": "pending_change_app",
+      "split": "holdout",
+      "request": {
+        "text": "Mejor Safari.",
+        "pending": "Abre Discord.",
+        "pending_action": "open_app"
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.apple.Safari"
+      },
+      "note": "La orden pendiente aporta abrir; la nueva frase corrige su destino."
+    },
+    {
+      "id": "pending_change_app-02",
+      "group": "pending_change_app",
+      "split": "holdout",
+      "request": {
+        "text": "No, Safari.",
+        "pending": "Abre Discord.",
+        "pending_action": "open_app"
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.apple.Safari"
+      },
+      "note": "La orden pendiente aporta abrir; la nueva frase corrige su destino."
+    },
+    {
+      "id": "pending_change_app-03",
+      "group": "pending_change_app",
+      "split": "holdout",
+      "request": {
+        "text": "Safari, no Discord.",
+        "pending": "Abre Discord.",
+        "pending_action": "open_app"
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.apple.Safari"
+      },
+      "note": "La orden pendiente aporta abrir; la nueva frase corrige su destino."
+    },
+    {
+      "id": "pending_new_unsupported-01",
+      "group": "pending_new_unsupported",
+      "split": "development",
+      "request": {
+        "text": "Busca un mensaje en Discord.",
+        "pending": "Abre Discord.",
+        "pending_action": "open_app"
+      },
+      "expected": {
+        "executable": false,
+        "route": "god_call"
+      },
+      "note": "Una petición nueva no hereda la operación abrir por inercia."
+    },
+    {
+      "id": "pending_new_unsupported-02",
+      "group": "pending_new_unsupported",
+      "split": "development",
+      "request": {
+        "text": "Cierra Discord.",
+        "pending": "Abre Discord.",
+        "pending_action": "open_app"
+      },
+      "expected": {
+        "executable": false,
+        "route": "god_call"
+      },
+      "note": "Una petición nueva no hereda la operación abrir por inercia."
+    },
+    {
+      "id": "pending_new_unsupported-03",
+      "group": "pending_new_unsupported",
+      "split": "development",
+      "request": {
+        "text": "Mañana abre Discord.",
+        "pending": "Abre Discord.",
+        "pending_action": "open_app"
+      },
+      "expected": {
+        "executable": false,
+        "route": "god_call"
+      },
+      "note": "Una petición nueva no hereda la operación abrir por inercia."
+    },
+    {
+      "id": "verified_repeat-01",
+      "group": "verified_repeat",
+      "split": "development",
+      "request": {
+        "text": "Vuelve a abrirla.",
+        "last_action": "open_app",
+        "last_target": "com.hnc.Discord"
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.hnc.Discord"
+      }
+    },
+    {
+      "id": "verified_repeat-02",
+      "group": "verified_repeat",
+      "split": "development",
+      "request": {
+        "text": "Ábrela otra vez.",
+        "last_action": "open_app",
+        "last_target": "com.hnc.Discord"
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.hnc.Discord"
+      }
+    },
+    {
+      "id": "verified_repeat-03",
+      "group": "verified_repeat",
+      "split": "development",
+      "request": {
+        "text": "Abre de nuevo esa aplicación.",
+        "last_action": "open_app",
+        "last_target": "com.hnc.Discord"
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.hnc.Discord"
+      }
+    },
+    {
+      "id": "verified_new_target-01",
+      "group": "verified_new_target",
+      "split": "development",
+      "request": {
+        "text": "Abre Safari.",
+        "last_action": "open_app",
+        "last_target": "com.hnc.Discord"
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.apple.Safari"
+      }
+    },
+    {
+      "id": "verified_new_target-02",
+      "group": "verified_new_target",
+      "split": "development",
+      "request": {
+        "text": "Por favor, abre Safari.",
+        "last_action": "open_app",
+        "last_target": "com.hnc.Discord"
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.apple.Safari"
+      }
+    },
+    {
+      "id": "verified_noncommands-01",
+      "group": "verified_noncommands",
+      "split": "holdout",
+      "request": {
+        "text": "No la abras otra vez.",
+        "last_action": "open_app",
+        "last_target": "com.hnc.Discord"
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "verified_noncommands-02",
+      "group": "verified_noncommands",
+      "split": "holdout",
+      "request": {
+        "text": "Ya está abierta.",
+        "last_action": "open_app",
+        "last_target": "com.hnc.Discord"
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "verified_noncommands-03",
+      "group": "verified_noncommands",
+      "split": "holdout",
+      "request": {
+        "text": "Gracias.",
+        "last_action": "open_app",
+        "last_target": "com.hnc.Discord"
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "verified_noncommands-04",
+      "group": "verified_noncommands",
+      "split": "holdout",
+      "request": {
+        "text": "¿Cuál abriste?",
+        "last_action": "open_app",
+        "last_target": "com.hnc.Discord"
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "verified_other_action-01",
+      "group": "verified_other_action",
+      "split": "development",
+      "request": {
+        "text": "Ciérrala.",
+        "last_action": "open_app",
+        "last_target": "com.hnc.Discord"
+      },
+      "expected": {
+        "executable": false,
+        "route": "god_call"
+      }
+    },
+    {
+      "id": "verified_other_action-02",
+      "group": "verified_other_action",
+      "split": "development",
+      "request": {
+        "text": "Desinstálala.",
+        "last_action": "open_app",
+        "last_target": "com.hnc.Discord"
+      },
+      "expected": {
+        "executable": false,
+        "route": "god_call"
+      }
+    },
+    {
+      "id": "unknown_targets-01",
+      "group": "unknown_targets",
+      "split": "development",
+      "request": {
+        "text": "Abre FerFixtureApplicationThatDoesNotExist."
+      },
+      "expected": {
+        "executable": false
+      },
+      "note": "Destino inexistente: puede ser unavailable o god_call, pero nunca una sustitución por otra app."
+    },
+    {
+      "id": "unknown_targets-02",
+      "group": "unknown_targets",
+      "split": "development",
+      "request": {
+        "text": "Abre SuperEditorInventado123."
+      },
+      "expected": {
+        "executable": false
+      },
+      "note": "Destino inexistente: puede ser unavailable o god_call, pero nunca una sustitución por otra app."
+    },
+    {
+      "id": "empty_asr-01",
+      "group": "empty_asr",
+      "split": "development",
+      "request": {
+        "text": ""
+      },
+      "expected": {
+        "executable": false
+      },
+      "note": "No hay contenido que autorice un efecto; no se exige una ruta particular al texto vacío del ASR."
+    },
+    {
+      "id": "empty_asr-02",
+      "group": "empty_asr",
+      "split": "development",
+      "request": {
+        "text": "   "
+      },
+      "expected": {
+        "executable": false
+      },
+      "note": "No hay contenido que autorice un efecto; no se exige una ruta particular al texto vacío del ASR."
+    },
+    {
+      "id": "empty_asr-03",
+      "group": "empty_asr",
+      "split": "development",
+      "request": {
+        "text": "..."
+      },
+      "expected": {
+        "executable": false
+      },
+      "note": "No hay contenido que autorice un efecto; no se exige una ruta particular al texto vacío del ASR."
+    },
+    {
+      "id": "empty_asr-04",
+      "group": "empty_asr",
+      "split": "development",
+      "request": {
+        "text": "[silencio]"
+      },
+      "expected": {
+        "executable": false
+      },
+      "note": "No hay contenido que autorice un efecto; no se exige una ruta particular al texto vacío del ASR."
+    },
+    {
+      "id": "music_controls-01",
+      "group": "music_controls",
+      "split": "development",
+      "request": {
+        "text": "Pausa Spotify."
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "pause_music",
+        "target": "com.spotify.client"
+      }
+    },
+    {
+      "id": "music_controls-02",
+      "group": "music_controls",
+      "split": "development",
+      "request": {
+        "text": "Pausa la música en Spotify."
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "pause_music",
+        "target": "com.spotify.client"
+      }
+    },
+    {
+      "id": "music_controls-03",
+      "group": "music_controls",
+      "split": "development",
+      "request": {
+        "text": "Reanuda la música en Spotify."
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "play_music",
+        "target": "com.spotify.client"
+      }
+    },
+    {
+      "id": "music_controls-04",
+      "group": "music_controls",
+      "split": "development",
+      "request": {
+        "text": "Pon la siguiente canción en Spotify."
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "next_track",
+        "target": "com.spotify.client"
+      }
+    },
+    {
+      "id": "music_controls-05",
+      "group": "music_controls",
+      "split": "development",
+      "request": {
+        "text": "Vuelve a la canción anterior en Spotify."
+      },
+      "expected": {
+        "executable": true,
+        "route": "complete",
+        "action": "previous_track",
+        "target": "com.spotify.client"
+      }
+    },
+    {
+      "id": "music_negative-01",
+      "group": "music_negative",
+      "split": "development",
+      "request": {
+        "text": "No pauses Spotify."
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    },
+    {
+      "id": "music_negative-02",
+      "group": "music_negative",
+      "split": "development",
+      "request": {
+        "text": "No reproduzcas música en Apple Music."
+      },
+      "expected": {
+        "executable": false,
+        "route": "no_order"
+      }
+    }
+  ]
+}

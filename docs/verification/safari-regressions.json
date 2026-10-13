@@ -1,0 +1,105 @@
+{
+  "execution": "none",
+  "context": "simulated",
+  "count": 7,
+  "passed": 7,
+  "results": [
+    {
+      "text": "Abre Safari.",
+      "expected_action": "open_safari",
+      "prediction": {
+        "route": "complete",
+        "action": "open_safari",
+        "probability": 0.7558,
+        "target": "com.apple.Safari",
+        "requested_action": "open_safari",
+        "availability": {
+          "status": "available",
+          "reason": null
+        }
+      },
+      "passed": true
+    },
+    {
+      "text": "Abre Finder.",
+      "expected_action": "open_files",
+      "prediction": {
+        "route": "complete",
+        "action": "open_files",
+        "probability": 0.7823,
+        "target": "com.apple.finder",
+        "requested_action": "open_files",
+        "availability": {
+          "status": "available",
+          "reason": null
+        }
+      },
+      "passed": true
+    },
+    {
+      "text": "No abras Safari.",
+      "expected_action": null,
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "probability": 0.8367,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "passed": true
+    },
+    {
+      "text": "solo dime si entendiste: abre Discord",
+      "expected_action": null,
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "probability": 0.8055,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "passed": true
+    },
+    {
+      "text": "ayer abrí Safari",
+      "expected_action": null,
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "probability": 0.9988,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "passed": true
+    },
+    {
+      "text": "abre el",
+      "expected_action": null,
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_browser",
+        "probability": 0.4563,
+        "target": null,
+        "availability": null
+      },
+      "passed": true
+    },
+    {
+      "text": "busca gatos en Safari",
+      "expected_action": null,
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "probability": 0.3222,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "passed": true
+    }
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  "input": "Por favor, abre Spotify.",
+  "expected_bundle": "com.spotify.client",
+  "context": "native",
+  "database": "temporary",
+  "exit_code": 0,
+  "stdout": "{\"prediction\":{\"route\":\"complete\",\"action\":\"open_app\",\"target\":\"com.spotify.client\",\"probability\":0.9997,\"requested_action\":\"open_app\",\"availability\":{\"status\":\"available\",\"reason\":null}},\"verified\":false,\"message\":\"La orden se envió, pero no pude comprobar el resultado. No la repetiré automáticamente.\"}",
+  "stderr": "event=config_shadowed key=SOC_DATABASE_PATH\nevent=migration_applied module=decisions version=1",
+  "outcome": {
+    "prediction": {
+      "route": "complete",
+      "action": "open_app",
+      "target": "com.spotify.client",
+      "probability": 0.9997,
+      "requested_action": "open_app",
+      "availability": {
+        "status": "available",
+        "reason": null
+      }
+    },
+    "verified": false,
+    "message": "La orden se envió, pero no pude comprobar el resultado. No la repetiré automáticamente."
+  },
+  "journal": [
+    [
+      "open_app",
+      "com.spotify.client",
+      "uncertain",
+      "{\"stage\": \"application_verification\", \"observation_failure\": \"os_timeout\", \"reason\": \"application_not_observed\"}"
+    ]
+  ],
+  "after": {
+    "frontmost": "com.apple.Safari",
+    "frontmost_pid": 1247
+  },
+  "application_frontmost": false,
+  "foreground_restore_requested": true,
+  "foreground_restored": true
+}

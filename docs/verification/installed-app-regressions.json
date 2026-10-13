@@ -1,0 +1,219 @@
+{
+  "execution": "none",
+  "context": "real_system_snapshot",
+  "applications": 349,
+  "count": 15,
+  "passed": 15,
+  "results": [
+    {
+      "text": "Por favor, abre Discord.",
+      "expected_target": "com.hnc.Discord",
+      "prediction": {
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.hnc.Discord",
+        "probability": 0.9997,
+        "requested_action": "open_app",
+        "availability": {
+          "status": "available",
+          "reason": null
+        }
+      },
+      "passed": true
+    },
+    {
+      "text": "Abre Safari.",
+      "expected_target": "com.apple.Safari",
+      "prediction": {
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.apple.Safari",
+        "probability": 0.9953,
+        "requested_action": "open_app",
+        "availability": {
+          "status": "available",
+          "reason": null
+        }
+      },
+      "passed": true
+    },
+    {
+      "text": "Abre Finder.",
+      "expected_target": "com.apple.finder",
+      "prediction": {
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.apple.finder",
+        "probability": 0.9706,
+        "requested_action": "open_app",
+        "availability": {
+          "status": "available",
+          "reason": null
+        }
+      },
+      "passed": true
+    },
+    {
+      "text": "Abre Premiere.",
+      "expected_target": "com.adobe.PremierePro.26",
+      "prediction": {
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.adobe.PremierePro.26",
+        "probability": 0.9971,
+        "requested_action": "open_app",
+        "availability": {
+          "status": "available",
+          "reason": null
+        }
+      },
+      "passed": true
+    },
+    {
+      "text": "Por favor abre Visual Studio Code.",
+      "expected_target": "com.microsoft.VSCode",
+      "prediction": {
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.microsoft.VSCode",
+        "probability": 0.9956,
+        "requested_action": "open_app",
+        "availability": {
+          "status": "available",
+          "reason": null
+        }
+      },
+      "passed": true
+    },
+    {
+      "text": "No abras Discord.",
+      "expected_target": null,
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "target": null,
+        "probability": 0.8223,
+        "requested_action": "open_app",
+        "availability": null
+      },
+      "passed": true
+    },
+    {
+      "text": "no abras Discord",
+      "expected_target": null,
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "target": null,
+        "probability": 0.9022,
+        "requested_action": "open_app",
+        "availability": null
+      },
+      "passed": true
+    },
+    {
+      "text": "No quiero que abras Discord.",
+      "expected_target": null,
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "target": null,
+        "probability": 0.5387,
+        "requested_action": "open_app",
+        "availability": null
+      },
+      "passed": true
+    },
+    {
+      "text": "Nunca abras Discord.",
+      "expected_target": null,
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "target": null,
+        "probability": 0.6645,
+        "requested_action": "open_app",
+        "availability": null
+      },
+      "passed": true
+    },
+    {
+      "text": "solo dime si entendiste: abre Discord",
+      "expected_target": null,
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "target": null,
+        "probability": 0.9283,
+        "requested_action": "open_app",
+        "availability": null
+      },
+      "passed": true
+    },
+    {
+      "text": "La frase dice abre Discord.",
+      "expected_target": null,
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "target": null,
+        "probability": 0.6985,
+        "requested_action": "open_app",
+        "availability": null
+      },
+      "passed": true
+    },
+    {
+      "text": "Ayer abrí Discord.",
+      "expected_target": null,
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "target": null,
+        "probability": 0.5417,
+        "requested_action": "open_app",
+        "availability": null
+      },
+      "passed": true
+    },
+    {
+      "text": "busca gatos en Discord",
+      "expected_target": null,
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "target": null,
+        "probability": 0.9846,
+        "requested_action": null,
+        "availability": null
+      },
+      "passed": true
+    },
+    {
+      "text": "Abre Discord y Safari.",
+      "expected_target": null,
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "target": null,
+        "probability": null,
+        "requested_action": "open_app",
+        "availability": null
+      },
+      "passed": true
+    },
+    {
+      "text": "abre una aplicación que no existe FerFixture",
+      "expected_target": null,
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "probability": 0.8483,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "passed": true
+    }
+  ]
+}

@@ -1,0 +1,71 @@
+{
+  "execution": "none",
+  "method": "phase timings in separate helper processes; tensor/prediction comparison; native Rust preload",
+  "profile": {
+    "baseline": {
+      "import_torch_s": 0.5364,
+      "import_laya_s": 0.0047,
+      "build_model_s": 21.2833,
+      "load_file_s": 0.0187,
+      "load_state_dict_s": 0.6492,
+      "device_transfer_s": 0.167,
+      "load_total_s": 25.1696,
+      "warmup_s": 0.3004,
+      "ready_total_s": 26.0202
+    },
+    "optimized": {
+      "import_torch_s": 0.6146,
+      "import_laya_s": 0.0093,
+      "build_model_s": 0.0434,
+      "load_file_s": 0.0041,
+      "load_state_dict_s": 0.1417,
+      "device_transfer_s": 0.366,
+      "load_total_s": 3.3512,
+      "warmup_s": 0.0972,
+      "ready_total_s": 4.0807
+    }
+  },
+  "equivalence": {
+    "tensors": 174,
+    "identical_tensors": true,
+    "predictions": 6,
+    "identical_predictions": true,
+    "device": "mps",
+    "dtype": "torch.float32"
+  },
+  "native_preload": {
+    "context": "real_system",
+    "execution": "none",
+    "first_decision_ms": 682,
+    "outcome": {
+      "message": "Predicción disponible; sin ejecución.",
+      "prediction": {
+        "action": "open_app",
+        "availability": {
+          "reason": null,
+          "status": "available"
+        },
+        "probability": 0.9997,
+        "requested_action": "open_app",
+        "route": "complete",
+        "target": "com.hnc.Discord"
+      },
+      "verified": false
+    },
+    "preload_ms": 3353
+  },
+  "limits": "Measurements vary with host load; no microphone test or restart of the existing soc instance.",
+  "installed_app_regressions": {
+    "passed": 15,
+    "count": 15,
+    "applications": 346
+  },
+  "benchmark_script": {
+    "mode": "optimized",
+    "execution": "none",
+    "ready_seconds": 3.217999457992846,
+    "device": "mps",
+    "dtype": "torch.float32",
+    "within_time_budget": true
+  }
+}

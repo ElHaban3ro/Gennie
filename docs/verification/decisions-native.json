@@ -1,0 +1,28 @@
+{
+  "input": "abre Finder",
+  "context": "native",
+  "database": "temporary",
+  "exit_code": 0,
+  "stdout": "{\"prediction\":{\"route\":\"complete\",\"action\":\"open_files\",\"target\":\"com.apple.finder\",\"probability\":0.833},\"verified\":true,\"message\":\"Finder está en primer plano.\"}",
+  "stderr": "event=config_shadowed key=SOC_DATABASE_PATH\nevent=migration_applied module=decisions version=1",
+  "outcome": {
+    "prediction": {
+      "route": "complete",
+      "action": "open_files",
+      "target": "com.apple.finder",
+      "probability": 0.833
+    },
+    "verified": true,
+    "message": "Finder está en primer plano."
+  },
+  "finder_frontmost": true,
+  "journal": [
+    [
+      "open_files",
+      "com.apple.finder",
+      "verified",
+      "{\"running_bundle\": \"com.apple.finder\"}"
+    ]
+  ],
+  "foreground_restored": true
+}

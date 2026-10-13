@@ -1,0 +1,19 @@
+{
+  "execution": "none",
+  "context": "provided_fixture",
+  "guard_threshold": 0.9,
+  "partitions": {
+    "calibration": {
+      "count": 1324,
+      "accepted_actions": 14,
+      "wrong_accepted_actions": 0,
+      "false_executions": 0
+    },
+    "test": {
+      "count": 689,
+      "accepted_actions": 17,
+      "wrong_accepted_actions": 0,
+      "false_executions": 0
+    }
+  }
+}

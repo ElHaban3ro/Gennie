@@ -1,0 +1,458 @@
+{
+  "execution": "none",
+  "context": "real_system_snapshot",
+  "applications": 346,
+  "count": 31,
+  "passed": 31,
+  "results": [
+    {
+      "text": "Abre Discord.",
+      "expected_target": "com.hnc.Discord",
+      "prediction": {
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.hnc.Discord",
+        "probability": 0.9788,
+        "requested_action": "open_app",
+        "availability": {
+          "status": "available",
+          "reason": null
+        }
+      },
+      "passed": true
+    },
+    {
+      "text": "Abre Discord",
+      "expected_target": "com.hnc.Discord",
+      "prediction": {
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.hnc.Discord",
+        "probability": 0.9788,
+        "requested_action": "open_app",
+        "availability": {
+          "status": "available",
+          "reason": null
+        }
+      },
+      "passed": true
+    },
+    {
+      "text": "abre Discord.",
+      "expected_target": "com.hnc.Discord",
+      "prediction": {
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.hnc.Discord",
+        "probability": 0.9788,
+        "requested_action": "open_app",
+        "availability": {
+          "status": "available",
+          "reason": null
+        }
+      },
+      "passed": true
+    },
+    {
+      "text": "Por favor, abre Discord.",
+      "expected_target": "com.hnc.Discord",
+      "prediction": {
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.hnc.Discord",
+        "probability": 0.9997,
+        "requested_action": "open_app",
+        "availability": {
+          "status": "available",
+          "reason": null
+        }
+      },
+      "passed": true
+    },
+    {
+      "text": "Abre Safari.",
+      "expected_target": "com.apple.Safari",
+      "prediction": {
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.apple.Safari",
+        "probability": 0.9953,
+        "requested_action": "open_app",
+        "availability": {
+          "status": "available",
+          "reason": null
+        }
+      },
+      "passed": true
+    },
+    {
+      "text": "Abre Finder.",
+      "expected_target": "com.apple.finder",
+      "prediction": {
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.apple.finder",
+        "probability": 0.9706,
+        "requested_action": "open_app",
+        "availability": {
+          "status": "available",
+          "reason": null
+        }
+      },
+      "passed": true
+    },
+    {
+      "text": "Abre Premiere.",
+      "expected_target": "com.adobe.PremierePro.26",
+      "prediction": {
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.adobe.PremierePro.26",
+        "probability": 0.9971,
+        "requested_action": "open_app",
+        "availability": {
+          "status": "available",
+          "reason": null
+        }
+      },
+      "passed": true
+    },
+    {
+      "text": "Por favor abre Visual Studio Code.",
+      "expected_target": "com.microsoft.VSCode",
+      "prediction": {
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.microsoft.VSCode",
+        "probability": 0.9956,
+        "requested_action": "open_app",
+        "availability": {
+          "status": "available",
+          "reason": null
+        }
+      },
+      "passed": true
+    },
+    {
+      "text": "No abras Discord.",
+      "expected_target": null,
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "target": null,
+        "probability": 0.8838,
+        "requested_action": "open_app",
+        "availability": null
+      },
+      "passed": true
+    },
+    {
+      "text": "no abras Discord",
+      "expected_target": null,
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "target": null,
+        "probability": 0.9022,
+        "requested_action": "open_app",
+        "availability": null
+      },
+      "passed": true
+    },
+    {
+      "text": "No quiero que abras Discord.",
+      "expected_target": null,
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "target": null,
+        "probability": 0.7186,
+        "requested_action": "open_app",
+        "availability": null
+      },
+      "passed": true
+    },
+    {
+      "text": "Nunca abras Discord.",
+      "expected_target": null,
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "target": null,
+        "probability": 0.6645,
+        "requested_action": "open_app",
+        "availability": null
+      },
+      "passed": true
+    },
+    {
+      "text": "solo dime si entendiste: abre Discord",
+      "expected_target": null,
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "target": null,
+        "probability": 0.934,
+        "requested_action": "open_app",
+        "availability": null
+      },
+      "passed": true
+    },
+    {
+      "text": "La frase dice abre Discord.",
+      "expected_target": null,
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "target": null,
+        "probability": 0.6985,
+        "requested_action": "open_app",
+        "availability": null
+      },
+      "passed": true
+    },
+    {
+      "text": "Ayer abrí Discord.",
+      "expected_target": null,
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "target": null,
+        "probability": 0.5417,
+        "requested_action": "open_app",
+        "availability": null
+      },
+      "passed": true
+    },
+    {
+      "text": "busca gatos en Discord",
+      "expected_target": null,
+      "prediction": {
+        "route": "god_call",
+        "action": null,
+        "target": null,
+        "probability": 0.9846,
+        "requested_action": null,
+        "availability": null
+      },
+      "passed": true
+    },
+    {
+      "text": "Abre Discord y Safari.",
+      "expected_target": null,
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "target": null,
+        "probability": null,
+        "requested_action": "open_app",
+        "availability": null
+      },
+      "passed": true
+    },
+    {
+      "text": "abre una aplicación que no existe FerFixture",
+      "expected_target": null,
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "probability": 0.8483,
+        "target": null,
+        "requested_action": null,
+        "availability": null
+      },
+      "passed": true
+    },
+    {
+      "text": "No abras Discord por favor.",
+      "expected_target": null,
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "target": null,
+        "probability": 0.7346,
+        "requested_action": "open_app",
+        "availability": null
+      },
+      "passed": true
+    },
+    {
+      "text": "Por favor, no abras Discord.",
+      "expected_target": null,
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "target": null,
+        "probability": 0.8844,
+        "requested_action": "open_app",
+        "availability": null
+      },
+      "passed": true
+    },
+    {
+      "text": "¿Puedes decirme qué significa abre Discord?",
+      "expected_target": null,
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "target": null,
+        "probability": 0.4585,
+        "requested_action": "open_app",
+        "availability": null
+      },
+      "passed": true
+    },
+    {
+      "text": "Si digo abre Discord, ¿qué harías?",
+      "expected_target": null,
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "target": null,
+        "probability": 0.8933,
+        "requested_action": "open_app",
+        "availability": null
+      },
+      "passed": true
+    },
+    {
+      "text": "No abras Safari.",
+      "expected_target": null,
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "target": null,
+        "probability": 0.8574,
+        "requested_action": "open_app",
+        "availability": null
+      },
+      "passed": true
+    },
+    {
+      "text": "Nunca abras Safari.",
+      "expected_target": null,
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "target": null,
+        "probability": 0.5556,
+        "requested_action": "open_app",
+        "availability": null
+      },
+      "passed": true
+    },
+    {
+      "text": "No quiero abrir Finder.",
+      "expected_target": null,
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "target": null,
+        "probability": 0.8646,
+        "requested_action": "open_app",
+        "availability": null
+      },
+      "passed": true
+    },
+    {
+      "text": "Quiero que busques un mensaje en Discord.",
+      "expected_target": null,
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "target": null,
+        "probability": 0.8999,
+        "requested_action": "open_app",
+        "availability": null
+      },
+      "passed": true
+    },
+    {
+      "text": "Abre",
+      "expected_target": null,
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "requested_action": "open_browser",
+        "probability": 0.6157,
+        "target": null,
+        "availability": null
+      },
+      "passed": true
+    },
+    {
+      "request": {
+        "text": "Abre Discord.",
+        "pending": "Abre Discord.",
+        "pending_action": "open_app"
+      },
+      "expected_target": "com.hnc.Discord",
+      "prediction": {
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.hnc.Discord",
+        "probability": 0.9788,
+        "requested_action": "open_app",
+        "availability": {
+          "status": "available",
+          "reason": null
+        }
+      },
+      "passed": true
+    },
+    {
+      "request": {
+        "text": "Abre Discord.",
+        "last_action": "open_app",
+        "last_target": "com.apple.Safari"
+      },
+      "expected_target": "com.hnc.Discord",
+      "prediction": {
+        "route": "complete",
+        "action": "open_app",
+        "target": "com.hnc.Discord",
+        "probability": 0.9788,
+        "requested_action": "open_app",
+        "availability": {
+          "status": "available",
+          "reason": null
+        }
+      },
+      "passed": true
+    },
+    {
+      "request": {
+        "text": "No abras Discord.",
+        "pending": "Abre Discord.",
+        "pending_action": "open_app"
+      },
+      "expected_target": null,
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "target": null,
+        "probability": 0.8278,
+        "requested_action": "open_app",
+        "availability": null
+      },
+      "passed": true
+    },
+    {
+      "request": {
+        "text": "Nunca abras Discord.",
+        "pending": "Nunca abras Discord.",
+        "pending_action": "open_app"
+      },
+      "expected_target": null,
+      "prediction": {
+        "route": "ambiguous",
+        "action": null,
+        "target": null,
+        "probability": 0.6645,
+        "requested_action": "open_app",
+        "availability": null
+      },
+      "passed": true
+    }
+  ]
+}
