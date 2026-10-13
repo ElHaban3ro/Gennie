@@ -1,12 +1,14 @@
 # soc — instrucciones del checkout
 
-soc es un asistente personal futuro; esta base ofrece presencia nativa local en macOS, configuración y SQLite. No hay HTTP, usuarios, sesiones, voz, correo ni conectores de IA. Antes de modificar código, identifica las áreas afectadas y lee los archivos de reglas correspondientes. Los enlaces de este índice son instrucciones de lectura, no sustituyen su contenido.
+soc es un asistente personal futuro; esta base ofrece presencia nativa local en macOS, configuración y SQLite. Añade dictado local Nemotron con atajo configurable, globo temporal y control de aplicaciones/música mediante Laya local. No hay HTTP entrante, usuarios, sesiones, correo ni conectores de IA remota. Antes de modificar código, identifica las áreas afectadas y lee los archivos de reglas correspondientes. Los enlaces de este índice son instrucciones de lectura, no sustituyen su contenido.
 
 ## Mapa e invariantes
 - `kernel/config`: carga y valida Config; Secrets separado, sin Debug ni inclusión en AppState.
 - `kernel/db`: única conexión SQLite compartida, transacciones y migraciones inmutables.
 - `kernel/core`: AppModule, AppState y señal de apagado. Kernel nunca importa apps ni contracts.
-- `apps/presence`: UI Slint, estado visual, preferencias propias y worker de persistencia.
+- `apps/presence`: UI Slint, estado visual, globo y configuración; preferencias propias y worker de persistencia.
+- `apps/transcription`: dictado, preferencias propias, descarga verificada de Nemotron y proceso hijo de audio/inferencia con descarga por inactividad.
+- `apps/decisions`: catálogo, intención semántica y disponibilidad separadas, Laya local/adaptaciones, ejecutores comprobados y diario de intentos; sin reintentos automáticos.
 - `bootstrap`: composición explícita y secuencia de arranque/cierre. Grafo acíclico; datos de apps no invaden AppState.
 - No existen contracts, HTTP, buses ni testkit sin una necesidad real. Los avisos futuros salen después del commit.
 - Símbolos, archivos y SQL en inglés; comentarios y documentación en español. Ausencias con Option y fechas persistidas ISO 8601 UTC.

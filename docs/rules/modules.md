@@ -10,7 +10,7 @@ Nombres: minúsculas ASCII/dígitos/underscore; rechazar duplicados. No normaliz
 ## Lifecycle y comunicación
 Start no entra en el event loop, es idempotente y serializado; stop detiene solo recursos propios y es idempotente. UI inicia explícitamente en main después de start. Si falla start, limpiar ese módulo y los iniciados en orden inverso, conservar error original y registrar secundarios. Cierre de UI solicita shutdown, detiene módulos y cierra DB al final.
 
-Actualmente no hay comunicación entre apps. Cuando exista: llamada pública si dependencia real acíclica; trait/DTO en contracts para ciclo; bus para hechos sin respuesta. Un broadcast es efímero y acotado: manejar lag y reconstruir desde fuente, publicar después de commit, no prometer entrega durable. No convertir tablas de otras apps en interfaz implícita.
+Presencia consume Controllers públicos de transcription y decisions mediante dependencias opcionales acíclicas. Para nuevas comunicaciones: llamada pública si dependencia real acíclica; trait/DTO en contracts para ciclo; bus para hechos sin respuesta. Un broadcast es efímero y acotado: manejar lag y reconstruir desde fuente, publicar después de commit, no prometer entrega durable. No convertir tablas de otras apps en interfaz implícita.
 
 ## Dependencias
 Antes de añadir/actualizar: verificar versión exacta en registro oficial y mantenedor, MSRV/plataforma/features/licencia y avisos RustSec o del mantenedor. Guardar fuentes, fecha y límites en docs/decisions/dependencies.md. Lockfile versionado; no afirmar ausencia de vulnerabilidades porque no haya avisos. Revisar tránsito y artefacto objetivo; no habilitar Qt, servidores, red o tray sin necesidad. Winit unstable API se aísla en desktop.rs y requiere reevaluar al actualizar Slint.
@@ -21,3 +21,5 @@ Antes de añadir/actualizar: verificar versión exacta en registro oficial y man
 3. Crear crate significativo con interfaz pequeña, no andamiaje vacío; añadir dependencias centrales y registro.
 4. Validar ciclos, activación, migraciones incluso apagada, lifecycle y limpieza tras fallo.
 5. Actualizar mapa/docs en el mismo cambio. Composición solo en bootstrap; SQL y secretos según documentos propietarios.
+
+El backend directo i-slint-backend-winit tiene exactamente la versión de Slint; su configuración y adaptación permanecen en desktop.rs. El menú nativo compartido pertenece a status_menu, sin introducir Tauri ni otro event loop.

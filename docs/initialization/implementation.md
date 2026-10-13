@@ -5,12 +5,39 @@ Estado: construcción finalizada. No hay bloqueo de configuración/compilación.
 ## Construido
 Workspace de cinco crates útiles, sin capas vacías: configuración explícita Config/Secrets; SQLite único compartido con foreign keys/WAL/FULL y busy timeout; migraciones por módulo atómicas, versionadas y protegidas por SHA-256; registro explícito con DAG/selección conservada; arranque y cleanup inverso; worker de preferencias confirmado después de commit y error visible.
 
-Presence posee UI nativa Slint 1.18.1/Winit/FemtoVG sin WebView: monocromática moderna/minimalista, dormida pequeña con zetas y activa feliz expandida, cara siempre visible, spring y contracción tranquila, movimiento reducido persistido. Mac Accessory sin activación forzada, no-frame/transparent/always-on-top, ubicación diferida hasta existir ventana y hit test circular dinámico. Menú nativo de información y cierre; atajos y ayuda sobre la cara desactivados, con soporte de preferencias reservado para configuración futura.
+Presence posee UI nativa Slint 1.18.1/Winit/FemtoVG sin WebView: monocromática moderna/minimalista, dormida pequeña con zetas y activa feliz expandida, cara siempre visible, expansión/contracción y gestos graduales, respiración sutil y zetas con ritmos independientes, movimiento reducido persistido. Mac Accessory sin activación forzada, no-frame/transparent/always-on-top, ubicación diferida hasta existir ventana y hit test circular dinámico. Icono/menú de barra superior macOS con Asistente → Despertar / Descansar, Acerca de soc y Salir de soc. Menú nativo de información y cierre; atajos y ayuda sobre la cara desactivados, con soporte de preferencias reservado para configuración futura.
+
+## Sueño y despertar suaves — 2026-10-11
+
+La cara combina respiración de amplitud variable y desplazamiento interno lento, con períodos independientes para evitar una repetición corta evidente. Ojos y boca interpolan sus curvas al alternar; el despertar levanta ligeramente los rasgos y forma la sonrisa gradualmente. Las zetas aparecen/desaparecen sin saltos visibles y se desvanecen durante el despertar. El reloj se conserva al alternar y movimiento reducido deja la cara estática. El diámetro efectivo alimenta el hit test nativo existente; no se cambia la posición de ventana ni su interacción.
+
+Verificación de este cambio: compilador Slint 1.18.1 ejecutado con el build script existente y salida temporal, sin errores; comprobación de invariantes correcta. Build locked del workspace bloqueado por desajuste de dependencias/lockfile en el trabajo simultáneo de dictado. Fmt bloqueado por apps/transcription/src/controller.rs ausente durante esa implementación. No se alteran esos archivos ni el lockfile para resolver un cambio ajeno. No se afirma revisión visual continua ni ejecución de estas animaciones en la instancia existente del usuario; requieren recompilar y evaluar cuando el workspace esté consistente.
+
+## Idle despierto — 2026-10-11
+
+La cara activa también tiene movimiento ambiental sin interacción: respiración de hasta 0.35 px en diámetro, desplazamiento lento de mirada/rasgos de hasta 2.2 px, variación mínima de sonrisa y parpadeos suaves de unos 320/360 ms. Dos ritmos de parpadeo con pausas moduladas evitan una cadencia rígida; los ojos despiertos son óvalos rellenos y el parpadeo los comprime verticalmente hasta una cápsula fina, sin ocultarlos. El mismo contorno relleno abre/separa los párpados al despertar y vuelve a la curva cerrada al dormir, sin fundir ni reemplazar dibujos. El parpadeo se atenúa durante la transición, desaparece al dormir y movimiento reducido detiene todo el idle. No se añade lógica de negocio ni cambios de foco. El seguimiento del cursor añadido después se documenta abajo.
+
+Verificación específica: compilación declarativa completa de presence.slint con Slint 1.18.1 y salida temporal correcta; invariantes y diff sin errores. Había otro proceso Cargo construyendo dictado en el target compartido, por lo que no se lanzó una campaña Cargo paralela. No se arrancó ni reinició la instancia del usuario; suavidad visual en ejecución pendiente de evaluación.
+
+## Apertura continua de ojos — 2026-10-11
+
+Se retira el fundido entre curva dormida y óvalo despierto: cada ojo usa un único Path relleno con cuatro curvas Bézier. Los bordes superior/inferior se separan progresivamente, la curvatura dormida se relaja y el contorno se convierte en el óvalo abierto. El parpadeo comprime ese mismo contorno manteniendo ancho y centro del ojo despierto. No se alternan elementos ni opacidades. Se conservan las duraciones, idle, movimiento reducido y callbacks de interacción.
+
+Verificación: `cargo build --locked -p soc`, invariantes y `git diff --check` correctos. No se reinició la instancia existente; la apertura continua aún requiere evaluación visual en ejecución.
+
+## Mirada hacia cursor y vidrio — 2026-10-11
+
+La cara despierta sigue la dirección del mouse suavemente, conservando apertura y parpadeo continuos. macOS lee cursor global junto al hit test; Winit ofrece fallback local en otros OS. Dormido/movimiento reducido centran la mirada. Material en ambos estados dibujado con Slint: translucidez, reflejos, gradientes y bordes. Aproximación de vidrio portable sin controles macOS, sin blur/refracción real del escritorio. Véase [regla vigente](../rules/frontend.md#mirada-y-vidrio-portátil) para capacidades y fuentes.
+
+Verificación específica: `cargo test --locked -p soc-presence` correcto (4 pruebas, incluida dirección/rango de mirada), compilación Slint correcta, invariantes y diff correctos. Se formatearon solo los archivos Rust editados. No se reinició la instancia del usuario ni se certifica aquí seguimiento visual del cursor/transparencia compositada; otros OS y monitores pendientes de evaluación.
 
 ## Ejecutar y verificar
 `cargo run --locked -p soc` desde raíz. `.env` local preparado con SOC_DATABASE_PATH=data/soc.sqlite3, SOC_DB_BUSY_TIMEOUT_MS=500; no secretos/puertos. Clic alterna; el menú Acerca de soc abre información y el menú Salir termina. M, A, Espacio, Escape y cierre con clic derecho están desactivados. Ver [README](../../README.md).
 
 Pasaron `cargo fmt --all -- --check`, `cargo test --workspace --locked` (13), `cargo clippy --workspace --all-targets --locked -- -D warnings`, `cargo build --locked -p soc` y `python3 scripts/check_invariants.py`. Tests recorren atomicidad/checksum/historia de migración, reapertura real, namespaces, cierre compartido, registro y orphans, DAG, dependencias y selección, fallo de startup y cleanup inverso, lifecycle idempotente, precedencia de configuración, variables sincronizadas, commit y error real de worker.
+
+## Verificación del menú de barra superior — 2026-10-11
+Pasaron formato, 13 pruebas de workspace, Clippy con warnings denegados, build locked y comprobación de invariantes. Ejecución aislada con SQLite temporal confirmó status_menu_ready/ui_ready sin errores de creación nativa. Un paquete .app temporal permitió inspeccionar la cara dormida mediante accesibilidad y captura, pero la herramienta no expuso los iconos de barra superior: apertura, acciones del submenú, Acerca y cierre desde el icono quedan pendientes de comprobación manual. No se sustituye esa evidencia por pruebas unitarias. Instancias propias de evaluación cerradas, sin detener la instancia existente del usuario; no se publica ni instala el paquete temporal.
 
 ## Evidencia runtime y límites
 La evidencia siguiente corresponde a la base inicial, anterior a la desactivación de atajos y ayuda. Este cambio requiere evaluación manual actual; compilación y pruebas no demuestran comportamiento runtime.
@@ -123,3 +150,29 @@ Estado vigente: inicialización completada, con límites de validación runtime 
 - Límites: capturas secuenciales no equivalen a revisión continua del movimiento. Foco de otras apps, transparencia compositada, always-on-top y paso real de clics requieren comprobación manual OS; automatización app dirigida no demuestra esas garantías. Multi-monitor/Retina/Spaces/otros OS no probados. Click-through específico macOS, no implementado en otros OS.
 - Prompt SHA-256 original conservado: 7412501ba941c357418096079a62cff4487dccf9cb138f197c36f4088ea3d9dd. Sin commit/push, rama main y origin conservados, sin procesos temporales vivos.
 Último paso completado: construir/verificar/consolidar. Siguiente: evaluación manual de comportamiento de ventana y feedback del usuario; no hay bloqueo de configuración ni de compilación. Conectores y autonomía quedan fuera de este hito.
+
+## Reubicación por arrastre — 2026-10-11
+La cara contiene WindowMoveArea de Slint 1.18.1 alrededor de TouchArea: botón izquierdo, umbral nativo de arrastre y clic independiente. Winit realiza el movimiento de la ventana; no hay nueva dependencia, worker ni escritura de posición. Cursor de mano y etiqueta accesible indican la interacción. Al reiniciar vuelve a la ubicación inicial; los atajos suspendidos siguen suspendidos.
+
+Verificación en copia temporal de kernel/config, kernel/db, kernel/core, presence y bootstrap: build, 13 tests y Clippy pasaron. Se usó target separado; no se cambió el lockfile compartido porque el workspace recibía simultáneamente apps/transcription. Esto no certifica la compilación de esa app concurrente. Durante la revisión también cambiaron las animaciones de presence en otro trabajo; se preservaron junto al área de arrastre.
+
+Instancia macOS con SQLite propia: cara dormida/activa y clic posterior confirmados mediante accesibilidad. Los arrastres sintéticos mantuvieron el estado, pero no movieron la ventana (posición nativa observada 1672,744): no se declara arrastre físico validado. Se observó posición solo con instrumentación en la copia temporal, nunca añadida al checkout. Se cerró la instancia mediante su menú Salir. Pendientes prueba física, reentrada del hit test después de mover, Retina y varios monitores.
+
+## Corrección del límite superior de arrastre — 2026-10-11
+El usuario reprodujo un tope cercano a media pantalla. La sonda de NSWindow con marco 400x460 y cara de 80 px a 32 px del borde inferior reprodujo minimum_face_top=378, código 1, con la política original. El margen invisible superior de la ventana, no la cara, era el límite de macOS.
+
+Se conserva WindowMoveArea y se adapta constrainFrameRect:toScreen: solo para la identidad de la presencia, conservando clase/ivars de Winit y el comportamiento de otras ventanas. El registro se retira al salir. No se añadió movimiento manual, persistencia ni cambios a las animaciones y transcripción concurrentes. La sonda de regresión es una ventana mínima con esas dimensiones y el desktop.rs real, sin DB/audio; comprueba política, posición, otra ventana, idempotencia y retirada. No certifica arrastre físico ni varios monitores/Retina.
+
+Resultado de la regresión nativa: minimum_face_top=0, positioned_face_top=0 y window_top=-348; otra ventana y retirada de identidad conservaron 378 px. Pasaron 20 pruebas del workspace y build locked en el checkout compartido; Clippy de presencia/all-targets pasó en la copia con target separado. Formato de archivos afectados, invariantes y diff sin errores. No se detuvo la instancia del usuario; requiere reinicio para aplicar la política. La regresión prueba el límite/posición nativos, no un arrastre físico ni Retina/multi-monitor.
+
+## Extensión posterior D-015: transcripción
+Se añade dictado local Nemotron con atajo configurable (mantener/alternar), globo progresivo animado y borrado temporal, configuración Slint y descarga verificada con aviso. Implementación y evidencia independientes de la primera base: [decisión](../decisions/transcription.md), [verificación](../verification/transcription.md). No guardar voz/transcripción ni pegar texto.
+
+## Arrastre real: corrección posterior — 2026-10-11
+El usuario confirmó que el tope persistía tras la política de NSWindow: la sonda anterior solo probaba posicionamiento y no todo performWindowDragWithEvent. Había dos procesos: target/debug/soc y .verification/soc-transcription-review.app/Contents/MacOS/soc; no se cerraron ni reemplazaron sus datos.
+
+En macOS se deshabilita WindowMoveArea y se usa DragGesture con cursor global y botón físico, en el timer existente y callbacks de la cara. Se conserva la política de marco negativo para el setter. Captura de mouse durante pulsación, terminación aunque falte pointer-event up y supresión del clic tras mover; nueva pulsación reinicia. No se acepta captura sintética sin botón físico, para impedir movimiento residual. La mirada y el click-through vuelven a su comportamiento normal al soltar.
+
+La sonda ahora recorre muestras del controlador: cara a 460, 260 y 0 px del borde superior; soltado y siguiente clic comprobados. Prueba de UI aislada detectó pérdida de soltado en eventos sintéticos; esa versión se descartó y se añadió el control físico del botón. La interacción física final queda pendiente; no repetir la afirmación de arrastre real corregido basándose solo en setters. Paquete temporal propio cerrado, sin alterar procesos del usuario.
+
+Verificación final de esta revisión: 22 pruebas de workspace, Clippy workspace/all-targets con warnings denegados y build locked pasaron. Formato, invariantes y diff correctos. Sonda de muestras del controlador llegó al borde y comprobó soltado/siguiente clic; queda pendiente prueba física de la versión final. Las dos instancias previas se conservaron; el nuevo target/debug/soc está compilado.

@@ -13,3 +13,13 @@ presence posee `reduced_motion` booleano, default false, aplicable sin reinicio,
 
 ## Verificación
 Validar obligatorias, rangos, precedencia y sincronización ejemplo/declaraciones; reapertura del archivo demuestra persistencia. Ver testing y database para transacciones.
+
+## Preferencias de transcripción
+`transcription_preferences` pertenece a transcription: enabled=true; shortcut=Ctrl+Option+Space (parser handy-keys, capturado en UI); mode=hold (hold/toggle); bubble_seconds=15 (2..30); unload_seconds=600 (0..600, cero descarga inmediata; UI en minutos); microphone_name=None (entrada predeterminada del sistema). Entrada explícita identificada por nombre CPAL: ausente o ambiguo produce error, sin fallback silencioso. No guardar índice de enumeración. Migración 0002 añade selección y actualiza el tiempo existente a 600 por petición del usuario, sin cambiar 0001 ni los demás ajustes. Migración 0003 fija el default del globo en 15 s y cambia los valores guardados de 5 a 15; no distingue un 5 elegido explícitamente del antiguo default. Conserva otros tiempos y ajustes guardados. Aplicables después de commit sin reinicio, cancelando dictado en curso al cambiarlas. Modelo Q8_0 fijo, idioma es-ES en esta primera integración. No añadir valores a Config ni secretos. Almacén macOS en ~/Library/Application Support/soc/models; no ruta relativa al checkout.
+
+## Runtime de decisiones
+`decision_preferences` pertenece a decisions: preload=true, unload_seconds=600 o NULL para mantener cargado; minutos enteros entre 1 y 120. Migración 0002 conserva 0001 y el diario. Precarga se aplica al siguiente arranque/conexión del Controller; el plazo tras el commit, desde la última petición terminada. Guardado independiente de Nemotron, fuera de main y confirmado después de persistir. Cargar/liberar manualmente no altera preferencias. [D-019](../decisions/laya-settings.md).
+
+`apps/decisions` posee ~/Library/Application Support/soc/decisions/runtime.json: python y model, rutas absolutas existentes, sin defaults externos ni secretos, releídas al crear el hijo. No añade variables SOC_ ni altera .env. La casilla de control por voz es transitoria, comienza marcada por petición del usuario; no promete persistencia. Ver [control](../decisions/control.md).
+
+La versión D-017 permite adapter como ruta absoluta opcional de adaptación verificada por hashes. runtime-v2.json tiene prioridad para el binario nuevo; runtime.json se conserva para procesos antiguos. configure_laya --adapter escribe v2 por defecto. Una configuración/adaptación inválida falla; no se oculta con fallback. Ver [semántica](../decisions/semantic-control.md).
