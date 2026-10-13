@@ -1994,6 +1994,7 @@ version = "1.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0f519a8611a4982921e46e391015e5e40ceac5cc63813333ef91ada77df180d8"
 dependencies = [
+ "bytemuck",
  "calloop 0.14.5",
  "cfg_aliases",
  "drm",
@@ -2002,6 +2003,8 @@ dependencies = [
  "i-slint-common",
  "i-slint-core",
  "i-slint-renderer-femtovg",
+ "i-slint-renderer-software",
+ "memmap2",
  "nix 0.31.3",
  "raw-window-handle",
 ]
@@ -2015,11 +2018,25 @@ dependencies = [
  "cfg-if",
  "cfg_aliases",
  "i-slint-backend-linuxkms",
+ "i-slint-backend-testing",
  "i-slint-backend-winit",
  "i-slint-common",
  "i-slint-core",
  "i-slint-core-macros",
  "i-slint-renderer-femtovg",
+]
+
+[[package]]
+name = "i-slint-backend-testing"
+version = "1.18.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "01943d6c5ea5bc913d497bdaa423c309e7627afff47a6794bfd13be5c564209f"
+dependencies = [
+ "cfg_aliases",
+ "i-slint-common",
+ "i-slint-core",
+ "i-slint-renderer-software",
+ "vtable",
 ]
 
 [[package]]
@@ -2032,6 +2049,7 @@ dependencies = [
  "accesskit_winit",
  "arboard",
  "block2 0.6.2",
+ "bytemuck",
  "cfg-if",
  "cfg_aliases",
  "futures",
@@ -2042,6 +2060,8 @@ dependencies = [
  "i-slint-core-macros",
  "i-slint-renderer-femtovg",
  "i-slint-renderer-skia",
+ "i-slint-renderer-software",
+ "imgref",
  "lyon_path",
  "muda 0.19.3",
  "objc2 0.6.5",
@@ -2051,6 +2071,7 @@ dependencies = [
  "objc2-ui-kit 0.3.2",
  "pin-weak",
  "raw-window-handle",
+ "rgb",
  "scoped-tls-hkt",
  "scopeguard",
  "softbuffer",
@@ -4735,8 +4756,10 @@ dependencies = [
  "soc-core",
  "soc-db",
  "soc-decisions",
+ "soc-llm",
  "soc-presence",
  "soc-transcription",
+ "soc-tts",
 ]
 
 [[package]]
@@ -4774,20 +4797,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "soc-llm"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "soc-config",
+ "soc-core",
+ "soc-db",
+]
+
+[[package]]
 name = "soc-presence"
 version = "0.1.0"
 dependencies = [
+ "arboard",
  "i-slint-backend-winit",
  "objc2 0.6.5",
  "objc2-app-kit 0.3.2",
  "objc2-foundation 0.3.2",
+ "pulldown-cmark",
  "slint",
  "slint-build",
  "soc-config",
  "soc-core",
  "soc-db",
  "soc-decisions",
+ "soc-llm",
  "soc-transcription",
+ "soc-tts",
  "tray-icon",
 ]
 
@@ -4805,6 +4842,17 @@ dependencies = [
  "soc-core",
  "soc-db",
  "transcribe-cpp",
+]
+
+[[package]]
+name = "soc-tts"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "soc-config",
+ "soc-core",
+ "soc-db",
 ]
 
 [[package]]

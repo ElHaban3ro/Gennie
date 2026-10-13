@@ -1,5 +1,5 @@
 [workspace]
-members = ["kernel/config", "kernel/db", "kernel/core", "apps/presence", "apps/transcription", "apps/decisions", "bootstrap"]
+members = ["kernel/config", "kernel/db", "kernel/core", "apps/presence", "apps/transcription", "apps/decisions", "apps/llm", "apps/tts", "bootstrap"]
 resolver = "3"
 
 [workspace.package]
@@ -15,11 +15,14 @@ soc-core = { path = "kernel/core" }
 soc-presence = { path = "apps/presence" }
 soc-transcription = { path = "apps/transcription" }
 soc-decisions = { path = "apps/decisions" }
+soc-llm = { path = "apps/llm" }
+soc-tts = { path = "apps/tts" }
 cpal = { version = "=0.16.0", default-features = false }
 handy-keys = "=0.3.4"
 transcribe-cpp = { version = "=0.3.1", default-features = false, features = ["metal"] }
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.154"
+pulldown-cmark = { version = "=0.13.4", default-features = false }
 reqwest = { version = "=0.12.28", default-features = false, features = ["blocking", "rustls-tls"] }
 slint = { version = "=1.18.1", default-features = false, features = ["std", "backend-winit", "renderer-femtovg", "compat-1-18", "accessibility", "unstable-winit-030"] }
 slint-build = "=1.18.1"
