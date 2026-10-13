@@ -1,9 +1,11 @@
 //! Secuencia de chat con mensajes de prueba, sin audio/DB/atajos.
 //! --decisions intercala los estados independientes de Laya y Nemotron.
+#[path = "../src/answer.rs"]
+mod answer;
 #[path = "../src/chat.rs"]
 mod chat;
 use slint::{ComponentHandle, Model};
-use soc_presence::{ChatBubble, PresenceWindow};
+use soc_presence::{ChatBubble, ChatSource, PresenceWindow};
 use std::{
     cell::RefCell,
     rc::Rc,
@@ -26,6 +28,7 @@ fn main() -> soc_core::Result<()> {
     ui.set_active(true);
     let messages = Rc::new(RefCell::new(chat::Chat::default()));
     ui.set_chat_bubbles(slint::ModelRc::from(messages.borrow().model.clone()));
+    ui.set_chat_sources(slint::ModelRc::from(messages.borrow().sources.clone()));
     let ttl = if limit {
         Duration::from_secs(30)
     } else {

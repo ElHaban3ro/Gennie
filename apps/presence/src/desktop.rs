@@ -136,14 +136,14 @@ pub fn initialize() -> Result<()> {
 }
 
 // Solo para una apertura explícita del usuario; nunca desde animaciones/avisos.
-pub fn present_settings(window: &slint::Window) -> Result<()> {
+pub fn present_window(window: &slint::Window) -> Result<()> {
     window.show()?;
     window
         .with_winit_window(|native| {
             native.set_minimized(false);
             native.focus_window();
         })
-        .ok_or("Ventana nativa de ajustes no disponible")?;
+        .ok_or("Ventana nativa no disponible")?;
     Ok(())
 }
 
@@ -654,15 +654,23 @@ mod tests {
                 width: 24.0,
                 height: 24.0,
             },
+            crate::IndicatorBounds {
+                x: 196.0,
+                y: 232.0,
+                width: 24.0,
+                height: 24.0,
+            },
         ];
         let hit = |x, y| contains_presence(x, y, 160.0, 184.0, 40.0, &indicators);
         assert!(hit(160.0, 184.0));
         assert!(hit(200.0, 184.0));
         assert!(hit(144.0, 244.0));
         assert!(hit(176.0, 244.0));
+        assert!(hit(208.0, 244.0));
         assert!(hit(132.0, 232.0));
         assert!(!hit(156.0, 244.0));
         assert!(!hit(160.0, 244.0));
+        assert!(!hit(192.0, 244.0));
         assert!(!hit(144.0, 256.0));
         assert!(!hit(160.0, 228.0));
         assert!(!hit(199.0, 223.0));

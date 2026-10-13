@@ -114,6 +114,13 @@ pub fn register(db: &Database, modules: &[Arc<dyn AppModule>]) -> Result<BTreeSe
     )?;
     db.with_connection(|connection| {
         let tx = connection.transaction()?;
+        if modules.iter().any(|module| module.name() == "llm") {
+            // Conserva la elección del módulo anterior al renombrarlo.
+            tx.execute(
+                "INSERT INTO modules(name,active) SELECT 'llm',active FROM modules WHERE name='codex' ON CONFLICT(name) DO NOTHING",
+                [],
+            )?;
+        }
         let mut active = BTreeSet::new();
         for module in modules {
             tx.execute(
@@ -193,8 +200,15 @@ pub fn run() -> Result<()> {
         let presence = Arc::new(PresenceModule::default());
         let transcription = Arc::new(soc_transcription::TranscriptionModule::default());
         let decisions = Arc::new(soc_decisions::DecisionsModule::default());
-        let modules =
-            crate::registry::build(presence.clone(), transcription.clone(), decisions.clone());
+        let llm = Arc::new(soc_llm::LlmModule::default());
+        let tts = Arc::new(soc_tts::TtsModule::default());
+        let modules = crate::registry::build(
+            presence.clone(),
+            transcription.clone(),
+            decisions.clone(),
+            llm.clone(),
+            tts.clone(),
+        );
         let order = crate::registry::order(&modules)?;
         let active = register(&db, &modules)?;
         crate::registry::validate_active(&modules, &active)?;
@@ -204,7 +218,7 @@ pub fn run() -> Result<()> {
         let started = start_all(&modules, &order, &active, &state)?;
         let ui_result = if active.contains("presence") {
             eprintln!("event=ui_starting");
-            presence.run_with_decisions(
+            presence.run_with_tts(
                 &state,
                 if active.contains("transcription") {
                     Some(&transcription)
@@ -213,6 +227,16 @@ pub fn run() -> Result<()> {
                 },
                 if active.contains("decisions") {
                     Some(&decisions)
+                } else {
+                    None
+                },
+                if active.contains("llm") {
+                    Some(&llm)
+                } else {
+                    None
+                },
+                if active.contains("tts") {
+                    Some(&tts)
                 } else {
                     None
                 },
@@ -287,6 +311,8 @@ mod tests {
             Arc::new(PresenceModule::default()),
             Arc::new(soc_transcription::TranscriptionModule::default()),
             Arc::new(soc_decisions::DecisionsModule::default()),
+            Arc::new(soc_llm::LlmModule::default()),
+            Arc::new(soc_tts::TtsModule::default()),
         );
         assert!(register(&state.db, &modules).unwrap().contains("presence"));
         state
@@ -299,6 +325,35 @@ mod tests {
             })
             .unwrap();
         assert!(register(&state.db, &modules).unwrap().is_empty());
+    }
+    #[test]
+    fn registration_preserves_legacy_codex_selection() {
+        let state = state();
+        state
+            .db
+            .migrate(
+                "bootstrap",
+                &[Migration {
+                    version: 1,
+                    sql: include_str!("../migrations/0001_modules.sql"),
+                }],
+            )
+            .unwrap();
+        state
+            .db
+            .with_connection(|connection| {
+                connection.execute("INSERT INTO modules(name,active) VALUES('codex',0)", [])?;
+                Ok(())
+            })
+            .unwrap();
+        let modules = crate::registry::build(
+            Arc::new(PresenceModule::default()),
+            Arc::new(soc_transcription::TranscriptionModule::default()),
+            Arc::new(soc_decisions::DecisionsModule::default()),
+            Arc::new(soc_llm::LlmModule::default()),
+            Arc::new(soc_tts::TtsModule::default()),
+        );
+        assert!(!register(&state.db, &modules).unwrap().contains("llm"));
     }
     #[test]
     fn startup_failure_cleans_in_reverse_and_keeps_original_error() {

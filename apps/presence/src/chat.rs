@@ -1,4 +1,4 @@
-use crate::ChatBubble;
+use crate::{ChatBubble, ChatSource, answer};
 use slint::{Model, VecModel};
 use std::{
     rc::Rc,
@@ -9,16 +9,20 @@ const LIMIT: usize = 5;
 struct Entry {
     id: u64,
     expires: Option<Instant>,
+    sources: Vec<ChatSource>,
+    pending_audio: usize,
 }
 #[derive(Default)]
 pub(crate) struct Chat {
     pub model: Rc<VecModel<ChatBubble>>,
+    pub sources: Rc<VecModel<ChatSource>>,
     entries: Vec<Entry>,
     status: Option<u64>,
     decision: Option<u64>,
     speech: Option<u64>,
     next: u64,
     sleep_after_dialogue: bool,
+    pending_audio: usize,
 }
 impl Chat {
     fn remove(&mut self, index: usize) {
@@ -33,6 +37,19 @@ impl Chat {
         if self.speech == Some(id) {
             self.speech = None;
         }
+        self.refresh_sources();
+    }
+    fn refresh_sources(&self) {
+        let latest = self
+            .entries
+            .iter()
+            .rev()
+            .find(|entry| !entry.sources.is_empty());
+        self.sources.set_vec(
+            latest
+                .map(|entry| entry.sources.clone())
+                .unwrap_or_default(),
+        );
     }
     fn push(&mut self, title: &str, text: &str) -> u64 {
         if self.entries.len() == LIMIT {
@@ -42,6 +59,8 @@ impl Chat {
         self.entries.push(Entry {
             id: self.next,
             expires: None,
+            sources: Vec::new(),
+            pending_audio: 0,
         });
         self.model.push(ChatBubble {
             from_user: title.starts_with("Tú"),
@@ -68,10 +87,53 @@ impl Chat {
         self.update(id, title, text, finished.then_some(now + ttl));
         self.status = (!finished).then_some(id);
     }
-    pub fn decision(&mut self, text: &str, finished: bool, ttl: Duration, now: Instant) {
-        let id = self.decision.unwrap_or_else(|| self.push("SOC", text));
-        self.update(id, "SOC", text, finished.then_some(now + ttl));
+    pub fn decision(&mut self, text: &str, finished: bool, ttl: Duration, now: Instant) -> u64 {
+        let answer = answer::prepare(text);
+        let id = self
+            .decision
+            .unwrap_or_else(|| self.push("SOC", &answer.text));
+        self.update(id, "SOC", &answer.text, finished.then_some(now + ttl));
+        if let Some(entry) = self.entries.iter_mut().find(|entry| entry.id == id) {
+            if entry.pending_audio > 0 {
+                entry.expires = None;
+            }
+            entry.sources = answer
+                .sources
+                .into_iter()
+                .map(|source| ChatSource {
+                    label: source.label.into(),
+                    url: source.url.into(),
+                })
+                .collect();
+            self.refresh_sources();
+        }
         self.decision = (!finished).then_some(id);
+        id
+    }
+    pub fn begin_audio(&mut self, bubble_id: Option<u64>) {
+        self.pending_audio += 1;
+        self.sleep_after_dialogue = true;
+        if let Some(entry) = self
+            .entries
+            .iter_mut()
+            .find(|entry| Some(entry.id) == bubble_id)
+        {
+            entry.pending_audio += 1;
+            entry.expires = None;
+        }
+    }
+    pub fn finish_audio(&mut self, bubble_id: Option<u64>, ttl: Duration, now: Instant) {
+        self.pending_audio = self.pending_audio.saturating_sub(1);
+        if let Some(entry) = self
+            .entries
+            .iter_mut()
+            .find(|entry| Some(entry.id) == bubble_id)
+        {
+            entry.pending_audio = entry.pending_audio.saturating_sub(1);
+            if entry.pending_audio == 0 && self.decision != Some(entry.id) {
+                entry.expires = Some(now + ttl);
+            }
+        }
     }
     pub fn loaded(&mut self, ttl: Duration, now: Instant) {
         // Una carga fría durante dictado no añade otro globo encima del usuario.
@@ -119,6 +181,7 @@ impl Chat {
             self.status("Transcripción", text, true, ttl, now);
         }
     }
+    #[allow(dead_code)]
     pub fn cancel(&mut self) {
         self.cancel_transcription();
         self.cancel_decision();
@@ -146,7 +209,7 @@ impl Chat {
                 self.remove(index);
             }
         }
-        if self.sleep_after_dialogue && self.entries.is_empty() {
+        if self.sleep_after_dialogue && self.entries.is_empty() && self.pending_audio == 0 {
             self.sleep_after_dialogue = false;
             true
         } else {
@@ -158,6 +221,65 @@ impl Chat {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn completed_llm_messages_get_separate_bubbles() {
+        let mut chat = Chat::default();
+        let now = Instant::now();
+        let ttl = Duration::from_secs(15);
+        chat.decision("Pensando…", false, ttl, now);
+        chat.decision("Voy a consultar CPU y memoria.", true, ttl, now);
+        chat.decision("CPU ocupada: 42 %.", true, ttl, now);
+        assert_eq!(chat.model.row_count(), 2);
+        assert_eq!(
+            chat.model.row_data(0).unwrap().text,
+            "Voy a consultar CPU y memoria."
+        );
+        assert_eq!(chat.model.row_data(1).unwrap().text, "CPU ocupada: 42 %.");
+    }
+    #[test]
+    fn streaming_answer_waits_for_all_spoken_chunks_before_expiring() {
+        let mut chat = Chat::default();
+        let now = Instant::now();
+        let ttl = Duration::from_secs(2);
+        let id = chat.decision("Primera. Segunda", false, ttl, now);
+        chat.begin_audio(Some(id));
+        chat.begin_audio(Some(id));
+        chat.finish_audio(Some(id), ttl, now + ttl);
+        assert!(!chat.expire(now + ttl + ttl));
+        chat.decision("Primera. Segunda.", true, ttl, now + ttl);
+        assert!(!chat.expire(now + ttl + ttl));
+        chat.finish_audio(Some(id), ttl, now + ttl + ttl);
+        assert!(chat.expire(now + ttl + ttl + ttl));
+    }
+    #[test]
+    fn final_answer_keeps_citations_out_of_spoken_bubble_text() {
+        let mut chat = Chat::default();
+        chat.decision(
+            "La **serpiente más larga** es la pitón. [Guinness World Records](https://www.guinnessworldrecords.com/world-records/782113-longest-wild-snake-specimen) [Museo de Historia Natural de Londres](https://www.nhm.ac.uk/discover/what-is-the-biggest-snake-in-the-world.html)",
+            true,
+            Duration::from_secs(15),
+            Instant::now(),
+        );
+        assert_eq!(
+            chat.model.row_data(0).unwrap().text,
+            "La serpiente más larga es la pitón."
+        );
+        assert_eq!(chat.sources.row_count(), 2);
+        assert_eq!(
+            chat.sources.row_data(0).unwrap().label,
+            "Guinness World Records"
+        );
+    }
+    #[test]
+    fn source_panel_expires_with_its_answer() {
+        let mut chat = Chat::default();
+        let now = Instant::now();
+        let ttl = Duration::from_secs(5);
+        chat.decision("Respuesta. [Fuente](https://example.com/1)", true, ttl, now);
+        assert_eq!(chat.sources.row_count(), 1);
+        chat.expire(now + ttl);
+        assert_eq!(chat.sources.row_count(), 0);
+    }
     #[test]
     fn model_readiness_and_transcription_cancellation_do_not_finish_a_pending_decision() {
         let mut chat = Chat::default();
@@ -217,6 +339,33 @@ mod tests {
         assert!(!chat.expire(now + Duration::from_secs(105)));
         assert!(chat.expire(now + Duration::from_secs(107)));
         assert!(!chat.expire(now + Duration::from_secs(108)));
+    }
+    #[test]
+    fn answer_stays_awake_and_visible_until_after_audio_finishes() {
+        let mut chat = Chat::default();
+        let now = Instant::now();
+        let ttl = Duration::from_secs(3);
+        let answer = chat.decision("Respuesta leída", true, ttl, now);
+        chat.begin_audio(Some(answer));
+        assert!(!chat.expire(now + Duration::from_secs(30)));
+        assert_eq!(chat.model.row_count(), 1);
+        chat.finish_audio(Some(answer), ttl, now + Duration::from_secs(30));
+        assert!(!chat.expire(now + Duration::from_secs(32)));
+        assert_eq!(chat.model.row_count(), 1);
+        assert!(chat.expire(now + Duration::from_secs(33)));
+        assert_eq!(chat.model.row_count(), 0);
+    }
+    #[test]
+    fn multiple_audio_requests_keep_face_awake_until_all_finish() {
+        let mut chat = Chat::default();
+        let now = Instant::now();
+        let ttl = Duration::from_secs(2);
+        chat.begin_audio(None);
+        chat.begin_audio(None);
+        chat.finish_audio(None, ttl, now);
+        assert!(!chat.expire(now));
+        chat.finish_audio(None, ttl, now);
+        assert!(chat.expire(now));
     }
     #[test]
     fn progress_updates_one_status_and_failure_expires_without_stale_loading() {

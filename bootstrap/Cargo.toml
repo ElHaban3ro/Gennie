@@ -12,4 +12,6 @@ soc-core.workspace = true
 soc-presence.workspace = true
 soc-transcription.workspace = true
 soc-decisions.workspace = true
+soc-llm.workspace = true
+soc-tts.workspace = true
 serde_json.workspace = true

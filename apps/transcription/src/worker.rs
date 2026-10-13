@@ -18,6 +18,7 @@ pub enum Event {
     Download(u8),
     Ready,
     ModelLoaded,
+    DictationRequested,
     DictationStarted,
     Listening,
     Text { text: String, finalized: bool },

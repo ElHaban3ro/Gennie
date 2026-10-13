@@ -9,8 +9,10 @@ pub fn build(
     presence: Arc<PresenceModule>,
     transcription: Arc<soc_transcription::TranscriptionModule>,
     decisions: Arc<soc_decisions::DecisionsModule>,
+    llm: Arc<soc_llm::LlmModule>,
+    tts: Arc<soc_tts::TtsModule>,
 ) -> Vec<Arc<dyn AppModule>> {
-    vec![transcription, decisions, presence]
+    vec![transcription, decisions, llm, tts, presence]
 }
 
 pub fn order(modules: &[Arc<dyn AppModule>]) -> Result<Vec<usize>> {

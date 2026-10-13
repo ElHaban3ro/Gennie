@@ -1,5 +1,8 @@
+mod answer;
 mod chat;
 mod desktop;
+mod history;
+mod narration;
 mod repository;
 #[cfg(target_os = "macos")]
 mod status_menu;
@@ -13,6 +16,13 @@ use std::sync::{
 use std::thread::JoinHandle;
 
 slint::include_modules!();
+
+fn history_time(value: &str) -> String {
+    match (value.get(8..10), value.get(5..7), value.get(11..16)) {
+        (Some(day), Some(month), Some(time)) => format!("{day}/{month} · {time} UTC"),
+        _ => value.to_owned(),
+    }
+}
 
 pub struct PresenceModule {
     worker: Mutex<Option<Worker>>,
@@ -34,13 +44,19 @@ impl AppModule for PresenceModule {
         "presence"
     }
     fn optional_dependencies(&self) -> &'static [&'static str] {
-        &["transcription", "decisions"]
+        &["transcription", "decisions", "llm", "tts"]
     }
     fn migrations(&self) -> &'static [Migration] {
-        &[Migration {
-            version: 1,
-            sql: include_str!("../migrations/0001_preferences.sql"),
-        }]
+        &[
+            Migration {
+                version: 1,
+                sql: include_str!("../migrations/0001_preferences.sql"),
+            },
+            Migration {
+                version: 2,
+                sql: include_str!("../migrations/0002_history.sql"),
+            },
+        ]
     }
     fn start(&self, state: &AppState) -> Result<()> {
         let mut worker = self
@@ -109,15 +125,189 @@ impl PresenceModule {
         module: Option<&soc_transcription::TranscriptionModule>,
         decisions: Option<&soc_decisions::DecisionsModule>,
     ) -> Result<()> {
+        self.run_with_llm(state, module, decisions, None)
+    }
+    pub fn run_with_llm(
+        &self,
+        state: &AppState,
+        module: Option<&soc_transcription::TranscriptionModule>,
+        decisions: Option<&soc_decisions::DecisionsModule>,
+        llm: Option<&soc_llm::LlmModule>,
+    ) -> Result<()> {
+        self.run_with_tts(state, module, decisions, llm, None)
+    }
+    pub fn run_with_tts(
+        &self,
+        state: &AppState,
+        module: Option<&soc_transcription::TranscriptionModule>,
+        decisions: Option<&soc_decisions::DecisionsModule>,
+        llm: Option<&soc_llm::LlmModule>,
+        tts: Option<&soc_tts::TtsModule>,
+    ) -> Result<()> {
         desktop::initialize()?;
         let reduced = repository::load(&state.db)?;
         let ui = PresenceWindow::new()?;
         ui.set_transcription_available(module.is_some());
         ui.set_reduced_motion(reduced);
+        let source_launchers =
+            std::rc::Rc::new(std::cell::RefCell::new(Vec::<std::process::Child>::new()));
+        let pending_sources = source_launchers.clone();
+        ui.on_open_source(move |url| {
+            let url = url.as_str();
+            if !(url.starts_with("https://") || url.starts_with("http://"))
+                || url.contains(char::is_whitespace)
+            {
+                return;
+            }
+            let program = if cfg!(target_os = "macos") {
+                "/usr/bin/open"
+            } else {
+                "xdg-open"
+            };
+            match std::process::Command::new(program).arg(url).spawn() {
+                Ok(child) => pending_sources.borrow_mut().push(child),
+                Err(error) => eprintln!("event=source_open_failed error={error}"),
+            }
+        });
+        let history_store = std::rc::Rc::new(history::Store::start(state.db.clone())?);
+        let weak_history = ui.as_weak();
+        let history_for_open = history_store.clone();
+        ui.on_open_history(move || {
+            if let Some(ui) = weak_history.upgrade() {
+                ui.set_history_content("Cargando chat…".into());
+                ui.set_history_notice("Cargando chat…".into());
+                ui.set_history_messages(slint::ModelRc::default());
+                if let Err(error) = history_for_open.load() {
+                    ui.set_history_content(error.into());
+                    ui.set_history_notice(ui.get_history_content());
+                }
+            }
+        });
+        let weak_copy = ui.as_weak();
+        ui.on_copy_history(move || {
+            if let Some(ui) = weak_copy.upgrade() {
+                match arboard::Clipboard::new().and_then(|mut clipboard| {
+                    clipboard.set_text(ui.get_history_content().to_string())
+                }) {
+                    Ok(()) => ui.set_history_copy_status("Copiado".into()),
+                    Err(error) => {
+                        eprintln!("event=history_copy_failed error={error}");
+                        ui.set_history_copy_status("Error al copiar".into());
+                    }
+                }
+            }
+        });
+        let weak_history = ui.as_weak();
+        let history_for_poll = history_store.clone();
+        let history_scroll_generation = std::rc::Rc::new(std::cell::Cell::new(0_u64));
+        let history_timer = slint::Timer::default();
+        history_timer.start(
+            slint::TimerMode::Repeated,
+            std::time::Duration::from_millis(100),
+            move || {
+                let mut refresh_chat = false;
+                for event in history_for_poll.poll() {
+                    match event {
+                        history::Event::Loaded(result) => {
+                            if let Some(ui) = weak_history.upgrade() {
+                                match result {
+                                    Ok(snapshot) => {
+                                        let prior_offset = ui.get_history_scroll_offset();
+                                        let follow_bottom =
+                                            prior_offset + ui.get_history_scroll_maximum() <= 12.0;
+                                        let items = snapshot
+                                            .messages
+                                            .iter()
+                                            .map(|message| {
+                                                let (title, from_user, system) =
+                                                    match message.speaker.as_str() {
+                                                        "user" => ("Tú", true, false),
+                                                        "assistant" => ("SOC", false, false),
+                                                        _ => ("Actividad", false, true),
+                                                    };
+                                                HistoryMessage {
+                                                    title: title.into(),
+                                                    text: message.text.clone().into(),
+                                                    time: history_time(&message.created_at).into(),
+                                                    from_user,
+                                                    system,
+                                                }
+                                            })
+                                            .collect::<Vec<_>>();
+                                        ui.set_history_content(snapshot.content.into());
+                                        ui.set_history_notice(
+                                            "Todavía no hay mensajes guardados.".into(),
+                                        );
+                                        ui.set_history_messages(slint::ModelRc::new(
+                                            slint::VecModel::from(items),
+                                        ));
+                                        let generation =
+                                            history_scroll_generation.get().wrapping_add(1);
+                                        history_scroll_generation.set(generation);
+                                        let current_generation = history_scroll_generation.clone();
+                                        let weak_scroll = ui.as_weak();
+                                        slint::Timer::single_shot(
+                                            std::time::Duration::from_millis(25),
+                                            move || {
+                                                if current_generation.get() != generation {
+                                                    return;
+                                                }
+                                                if let Some(ui) = weak_scroll.upgrade()
+                                                    && ui.get_history_open()
+                                                {
+                                                    if follow_bottom {
+                                                        ui.invoke_scroll_chat_to_bottom();
+                                                    } else {
+                                                        ui.invoke_set_chat_scroll_offset(
+                                                            prior_offset,
+                                                        );
+                                                    }
+                                                }
+                                            },
+                                        );
+                                    }
+                                    Err(error) => {
+                                        let notice = format!("No se pudo leer el chat: {error}");
+                                        ui.set_history_content(notice.clone().into());
+                                        ui.set_history_notice(notice.into());
+                                        ui.set_history_messages(slint::ModelRc::default());
+                                    }
+                                }
+                            }
+                        }
+                        history::Event::Saved => refresh_chat = true,
+                        history::Event::SaveFailed(error) => {
+                            if let Some(ui) = weak_history.upgrade() {
+                                ui.set_history_content(
+                                    format!("No se pudo guardar un mensaje en el chat: {error}")
+                                        .into(),
+                                );
+                                ui.set_history_notice(ui.get_history_content());
+                                ui.set_history_messages(slint::ModelRc::default());
+                                ui.set_history_open(true);
+                            }
+                        }
+                    }
+                }
+                if refresh_chat
+                    && let Some(ui) = weak_history.upgrade()
+                    && ui.get_history_open()
+                    && let Err(error) = history_for_poll.load()
+                {
+                    ui.set_history_notice(format!("No se pudo actualizar el chat: {error}").into());
+                }
+            },
+        );
         let weak = ui.as_weak();
         ui.on_toggle(move || {
             if let Some(ui) = weak.upgrade() {
+                if ui.get_active() && ui.get_speech_active() {
+                    return;
+                }
                 ui.set_active(!ui.get_active());
+                if !ui.get_active() {
+                    ui.set_history_open(false);
+                }
                 eprintln!("event=presence_state active={}", ui.get_active());
             }
         });
@@ -240,7 +430,17 @@ impl PresenceModule {
             }
         });
         let transcription_ui = module
-            .map(|module| transcription::TranscriptionUi::new(&ui, module, state, decisions))
+            .map(|module| {
+                transcription::TranscriptionUi::new(
+                    &ui,
+                    module,
+                    state,
+                    decisions,
+                    llm,
+                    tts,
+                    history_store.writer(),
+                )
+            })
             .transpose()?;
         #[cfg(target_os = "macos")]
         let status_menu =
@@ -248,6 +448,7 @@ impl PresenceModule {
         #[cfg(target_os = "macos")]
         let menu_events = status_menu.clone();
         let hit_timer = slint::Timer::default();
+        let active_sources = source_launchers.clone();
         let weak = ui.as_weak();
         let mut hit_error_logged = false;
         #[cfg(target_os = "macos")]
@@ -256,6 +457,9 @@ impl PresenceModule {
             slint::TimerMode::Repeated,
             std::time::Duration::from_millis(16),
             move || {
+                active_sources
+                    .borrow_mut()
+                    .retain_mut(|child| matches!(child.try_wait(), Ok(None)));
                 #[cfg(target_os = "macos")]
                 if let Some(ui) = weak.upgrade()
                     && let Some(menu) = menu_events.borrow().as_ref()
@@ -283,6 +487,10 @@ impl PresenceModule {
                         &[
                             ui.get_voice_indicator_bounds(),
                             ui.get_decision_indicator_bounds(),
+                            ui.get_new_chat_button_bounds(),
+                            ui.get_sources_panel_bounds(),
+                            ui.get_history_button_bounds(),
+                            ui.get_history_panel_bounds(),
                         ],
                         captured,
                     ) {
@@ -343,7 +551,12 @@ impl PresenceModule {
             transcription.stop();
         }
         hit_timer.stop();
+        for mut child in source_launchers.borrow_mut().drain(..) {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
         reply_timer.stop();
+        history_timer.stop();
         #[cfg(target_os = "macos")]
         status_menu.borrow_mut().take();
         ui.hide()?;

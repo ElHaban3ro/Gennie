@@ -226,6 +226,7 @@ impl Controller {
         if !self.settings.enabled || self.saving || self.capturing_shortcut {
             return Ok(());
         }
+        self.pending.push(Event::DictationRequested);
         if !matches!(self.phase, Phase::Idle | Phase::Warming) {
             return Ok(());
         }
@@ -508,6 +509,16 @@ mod tests {
             saving: false,
             pending: Vec::new(),
         }
+    }
+    #[test]
+    fn pressing_dictation_key_requests_barge_in_even_while_model_loads() {
+        let mut c = controller(Mode::Hold);
+        c.key(HotkeyState::Pressed).unwrap();
+        assert!(matches!(c.pending.as_slice(), [Event::DictationRequested]));
+        c.settings.enabled = false;
+        c.pending.clear();
+        c.key(HotkeyState::Pressed).unwrap();
+        assert!(c.pending.is_empty());
     }
     #[test]
     fn hold_release_during_model_load_finishes_and_repeat_does_not_restart() {
