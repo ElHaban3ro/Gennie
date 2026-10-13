@@ -10,3 +10,6 @@ soc-config.workspace = true
 soc-db.workspace = true
 soc-core.workspace = true
 soc-presence.workspace = true
+soc-transcription.workspace = true
+soc-decisions.workspace = true
+serde_json.workspace = true

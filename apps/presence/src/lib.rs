@@ -1,5 +1,9 @@
+mod chat;
 mod desktop;
 mod repository;
+#[cfg(target_os = "macos")]
+mod status_menu;
+mod transcription;
 use slint::ComponentHandle;
 use soc_core::{AppModule, AppState, Migration, Result};
 use std::sync::{
@@ -28,6 +32,9 @@ impl Default for PresenceModule {
 impl AppModule for PresenceModule {
     fn name(&self) -> &'static str {
         "presence"
+    }
+    fn optional_dependencies(&self) -> &'static [&'static str] {
+        &["transcription", "decisions"]
     }
     fn migrations(&self) -> &'static [Migration] {
         &[Migration {
@@ -87,9 +94,25 @@ impl AppModule for PresenceModule {
 
 impl PresenceModule {
     pub fn run(&self, state: &AppState) -> Result<()> {
+        self.run_with_transcription(state, None)
+    }
+    pub fn run_with_transcription(
+        &self,
+        state: &AppState,
+        module: Option<&soc_transcription::TranscriptionModule>,
+    ) -> Result<()> {
+        self.run_with_decisions(state, module, None)
+    }
+    pub fn run_with_decisions(
+        &self,
+        state: &AppState,
+        module: Option<&soc_transcription::TranscriptionModule>,
+        decisions: Option<&soc_decisions::DecisionsModule>,
+    ) -> Result<()> {
         desktop::initialize()?;
         let reduced = repository::load(&state.db)?;
         let ui = PresenceWindow::new()?;
+        ui.set_transcription_available(module.is_some());
         ui.set_reduced_motion(reduced);
         let weak = ui.as_weak();
         ui.on_toggle(move || {
@@ -99,6 +122,67 @@ impl PresenceModule {
             }
         });
         let shutdown = state.shutdown.clone();
+        #[cfg(target_os = "macos")]
+        let drag = std::rc::Rc::new(std::cell::RefCell::new(desktop::DragGesture::default()));
+        #[cfg(target_os = "macos")]
+        {
+            ui.set_manual_drag(true);
+            let gesture = drag.clone();
+            let weak = ui.as_weak();
+            ui.on_begin_drag(move || {
+                if let Some(ui) = weak.upgrade()
+                    && let Some(Err(error)) =
+                        desktop::with_drag(&gesture, |drag| drag.begin(ui.window()))
+                {
+                    eprintln!("event=drag_failed error={error}");
+                }
+            });
+        }
+        #[cfg(target_os = "macos")]
+        {
+            let gesture = drag.clone();
+            let weak = ui.as_weak();
+            ui.on_move_drag(move || {
+                if let Some(ui) = weak.upgrade()
+                    && let Some(Err(error)) =
+                        desktop::with_drag(&gesture, |drag| drag.update(ui.window()))
+                {
+                    eprintln!("event=drag_failed error={error}");
+                }
+            });
+            let gesture = drag.clone();
+            let weak = ui.as_weak();
+            ui.on_finish_drag(move || {
+                if let Some(ui) = weak.upgrade()
+                    && let Some(Err(error)) =
+                        desktop::with_drag(&gesture, |drag| drag.update(ui.window()))
+                {
+                    eprintln!("event=drag_failed error={error}");
+                }
+            });
+        }
+        let weak = ui.as_weak();
+        #[cfg(target_os = "macos")]
+        let click_gesture = drag.clone();
+        ui.on_face_clicked(move || {
+            if let Some(ui) = weak.upgrade() {
+                #[cfg(target_os = "macos")]
+                {
+                    match desktop::with_drag(&click_gesture, |gesture| {
+                        gesture.update(ui.window())?;
+                        Ok::<_, soc_core::Error>(gesture.was_moved())
+                    }) {
+                        Some(Ok(false)) => {}
+                        Some(Err(error)) => {
+                            eprintln!("event=drag_failed error={error}");
+                            return;
+                        }
+                        _ => return,
+                    }
+                }
+                ui.invoke_toggle();
+            }
+        });
         ui.on_exit(move || {
             shutdown.request();
             let _ = slint::quit_event_loop();
@@ -155,34 +239,89 @@ impl PresenceModule {
                 let _ = about.show();
             }
         });
+        let transcription_ui = module
+            .map(|module| transcription::TranscriptionUi::new(&ui, module, state, decisions))
+            .transpose()?;
+        #[cfg(target_os = "macos")]
+        let status_menu =
+            std::rc::Rc::new(std::cell::RefCell::new(None::<status_menu::StatusMenu>));
+        #[cfg(target_os = "macos")]
+        let menu_events = status_menu.clone();
         let hit_timer = slint::Timer::default();
         let weak = ui.as_weak();
         let mut hit_error_logged = false;
+        #[cfg(target_os = "macos")]
+        let drag_events = drag.clone();
         hit_timer.start(
             slint::TimerMode::Repeated,
             std::time::Duration::from_millis(16),
             move || {
+                #[cfg(target_os = "macos")]
                 if let Some(ui) = weak.upgrade()
-                    && let Err(error) =
-                        desktop::update_hit_test(ui.window(), ui.get_actual_diameter())
-                    && !hit_error_logged
+                    && let Some(menu) = menu_events.borrow().as_ref()
                 {
-                    eprintln!("event=hit_test_failed error={error}");
-                    hit_error_logged = true;
+                    menu.process_events(&ui);
+                }
+                if let Some(ui) = weak.upgrade() {
+                    #[cfg(target_os = "macos")]
+                    let Some(captured) = desktop::with_drag(&drag_events, |gesture| {
+                        if let Err(error) = gesture.update(ui.window())
+                            && !hit_error_logged
+                        {
+                            eprintln!("event=drag_failed error={error}");
+                            hit_error_logged = true;
+                        }
+                        gesture.captured()
+                    }) else {
+                        return;
+                    };
+                    #[cfg(not(target_os = "macos"))]
+                    let captured = false;
+                    match desktop::update_pointer_state(
+                        ui.window(),
+                        ui.get_actual_diameter(),
+                        &[
+                            ui.get_voice_indicator_bounds(),
+                            ui.get_decision_indicator_bounds(),
+                        ],
+                        captured,
+                    ) {
+                        Ok(Some((x, y))) => {
+                            ui.set_pointer_gaze_x(x);
+                            ui.set_pointer_gaze_y(y);
+                        }
+                        Err(error) if !hit_error_logged => {
+                            eprintln!("event=hit_test_failed error={error}");
+                            hit_error_logged = true;
+                        }
+                        _ => {}
+                    }
                 }
             },
         );
         ui.show()?;
         let fatal_error = std::rc::Rc::new(std::cell::RefCell::new(None));
         let startup_error = fatal_error.clone();
+        #[cfg(target_os = "macos")]
+        let startup_menu = status_menu.clone();
         let weak = ui.as_weak();
         slint::spawn_local(async move {
             if let Some(ui) = weak.upgrade() {
                 use slint::winit_030::WinitWindowAccessor;
                 match ui.window().winit_window().await {
                     Ok(_) => {
-                        if let Err(error) = desktop::position(ui.window()) {
-                            eprintln!("event=window_position_failed error={error}");
+                        let prepare = || -> Result<()> {
+                            desktop::position(ui.window())?;
+                            desktop::install_cursor_tracking(&ui);
+                            #[cfg(target_os = "macos")]
+                            {
+                                *startup_menu.borrow_mut() = Some(status_menu::StatusMenu::new()?);
+                                eprintln!("event=status_menu_ready");
+                            }
+                            Ok(())
+                        };
+                        if let Err(error) = prepare() {
+                            eprintln!("event=window_setup_failed error={error}");
                             *startup_error.borrow_mut() = Some(error.to_string());
                             let _ = slint::quit_event_loop();
                         } else {
@@ -197,11 +336,19 @@ impl PresenceModule {
                 }
             }
         })?;
-        ui.run()?;
+        let run_result = ui.run();
+        #[cfg(target_os = "macos")]
+        desktop::clear_drag_bounds();
+        if let Some(transcription) = &transcription_ui {
+            transcription.stop();
+        }
         hit_timer.stop();
         reply_timer.stop();
+        #[cfg(target_os = "macos")]
+        status_menu.borrow_mut().take();
         ui.hide()?;
         about.hide()?;
+        run_result?;
         if let Some(error) = fatal_error.borrow_mut().take() {
             return Err(error.into());
         }

@@ -8,13 +8,19 @@ publish.workspace = true
 [dependencies]
 soc-core.workspace = true
 soc-db.workspace = true
+soc-transcription.workspace = true
+soc-decisions.workspace = true
 slint.workspace = true
+i-slint-backend-winit.workspace = true
 
 [build-dependencies]
 slint-build.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-app-kit.workspace = true
+objc2.workspace = true
+objc2-foundation.workspace = true
+tray-icon.workspace = true
 
 [dev-dependencies]
 soc-config.workspace = true

@@ -1,6 +1,108 @@
 use slint::winit_030::{WinitWindowAccessor, winit};
 use soc_core::Result;
 
+#[cfg(any(target_os = "macos", test))]
+#[derive(Default)]
+pub struct DragGesture {
+    anchor: Option<DragAnchor>,
+    moved: bool,
+}
+#[cfg(target_os = "macos")]
+pub fn with_drag<T>(
+    gesture: &std::cell::RefCell<DragGesture>,
+    action: impl FnOnce(&mut DragGesture) -> T,
+) -> Option<T> {
+    // set_outer_position puede entregar callbacks síncronos de macOS. El
+    // movimiento exterior ya está procesando esa muestra: agrupar la reentrada.
+    let mut gesture = gesture.try_borrow_mut().ok()?;
+    Some(action(&mut gesture))
+}
+#[cfg(any(target_os = "macos", test))]
+struct DragAnchor {
+    pointer: (f64, f64),
+    origin: (f64, f64),
+}
+#[cfg(any(target_os = "macos", test))]
+impl DragGesture {
+    pub(crate) fn begin_at(&mut self, pointer: (f64, f64), origin: (f64, f64)) {
+        self.anchor = Some(DragAnchor { pointer, origin });
+        self.moved = false;
+    }
+    pub(crate) fn advance(&mut self, pointer: (f64, f64), pressed: bool) -> Option<(f64, f64)> {
+        let anchor = self.anchor.as_ref()?;
+        let dx = pointer.0 - anchor.pointer.0;
+        let dy = pointer.1 - anchor.pointer.1;
+        self.moved |= dx.abs() > 6.0 || dy.abs() > 6.0;
+        let next = self
+            .moved
+            .then_some((anchor.origin.0 + dx, anchor.origin.1 - dy));
+        if !pressed {
+            self.anchor = None;
+        }
+        next
+    }
+    pub fn was_moved(&self) -> bool {
+        self.moved
+    }
+
+    pub fn captured(&self) -> bool {
+        self.anchor.is_some()
+    }
+
+    #[cfg(target_os = "macos")]
+    pub fn begin(&mut self, window: &slint::Window) -> Result<()> {
+        // Una acción sintética sin botón físico pulsado no debe iniciar captura.
+        self.anchor = None;
+        self.moved = false;
+        if objc2_app_kit::NSEvent::pressedMouseButtons() & 1 == 0 {
+            return Ok(());
+        }
+        window
+            .with_winit_window(|native| -> Result<()> {
+                let pointer = objc2_app_kit::NSEvent::mouseLocation();
+                let origin = native
+                    .outer_position()?
+                    .to_logical::<f64>(native.scale_factor());
+                self.begin_at((pointer.x, pointer.y), (origin.x, origin.y));
+                native.set_cursor_hittest(true)?;
+                Ok(())
+            })
+            .ok_or("Ventana nativa no disponible para arrastrar")?
+    }
+    #[cfg(target_os = "macos")]
+    pub(crate) fn apply_sample(
+        &mut self,
+        window: &slint::Window,
+        pointer: (f64, f64),
+        pressed: bool,
+    ) -> Result<()> {
+        if self.anchor.is_none() {
+            return Ok(());
+        }
+        let next = self.advance(pointer, pressed);
+        window
+            .with_winit_window(|native| -> Result<()> {
+                if let Some((x, y)) = next {
+                    native.set_outer_position(winit::dpi::LogicalPosition::new(x, y));
+                }
+                if pressed {
+                    native.set_cursor_hittest(true)?;
+                }
+                Ok(())
+            })
+            .ok_or("Ventana nativa no disponible para arrastrar")?
+    }
+    #[cfg(target_os = "macos")]
+    pub fn update(&mut self, window: &slint::Window) -> Result<()> {
+        if self.anchor.is_none() {
+            return Ok(());
+        }
+        let pointer = objc2_app_kit::NSEvent::mouseLocation();
+        let pressed = objc2_app_kit::NSEvent::pressedMouseButtons() & 1 != 0;
+        self.apply_sample(window, (pointer.x, pointer.y), pressed)
+    }
+}
+
 pub fn initialize() -> Result<()> {
     let builder = winit::event_loop::EventLoop::<slint::winit_030::SlintEvent>::with_user_event();
     #[cfg(target_os = "macos")]
@@ -11,11 +113,10 @@ pub fn initialize() -> Result<()> {
         builder.with_activate_ignoring_other_apps(false);
         builder
     };
-    slint::BackendSelector::new()
-        .backend_name("winit".into())
-        .renderer_name("femtovg".into())
-        .with_winit_event_loop_builder(builder)
-        .with_winit_window_attributes_hook(|attributes| {
+    let backend = i_slint_backend_winit::Backend::builder()
+        .with_renderer_name("femtovg")
+        .with_event_loop_builder(builder)
+        .with_window_attributes_hook(|attributes| {
             #[cfg(target_os = "macos")]
             {
                 use winit::platform::macos::WindowAttributesExtMacOS;
@@ -25,9 +126,159 @@ pub fn initialize() -> Result<()> {
             {
                 attributes
             }
-        })
-        .select()?;
+        });
+    // Slint instala su menú genérico al activar ventanas sin MenuBar (ajustes
+    // y About incluidos). La app posee un único menú nativo, sin esa sustitución.
+    #[cfg(target_os = "macos")]
+    let backend = backend.with_default_menu_bar(false);
+    slint::platform::set_platform(Box::new(backend.build()?))?;
     Ok(())
+}
+
+// Solo para una apertura explícita del usuario; nunca desde animaciones/avisos.
+pub fn present_settings(window: &slint::Window) -> Result<()> {
+    window.show()?;
+    window
+        .with_winit_window(|native| {
+            native.set_minimized(false);
+            native.focus_window();
+        })
+        .ok_or("Ventana nativa de ajustes no disponible")?;
+    Ok(())
+}
+
+#[derive(Default)]
+struct ShortcutRecorder {
+    modifiers: winit::keyboard::ModifiersState,
+    candidate: Option<String>,
+}
+impl ShortcutRecorder {
+    fn chord(&self, key: Option<winit::keyboard::KeyCode>) -> Option<String> {
+        use winit::keyboard::KeyCode;
+        let mut parts = Vec::new();
+        if self.modifiers.control_key() {
+            parts.push("Ctrl".to_string());
+        }
+        if self.modifiers.alt_key() {
+            parts.push("Option".to_string());
+        }
+        if self.modifiers.shift_key() {
+            parts.push("Shift".to_string());
+        }
+        if self.modifiers.super_key() {
+            parts.push("Cmd".to_string());
+        }
+        if let Some(key) = key {
+            let name = match key {
+                KeyCode::ControlLeft
+                | KeyCode::ControlRight
+                | KeyCode::AltLeft
+                | KeyCode::AltRight
+                | KeyCode::ShiftLeft
+                | KeyCode::ShiftRight
+                | KeyCode::SuperLeft
+                | KeyCode::SuperRight => return None,
+                KeyCode::Backspace => "Delete".into(),
+                KeyCode::Delete => "ForwardDelete".into(),
+                KeyCode::Enter | KeyCode::NumpadEnter => "Return".into(),
+                KeyCode::Minus => "-".into(),
+                KeyCode::Equal => "=".into(),
+                KeyCode::BracketLeft => "[".into(),
+                KeyCode::BracketRight => "]".into(),
+                KeyCode::Backslash => "\\".into(),
+                KeyCode::Semicolon => ";".into(),
+                KeyCode::Quote => "'".into(),
+                KeyCode::Comma => ",".into(),
+                KeyCode::Period => ".".into(),
+                KeyCode::Slash => "/".into(),
+                KeyCode::Backquote => "`".into(),
+                other => {
+                    let name = format!("{other:?}");
+                    name.strip_prefix("Key")
+                        .or_else(|| name.strip_prefix("Digit"))
+                        .or_else(|| name.strip_prefix("Arrow"))
+                        .unwrap_or(&name)
+                        .to_owned()
+                }
+            };
+            parts.push(name);
+        }
+        soc_transcription::normalize_shortcut(&parts.join("+"))
+    }
+    fn modifiers_changed(&mut self, modifiers: winit::keyboard::ModifiersState) -> Option<String> {
+        self.modifiers = modifiers;
+        if modifiers.is_empty() {
+            self.candidate.take()
+        } else {
+            // Conservar la combinación completa al soltar modificadores uno a uno.
+            if self.candidate.as_ref().is_none_or(|value| {
+                value.split('+').count() <= modifiers.bits().count_ones() as usize
+            }) {
+                self.candidate = self.chord(None);
+            }
+            None
+        }
+    }
+}
+
+pub fn install_shortcut_capture(
+    settings: &crate::TranscriptionSettings,
+    finished: impl Fn() + 'static,
+) {
+    use slint::ComponentHandle;
+    use winit::{
+        event::{ElementState, WindowEvent},
+        keyboard::{KeyCode, PhysicalKey},
+    };
+    let weak = settings.as_weak();
+    let mut recorder = ShortcutRecorder::default();
+    settings.window().on_winit_window_event(move |_, event| {
+        let Some(settings) = weak.upgrade() else {
+            return slint::winit_030::EventResult::Propagate;
+        };
+        if !settings.get_recording_shortcut() {
+            recorder = ShortcutRecorder::default();
+            return slint::winit_030::EventResult::Propagate;
+        }
+        let mut complete = false;
+        let shortcut = match event {
+            WindowEvent::ModifiersChanged(modifiers) => {
+                recorder.modifiers_changed(modifiers.state())
+            }
+            WindowEvent::KeyboardInput { event, .. }
+                if event.state == ElementState::Pressed && !event.repeat =>
+            {
+                if event.physical_key == PhysicalKey::Code(KeyCode::Escape) {
+                    complete = true;
+                    None
+                } else if let PhysicalKey::Code(key) = event.physical_key {
+                    recorder.chord(Some(key))
+                } else {
+                    None
+                }
+            }
+            WindowEvent::Focused(false) | WindowEvent::CloseRequested => {
+                complete = true;
+                None
+            }
+            _ => None,
+        };
+        if let Some(shortcut) = shortcut {
+            settings.set_shortcut(shortcut.into());
+            complete = true;
+        }
+        if complete {
+            settings.set_recording_shortcut(false);
+            recorder = ShortcutRecorder::default();
+            finished();
+        }
+        match event {
+            WindowEvent::KeyboardInput { .. } | WindowEvent::ModifiersChanged(_) => {
+                slint::winit_030::EventResult::PreventDefault
+            }
+            _ => slint::winit_030::EventResult::Propagate,
+        }
+    });
 }
 
 pub fn position(window: &slint::Window) -> Result<()> {
@@ -67,9 +318,14 @@ pub fn position(window: &slint::Window) -> Result<()> {
 
 // Una lectura de cursor, sin event tap ni permisos de accesibilidad.
 #[cfg(target_os = "macos")]
-pub fn update_hit_test(window: &slint::Window, diameter: f32) -> Result<()> {
-    window
-        .with_winit_window(|native| -> Result<()> {
+pub fn update_pointer_state(
+    window: &slint::Window,
+    diameter: f32,
+    indicators: &[crate::IndicatorBounds],
+    captured: bool,
+) -> Result<Option<(f32, f32)>> {
+    let pointer_state = window
+        .with_winit_window(|native| -> Result<_> {
             let pointer = objc2_app_kit::NSEvent::mouseLocation();
             let primary = native.primary_monitor().ok_or("No hay monitor principal")?;
             let main_height = primary.size().height as f64 / primary.scale_factor();
@@ -80,21 +336,106 @@ pub fn update_hit_test(window: &slint::Window, diameter: f32) -> Result<()> {
             let local_y = main_height - pointer.y - origin.y;
             let center_x = size.width - 24.0 - diameter as f64 / 2.0;
             let center_y = size.height - 32.0 - diameter as f64 / 2.0;
-            let inside =
-                contains_circle(local_x, local_y, center_x, center_y, diameter as f64 / 2.0);
-            native.set_cursor_hittest(inside)?;
-            Ok(())
+            let inside = contains_presence(
+                local_x,
+                local_y,
+                center_x,
+                center_y,
+                diameter as f64 / 2.0,
+                indicators,
+            );
+            let interactive = inside || captured;
+            native.set_cursor_hittest(interactive)?;
+            Ok((
+                gaze_direction(local_x - center_x, local_y - center_y),
+                interactive,
+            ))
         })
-        .unwrap_or(Ok(()))
+        .transpose()?;
+    let Some((gaze, interactive)) = pointer_state else {
+        return Ok(None);
+    };
+    if !interactive {
+        // AppKit puede omitir mouseExited al activar click-through. Limpiar
+        // el hover fuera del préstamo Winit evita reentradas y tooltips retenidos.
+        window.dispatch_event(slint::platform::WindowEvent::PointerExited);
+    }
+    Ok(Some(gaze))
 }
 #[cfg(not(target_os = "macos"))]
-pub fn update_hit_test(_window: &slint::Window, _diameter: f32) -> Result<()> {
-    Ok(())
+pub fn update_pointer_state(
+    _window: &slint::Window,
+    _diameter: f32,
+    _indicators: &[crate::IndicatorBounds],
+    _captured: bool,
+) -> Result<Option<(f32, f32)>> {
+    Ok(None)
+}
+
+// Saturación radial suave: conserva dirección y limita el desplazamiento al acercarse/alejarse.
+fn gaze_direction(dx: f64, dy: f64) -> (f32, f32) {
+    let distance = dx.hypot(dy);
+    let scale = distance + 180.0;
+    ((dx / scale) as f32, (dy / scale) as f32)
+}
+
+// Fallback portátil para eventos dentro de la ventana; macOS además lee el cursor global.
+pub fn install_cursor_tracking(ui: &crate::PresenceWindow) {
+    use slint::ComponentHandle;
+    let weak = ui.as_weak();
+    ui.window().on_winit_window_event(move |window, event| {
+        if let Some(ui) = weak.upgrade() {
+            match event {
+                winit::event::WindowEvent::CursorMoved { position, .. } => {
+                    if let Some((x, y)) = window.with_winit_window(|native| {
+                        let scale = native.scale_factor();
+                        let point = position.to_logical::<f64>(scale);
+                        let size = native.inner_size().to_logical::<f64>(scale);
+                        let diameter = f64::from(ui.get_actual_diameter());
+                        gaze_direction(
+                            point.x - (size.width - 24.0 - diameter / 2.0),
+                            point.y - (size.height - 32.0 - diameter / 2.0),
+                        )
+                    }) {
+                        ui.set_pointer_gaze_x(x);
+                        ui.set_pointer_gaze_y(y);
+                    }
+                }
+                winit::event::WindowEvent::CursorLeft { .. } if !cfg!(target_os = "macos") => {
+                    ui.set_pointer_gaze_x(0.0);
+                    ui.set_pointer_gaze_y(0.0);
+                }
+                _ => {}
+            }
+        }
+        slint::winit_030::EventResult::Propagate
+    });
 }
 
 #[cfg(any(target_os = "macos", test))]
 fn contains_circle(x: f64, y: f64, center_x: f64, center_y: f64, radius: f64) -> bool {
     (x - center_x).powi(2) + (y - center_y).powi(2) <= radius.powi(2)
+}
+#[cfg(any(target_os = "macos", test))]
+fn contains_presence(
+    x: f64,
+    y: f64,
+    center_x: f64,
+    center_y: f64,
+    radius: f64,
+    indicators: &[crate::IndicatorBounds],
+) -> bool {
+    contains_circle(x, y, center_x, center_y, radius)
+        || indicators.iter().any(|bounds| {
+            // Las áreas llegan del layout animado de Slint, en píxeles lógicos.
+            // Conservar libres tanto el espacio entre iconos como su contorno.
+            bounds.width > 0.0
+                && bounds.height > 0.0
+                && x >= f64::from(bounds.x)
+                && x < f64::from(bounds.x + bounds.width)
+                && y >= f64::from(bounds.y)
+                && y < f64::from(bounds.y + bounds.height)
+        })
 }
 #[cfg(target_os = "macos")]
 fn configure_spaces(native: &winit::window::Window) -> Result<()> {
@@ -110,6 +451,7 @@ fn configure_spaces(native: &winit::window::Window) -> Result<()> {
     let window = view
         .window()
         .ok_or("La vista de presencia no tiene NSWindow")?;
+    configure_drag_bounds(&window)?;
     // Conservar políticas ajenas; estas alternativas son incompatibles con el overlay.
     let behavior = window.collectionBehavior()
         & !(Behavior::MoveToActiveSpace | Behavior::FullScreenPrimary | Behavior::FullScreenNone);
@@ -119,9 +461,175 @@ fn configure_spaces(native: &winit::window::Window) -> Result<()> {
     Ok(())
 }
 
+// Identidad, no préstamo ni puntero desreferenciable fuera del callback nativo.
+#[cfg(target_os = "macos")]
+static DRAG_WINDOW_ID: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+#[cfg(target_os = "macos")]
+static DRAG_WINDOW_CLASS: std::sync::OnceLock<&'static objc2::runtime::AnyClass> =
+    std::sync::OnceLock::new();
+
+// La clase Winit conserva su layout/ivars. Solo la presencia omite el límite del marco.
+#[cfg(target_os = "macos")]
+fn configure_drag_bounds(window: &objc2_app_kit::NSWindow) -> Result<()> {
+    use objc2::{
+        ClassType,
+        runtime::{AnyObject, Imp, Sel},
+    };
+    use objc2_app_kit::{NSScreen, NSWindow};
+    use objc2_foundation::NSRect;
+    use std::sync::atomic::Ordering;
+
+    extern "C-unwind" fn constrain(
+        window: &AnyObject,
+        _selector: Sel,
+        frame: NSRect,
+        screen: Option<&NSScreen>,
+    ) -> NSRect {
+        if window as *const AnyObject as usize == DRAG_WINDOW_ID.load(Ordering::Relaxed) {
+            frame
+        } else {
+            // SAFETY: método heredado de NSWindow, misma firma y objeto vivo en main.
+            unsafe {
+                objc2::msg_send![super(window, NSWindow::class()), constrainFrameRect: frame, toScreen: screen]
+            }
+        }
+    }
+    let mut class = window.class();
+    while let Some(parent) = class.superclass() {
+        if std::ptr::eq(parent, NSWindow::class()) {
+            break;
+        }
+        class = parent;
+    }
+    if !class
+        .superclass()
+        .is_some_and(|parent| std::ptr::eq(parent, NSWindow::class()))
+    {
+        return Err("Clase Winit de presencia incompatible con NSWindow".into());
+    }
+    if let Some(installed) = DRAG_WINDOW_CLASS.get() {
+        if !std::ptr::eq(*installed, class) {
+            return Err("Clase nativa de presencia cambió".into());
+        }
+    } else {
+        let selector = objc2::sel!(constrainFrameRect:toScreen:);
+        let inherited = NSWindow::class()
+            .instance_method(selector)
+            .ok_or("Método de límites NSWindow ausente")?;
+        // SAFETY: misma ABI que el método heredado. Se añade un override a la clase
+        // Winit de este proceso, sin reemplazar NSWindow ni cambiar clase/layout.
+        // Toda instancia distinta de la presencia delega al método original de NSWindow.
+        let added = unsafe {
+            let imp: Imp = std::mem::transmute(
+                constrain
+                    as extern "C-unwind" fn(&AnyObject, Sel, NSRect, Option<&NSScreen>) -> NSRect,
+            );
+            objc2::ffi::class_addMethod(
+                class as *const _ as *mut _,
+                selector,
+                imp,
+                objc2::ffi::method_getTypeEncoding(inherited),
+            )
+        };
+        if !added.as_bool() {
+            return Err("Winit ya define una política de límites incompatible".into());
+        }
+        let _ = DRAG_WINDOW_CLASS.set(class);
+    }
+    // La UI conserva la ventana viva. Solo se compara esta identidad; nunca se dereferencia.
+    DRAG_WINDOW_ID.store(window as *const NSWindow as usize, Ordering::Relaxed);
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+pub fn clear_drag_bounds() {
+    DRAG_WINDOW_ID.store(0, std::sync::atomic::Ordering::Relaxed);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn drag_native_reentry_is_coalesced_without_losing_outer_gesture() {
+        let gesture = std::cell::RefCell::new(DragGesture::default());
+        with_drag(&gesture, |drag| {
+            drag.begin_at((0.0, 0.0), (50.0, 50.0));
+            assert_eq!(drag.advance((30.0, 30.0), true), Some((80.0, 20.0)));
+            // set_outer_position entrega WindowDidMove síncrono en macOS.
+            assert!(
+                with_drag(&gesture, |_| panic!(
+                    "No debe ejecutar la actualización reentrante"
+                ))
+                .is_none()
+            );
+            assert!(drag.captured());
+            assert!(drag.was_moved());
+        });
+        assert_eq!(
+            with_drag(&gesture, |drag| drag.advance((30.0, 30.0), false)),
+            Some(Some((80.0, 20.0)))
+        );
+        assert!(!gesture.borrow().captured());
+    }
+    #[test]
+    fn shortcut_capture_keeps_chord_until_modifiers_are_released() {
+        use winit::keyboard::{KeyCode, ModifiersState as M};
+        let mut recorder = ShortcutRecorder::default();
+        assert_eq!(recorder.modifiers_changed(M::CONTROL | M::SHIFT), None);
+        assert_eq!(
+            recorder.chord(Some(KeyCode::KeyK)),
+            Some("Ctrl+Shift+K".into())
+        );
+        assert_eq!(recorder.modifiers_changed(M::SHIFT), None);
+        assert_eq!(
+            recorder.modifiers_changed(M::empty()),
+            Some("Ctrl+Shift".into())
+        );
+        assert_eq!(recorder.modifiers_changed(M::SHIFT), None);
+        assert_eq!(recorder.modifiers_changed(M::empty()), Some("Shift".into()));
+        assert_eq!(recorder.chord(Some(KeyCode::Space)), Some("Space".into()));
+        assert_eq!(
+            recorder.chord(Some(KeyCode::Backspace)),
+            Some("Delete".into())
+        );
+    }
+    #[test]
+    fn drag_sequence_crosses_native_ceiling_and_suppresses_release_click() {
+        let mut drag = DragGesture::default();
+        drag.begin_at((500.0, 500.0), (400.0, 400.0));
+        assert_eq!(drag.advance((500.0, 900.0), true), Some((400.0, 0.0)));
+        assert_eq!(drag.advance((500.0, 1248.0), true), Some((400.0, -348.0)));
+        assert_eq!(drag.advance((500.0, 1250.0), false), Some((400.0, -350.0)));
+        assert!(drag.was_moved());
+        assert!(drag.anchor.is_none());
+        assert_eq!(drag.advance((900.0, 900.0), false), None);
+        assert_eq!(drag.advance((900.0, 900.0), true), None);
+        drag.begin_at((500.0, 1250.0), (400.0, -350.0));
+        assert_eq!(drag.advance((502.0, 1252.0), false), None);
+        assert!(!drag.was_moved());
+    }
+    #[test]
+    fn dragging_out_and_back_still_suppresses_click() {
+        let mut drag = DragGesture::default();
+        drag.begin_at((0.0, 0.0), (50.0, 50.0));
+        assert_eq!(drag.advance((50.0, 50.0), true), Some((100.0, 0.0)));
+        assert_eq!(drag.advance((0.0, 0.0), false), Some((50.0, 50.0)));
+        assert!(drag.was_moved());
+    }
+    #[test]
+    fn gaze_is_centered_directional_and_radially_bounded() {
+        assert_eq!(gaze_direction(0.0, 0.0), (0.0, 0.0));
+        let near = gaze_direction(20.0, -40.0);
+        let far = gaze_direction(2000.0, -4000.0);
+        assert!(near.0 > 0.0 && near.1 < 0.0);
+        assert!((near.1 / near.0 + 2.0).abs() < 0.0001);
+        assert!(far.0 > near.0 && far.1.abs() > near.1.abs());
+        assert!(far.0.hypot(far.1) < 1.0);
+        let opposite = gaze_direction(-2000.0, 4000.0);
+        assert_eq!(opposite, (-far.0, -far.1));
+    }
+
     #[test]
     fn circle_hit_test_excludes_transparent_square_corners() {
         assert!(contains_circle(160.0, 184.0, 160.0, 184.0, 40.0));
@@ -129,5 +637,77 @@ mod tests {
         assert!(!contains_circle(199.0, 223.0, 160.0, 184.0, 40.0));
         assert!(!contains_circle(12.0, 12.0, 160.0, 184.0, 40.0));
         assert!(contains_circle(116.0, 140.0, 116.0, 140.0, 84.0));
+    }
+
+    #[test]
+    fn indicator_hit_test_preserves_circle_gaps_and_transparent_surroundings() {
+        let indicators = [
+            crate::IndicatorBounds {
+                x: 132.0,
+                y: 232.0,
+                width: 24.0,
+                height: 24.0,
+            },
+            crate::IndicatorBounds {
+                x: 164.0,
+                y: 232.0,
+                width: 24.0,
+                height: 24.0,
+            },
+        ];
+        let hit = |x, y| contains_presence(x, y, 160.0, 184.0, 40.0, &indicators);
+        assert!(hit(160.0, 184.0));
+        assert!(hit(200.0, 184.0));
+        assert!(hit(144.0, 244.0));
+        assert!(hit(176.0, 244.0));
+        assert!(hit(132.0, 232.0));
+        assert!(!hit(156.0, 244.0));
+        assert!(!hit(160.0, 244.0));
+        assert!(!hit(144.0, 256.0));
+        assert!(!hit(160.0, 228.0));
+        assert!(!hit(199.0, 223.0));
+        assert!(!hit(12.0, 12.0));
+    }
+
+    #[test]
+    fn indicator_hit_test_follows_layout_and_ignores_empty_bounds() {
+        let indicators = [
+            crate::IndicatorBounds {
+                x: 42.5,
+                y: 68.5,
+                width: 24.0,
+                height: 24.0,
+            },
+            crate::IndicatorBounds {
+                x: 130.0,
+                y: 230.0,
+                width: 0.0,
+                height: 24.0,
+            },
+        ];
+        assert!(contains_presence(
+            54.5,
+            80.5,
+            160.0,
+            184.0,
+            84.0,
+            &indicators
+        ));
+        assert!(!contains_presence(
+            144.0,
+            244.0,
+            160.0,
+            184.0,
+            40.0,
+            &indicators
+        ));
+        assert!(!contains_presence(
+            130.0,
+            240.0,
+            160.0,
+            184.0,
+            40.0,
+            &indicators
+        ));
     }
 }

@@ -5,8 +5,12 @@ use std::{
     sync::Arc,
 };
 
-pub fn build(presence: Arc<PresenceModule>) -> Vec<Arc<dyn AppModule>> {
-    vec![presence]
+pub fn build(
+    presence: Arc<PresenceModule>,
+    transcription: Arc<soc_transcription::TranscriptionModule>,
+    decisions: Arc<soc_decisions::DecisionsModule>,
+) -> Vec<Arc<dyn AppModule>> {
+    vec![transcription, decisions, presence]
 }
 
 pub fn order(modules: &[Arc<dyn AppModule>]) -> Result<Vec<usize>> {

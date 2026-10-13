@@ -1,90 +1,445 @@
-import { AboutSlint, VerticalBox } from "std-widgets.slint";
+import { AboutSlint, VerticalBox, HorizontalBox, LineEdit, ComboBox, SpinBox, Button, CheckBox, TabWidget } from "std-widgets.slint";
+export component TranscriptionSettings inherits Window {
+    title: "Voz y órdenes · soc";
+    width: 440px; height: 690px;
+    in-out property <bool> enabled: true;
+    in property <bool> decisions-available: false;
+    in property <string> decision-model-status: "Preparando Laya…";
+    in property <bool> decision-model-loaded: false;
+    in property <bool> decision-model-busy: false;
+    in property <bool> decision-saving: false;
+    in property <string> decision-settings-status: "";
+    in-out property <bool> decision-preload: true;
+    in-out property <bool> decision-keep-loaded: false;
+    in-out property <int> decision-unload-minutes: 10;
+    callback save-decisions();
+    callback load-decisions();
+    callback unload-decisions();
+    in-out property <bool> command-mode-enabled: true;
+    callback command-mode-changed(bool);
+    in-out property <string> shortcut: "Ctrl+Option+Space";
+    in-out property <int> mode-index: 0;
+    in-out property <int> bubble-seconds: 15;
+    in-out property <int> unload-minutes: 10;
+    in-out property <bool> recording-shortcut: false;
+    in-out property <[string]> microphones;
+    in-out property <int> microphone-index: 0;
+    in-out property <string> status: "";
+    in-out property <string> model-status: "";
+    callback save();
+    callback prepare();
+    callback retry-keys();
+    callback cancel();
+    callback capture-shortcut(bool);
+    callback refresh-microphones();
+    TabWidget {
+        x: 12px; y: 12px; width: parent.width - 24px; height: parent.height - 24px;
+        Tab {
+            title: "Voz · Nemotron";
+            VerticalBox {
+                padding: 16px; spacing: 10px;
+                Text { text: "Tu voz, por un momento"; font-size: 21px; font-weight: 600; }
+                Text { text: "Español · Nemotron · audio y texto temporales"; font-size: 12px; }
+                CheckBox { text: "Activar transcripción"; checked <=> root.enabled; }
+                HorizontalBox {
+                    Text { text: "Atajo"; width: 100px; vertical-alignment: center; }
+                    Button { text: root.recording-shortcut ? "Pulsa las teclas · Esc cancela" : root.shortcut; clicked => { root.capture-shortcut(!root.recording-shortcut); } }
+                }
+                ComboBox { model: ["Mantener pulsado para hablar", "Pulsar para iniciar y terminar"]; current-index <=> root.mode-index; }
+                Text { text: "Micrófono de entrada"; font-size: 12px; }
+                HorizontalBox {
+                    ComboBox { model: root.microphones; current-index <=> root.microphone-index; }
+                    Button { text: "Actualizar"; clicked => { root.refresh-microphones(); } }
+                }
+                HorizontalBox {
+                    Text { text: "Borrar globo después de"; vertical-alignment: center; }
+                    SpinBox { value <=> root.bubble-seconds; minimum: 2; maximum: 30; }
+                    Text { text: "s"; vertical-alignment: center; }
+                }
+                HorizontalBox {
+                    Text { text: "Liberar Nemotron tras"; vertical-alignment: center; }
+                    SpinBox { value <=> root.unload-minutes; minimum: 0; maximum: 10; }
+                    Text { text: "min"; vertical-alignment: center; }
+                }
+                Text { text: "Minutos sin hablar antes de liberar la memoria. 0 libera al terminar."; wrap: word-wrap; font-size: 12px; }
+                Text { text: root.model-status; wrap: word-wrap; font-size: 12px; }
+                Text { text: root.status; wrap: word-wrap; font-size: 12px; }
+                HorizontalBox {
+                    Button { text: "Activar atajo"; clicked => { root.retry-keys(); } }
+                    Button { text: "Preparar modelo"; clicked => { root.prepare(); } }
+                }
+                HorizontalBox {
+                    Button { text: "Liberar Nemotron"; clicked => { root.cancel(); } }
+                    Button { text: "Guardar voz"; clicked => { root.save(); } }
+                }
+                Rectangle { vertical-stretch: 1; }
+            }
+        }
+        Tab {
+            title: "Órdenes · Laya";
+            if root.decisions-available: VerticalBox {
+                padding: 16px; spacing: 12px;
+                Text { text: "Análisis de órdenes"; font-size: 21px; font-weight: 600; }
+                Text { text: "Laya multilingüe · modelo local"; font-size: 12px; }
+                CheckBox {
+                    text: "Controlar el ordenador por voz (esta sesión)";
+                    checked <=> root.command-mode-enabled;
+                    toggled => { root.command-mode-changed(self.checked); }
+                }
+                Text { text: root.decision-model-status; wrap: word-wrap; font-size: 12px; }
+                CheckBox {
+                    text: "Cargar Laya al iniciar soc";
+                    checked <=> root.decision-preload;
+                    enabled: !root.decision-saving;
+                }
+                Text { text: "La precarga se aplica al próximo inicio de soc."; wrap: word-wrap; font-size: 12px; }
+                CheckBox {
+                    text: "Mantener Laya cargado";
+                    checked <=> root.decision-keep-loaded;
+                    enabled: !root.decision-saving;
+                }
+                HorizontalBox {
+                    Text { text: "Liberar Laya tras"; vertical-alignment: center; }
+                    SpinBox {
+                        value <=> root.decision-unload-minutes;
+                        minimum: 1; maximum: 120;
+                        enabled: !root.decision-keep-loaded && !root.decision-saving;
+                    }
+                    Text { text: "min"; vertical-alignment: center; }
+                }
+                Text {
+                    text: root.decision-keep-loaded ? "Sin descarga por inactividad. Puedes liberarlo manualmente." : "Minutos desde que termina la última orden. El cambio se aplica al guardar.";
+                    wrap: word-wrap; font-size: 12px;
+                }
+                HorizontalBox {
+                    Button { text: "Cargar Laya"; enabled: !root.decision-model-loaded && !root.decision-model-busy; clicked => { root.load-decisions(); } }
+                    Button { text: "Liberar Laya"; enabled: root.decision-model-loaded || root.decision-model-busy; clicked => { root.unload-decisions(); } }
+                }
+                Text { text: "Liberar Laya cancela la orden en curso. La siguiente orden lo cargará de nuevo."; wrap: word-wrap; font-size: 12px; }
+                Text { text: root.decision-settings-status; wrap: word-wrap; font-size: 12px; }
+                Button { text: root.decision-saving ? "Guardando…" : "Guardar Laya"; enabled: !root.decision-saving; clicked => { root.save-decisions(); } }
+                Rectangle { vertical-stretch: 1; }
+            }
+            if !root.decisions-available: Text {
+                x: 16px; y: 16px; width: parent.width - 32px;
+                text: "El control de órdenes no está disponible en esta instancia.";
+                wrap: word-wrap;
+            }
+        }
+    }
+}
 export component AboutWindow inherits Window {
     title: "Acerca de soc";
     width: 320px; height: 240px;
     VerticalBox {
         Text { text: "soc · primera base local"; horizontal-alignment: center; font-size: 20px; }
-        Text { text: "Clic: despertar / descansar\nMenú soc → Salir: cerrar"; horizontal-alignment: center; }
+        Text { text: "Clic: despertar / descansar\nArrastrar la cara: mover\nMenú soc → Salir: cerrar"; horizontal-alignment: center; }
         AboutSlint { }
     }
 }
+// El mismo material estático para la cara y el texto, sin copiar dos estilos.
+component GlassSurface inherits Rectangle {
+    in property <length> radius: 18px;
+    in property <bool> show-reflection: true;
+    in property <bool> subtle-light: false;
+    border-radius: radius;
+    // Translucidez y reflejos; no captura/desenfoca el escritorio.
+    background: root.subtle-light ? @linear-gradient(135deg, #383838a8 0%, #282828c7 42%, #181818d9 100%) : @linear-gradient(135deg, #8c8c8ca8 0%, #303030c7 42%, #181818d9 100%);
+    border-width: 1px;
+    border-color: root.subtle-light ? @linear-gradient(135deg, #ffffff28 0%, #ffffff0a 48%, #ffffff18 100%) : @linear-gradient(135deg, #ffffffb0 0%, #ffffff24 48%, #ffffff60 100%);
+    drop-shadow-blur: 8px;
+    drop-shadow-offset-y: 3px;
+    drop-shadow-color: #00000035;
+    Rectangle {
+        x: 2px; y: 2px;
+        width: parent.width - 4px; height: parent.height - 4px;
+        border-radius: max(0px, root.radius - 2px);
+        background: root.subtle-light ? transparent : @linear-gradient(160deg, #ffffff1c 0%, #ffffff00 45%, #ffffff08 100%);
+        border-width: 1px; border-color: root.subtle-light ? #ffffff04 : #ffffff0d;
+    }
+    if root.show-reflection: Path {
+        x: parent.width * 0.16; y: parent.height * 0.07;
+        width: parent.width * 0.68; height: parent.height * 0.22;
+        viewbox-width: 100; viewbox-height: 30;
+        stroke: @linear-gradient(90deg, #ffffff00 0%, #ffffff50 50%, #ffffff00 100%);
+        stroke-width: 1px; fill: transparent;
+        commands: "M 2 27 Q 50 -8 98 27";
+    }
+    @children
+}
+// Un solo contorno relleno: los párpados se separan, sin reemplazar ni fundir dibujos.
+component AssistantEye inherits Rectangle {
+    in property <float> wake-progress;
+    in property <float> eye-squeeze;
+    property <float> left-edge: 1 + 3.7 * wake-progress;
+    property <float> right-edge: 20 - left-edge;
+    property <float> lid-center: 5 + 5 * wake-progress;
+    property <float> lid-bend: 5 * (1 - wake-progress);
+    property <float> lid-half-height: 1 + 7.8 * wake-progress * (1 - eye-squeeze);
+    property <float> upper-lid: lid-center + lid-bend - lid-half-height;
+    property <float> lower-lid: lid-center + lid-bend + lid-half-height;
+    background: transparent;
+    Path {
+        width: parent.width; height: parent.height;
+        viewbox-width: 20; viewbox-height: 20;
+        fill: #f2f2f2;
+        MoveTo { x: root.left-edge; y: root.lid-center; }
+        CubicTo {
+            x: 10; y: root.upper-lid;
+            control-1-x: root.left-edge;
+            control-1-y: root.lid-center + (root.upper-lid - root.lid-center) * 0.552;
+            control-2-x: 10 - (10 - root.left-edge) * 0.552;
+            control-2-y: root.upper-lid;
+        }
+        CubicTo {
+            x: root.right-edge; y: root.lid-center;
+            control-1-x: 10 + (root.right-edge - 10) * 0.552;
+            control-1-y: root.upper-lid;
+            control-2-x: root.right-edge;
+            control-2-y: root.lid-center + (root.upper-lid - root.lid-center) * 0.552;
+        }
+        CubicTo {
+            x: 10; y: root.lower-lid;
+            control-1-x: root.right-edge;
+            control-1-y: root.lid-center + (root.lower-lid - root.lid-center) * 0.552;
+            control-2-x: 10 + (root.right-edge - 10) * 0.552;
+            control-2-y: root.lower-lid;
+        }
+        CubicTo {
+            x: root.left-edge; y: root.lid-center;
+            control-1-x: 10 - (10 - root.left-edge) * 0.552;
+            control-1-y: root.lower-lid;
+            control-2-x: root.left-edge;
+            control-2-y: root.lid-center + (root.lower-lid - root.lid-center) * 0.552;
+        }
+        Close { }
+    }
+}
+// El relleno representa memoria cargada, no actividad del micrófono ni una orden.
+component ModelIndicator inherits Rectangle {
+    in property <bool> loaded;
+    in property <bool> voice;
+    in property <string> description;
+    width: 28px; height: 24px;
+    background: transparent;
+    accessible-role: text;
+    accessible-label: description;
+    Path {
+        x: 5px; y: 3px; width: 18px; height: 18px;
+        viewbox-width: 24; viewbox-height: 24;
+        stroke: root.loaded ? #f2f2f2 : #bcbcbc;
+        stroke-width: 1.5px;
+        fill: root.loaded ? #f2f2f2 : transparent;
+        commands: root.voice ?
+            "M 12 2 C 9.8 2 8 3.8 8 6 L 8 11 C 8 13.2 9.8 15 12 15 C 14.2 15 16 13.2 16 11 L 16 6 C 16 3.8 14.2 2 12 2 Z" :
+            "M 12 2 L 14.7 9.3 L 22 12 L 14.7 14.7 L 12 22 L 9.3 14.7 L 2 12 L 9.3 9.3 Z";
+    }
+    if root.voice: Path {
+        x: 5px; y: 3px; width: 18px; height: 18px;
+        viewbox-width: 24; viewbox-height: 24;
+        stroke: root.loaded ? #f2f2f2 : #bcbcbc;
+        stroke-width: 1.5px; fill: transparent;
+        commands: "M 5 10 L 5 11 C 5 15 8.1 18 12 18 C 15.9 18 19 15 19 11 L 19 10 M 12 18 L 12 22 M 8 22 L 16 22";
+    }
+    Tooltip { text: @markdown("\{root.description}"); }
+}
+
+export struct ChatBubble { title: string, text: string, from-user: bool }
+export struct IndicatorBounds { x: float, y: float, width: float, height: float }
 export component PresenceWindow inherits Window {
     title: "soc";
-    width: 224px; height: 256px;
+    width: 400px; height: 980px;
     background: transparent;
     no-frame: true;
     always-on-top: true;
     in-out property <bool> active: false;
     in-out property <bool> reduced-motion: false;
+    in-out property <float> pointer-gaze-x: 0;
+    in-out property <float> pointer-gaze-y: 0;
+    property <float> gaze-x: active && !reduced-motion ? pointer-gaze-x : 0;
+    property <float> gaze-y: active && !reduced-motion ? pointer-gaze-y : 0;
+    animate gaze-x { duration: reduced-motion ? 0ms : 240ms; easing: ease-out; }
+    animate gaze-y { duration: reduced-motion ? 0ms : 240ms; easing: ease-out; }
+
     in-out property <string> status-text: "";
     in-out property <bool> persist-pending: false;
+    in-out property <[ChatBubble]> chat-bubbles;
+    in-out property <bool> transcription-available: false;
+    in property <bool> voice-model-loaded: false;
+    in property <bool> decision-model-loaded: false;
+    in property <string> voice-model-tooltip: "Nemotron · reconocimiento de voz\nNo disponible";
+    in property <string> decision-model-tooltip: "Laya · análisis de órdenes\nNo disponible";
+    out property <IndicatorBounds> voice-indicator-bounds: {
+        x: voice-indicator.x / 1px, y: voice-indicator.y / 1px,
+        width: voice-indicator.width / 1px, height: voice-indicator.height / 1px,
+    };
+    out property <IndicatorBounds> decision-indicator-bounds: {
+        x: decision-indicator.x / 1px, y: decision-indicator.y / 1px,
+        width: decision-indicator.width / 1px, height: decision-indicator.height / 1px,
+    };
     callback toggle();
+    in property <bool> manual-drag: false;
+    callback begin-drag();
+    callback move-drag();
+    callback finish-drag();
+    callback face-clicked();
     callback exit();
     callback motion-changed();
     callback about();
+    callback transcription-settings();
     out property <float> actual-diameter: diameter / 1px;
-    property <length> diameter: active ? 168px : 80px;
-    animate diameter { duration: reduced-motion ? 0ms : (active ? 620ms : 420ms); easing: active ? spring(0.18) : ease-in-out; }
-    property <float> dream-phase: 0;
-    Timer { interval: 50ms; running: !root.active && !root.reduced-motion; triggered => { root.dream-phase = Math.mod(root.dream-phase + 0.025, 1); } }
-    MenuBar {
-        Menu {
-            title: "soc";
-            MenuItem { title: "Acerca de soc"; activated => { root.about(); } }
-            MenuItem { title: "Salir"; activated => { root.exit(); } }
-        }
-    }
+    property <length> base-diameter: active ? 168px : 80px;
+    animate base-diameter { duration: reduced-motion ? 0ms : 350ms; easing: ease-in-out; }
+    // Los gestos siguen su propio ritmo y pueden invertirse desde el valor actual.
+    property <float> wake-progress: active ? 1 : 0;
+    animate wake-progress { duration: reduced-motion ? 0ms : 350ms; easing: ease-in-out; }
+    property <float> smile-progress: active ? 1 : 0;
+    animate smile-progress { duration: reduced-motion ? 0ms : 350ms; easing: ease-in-out; }
+    // Slint actualiza el reloj por frame; sin timers, IO ni reinicios de fase al hacer clic.
+    property <duration> motion-time: reduced-motion ? 0ms : animation-tick();
+    property <float> breath: reduced-motion ? 0 :
+        0.76 * Math.sin(360deg * motion-time / 4.7s) +
+        0.24 * Math.sin(360deg * motion-time / 7.3s);
+    property <float> drift: reduced-motion ? 0 :
+        0.72 * Math.sin(360deg * motion-time / 11.9s) +
+        0.28 * Math.sin(360deg * motion-time / 17.3s);
+    // Idle despierto: parpadeos breves con pausas variables y un segundo ritmo ocasional.
+    // Las envolventes llegan a cero antes de reiniciar la fase, sin cortes visibles.
+    property <float> blink-pulse: reduced-motion ? 0 : Math.max(0,
+        1 - Math.abs(Math.mod(motion-time, 6.7s) / 1s -
+            (3.2 + 0.8 * Math.sin(360deg * motion-time / 23.1s))) / 0.16);
+    property <float> extra-blink-pulse: reduced-motion ? 0 : Math.max(0,
+        1 - Math.abs(Math.mod(motion-time, 13.9s) / 1s -
+            (10.8 + 0.6 * Math.sin(360deg * motion-time / 19.7s))) / 0.18);
+    property <float> blink-envelope: Math.sin(Math.max(blink-pulse, extra-blink-pulse) * 90deg);
+    property <float> eye-squeeze: blink-envelope * blink-envelope *
+        wake-progress * wake-progress * wake-progress * wake-progress;
+    property <length> diameter: base-diameter + (1.2 - wake-progress * 0.85) * breath * 1px;
+    property <length> face-x: drift * (1 - wake-progress) * 1.4px + gaze-x * 1.6px;
+    property <length> face-y: gaze-y * 1px + breath * (1.1 - wake-progress * 0.6) * 1px -
+        (reduced-motion ? 0px : Math.sin(wake-progress * 180deg) * 3px);
+    property <float> dream-phase: Math.mod(motion-time, 5.9s) / 5.9s;
+    property <float> second-dream-phase: Math.mod(motion-time + 2.1s, 7.7s) / 7.7s;
+    property <float> sleep-opacity: 1 - wake-progress;
     focus := FocusScope {
         width: parent.width; height: parent.height;
-        orb := Rectangle {
+        chat-viewport := Rectangle {
             x: parent.width - self.width - 24px;
-            y: parent.height - self.height - 32px;
-            width: root.diameter; height: root.diameter;
-            border-radius: self.width / 2;
-            background: #242424;
-            border-width: 1px; border-color: #555555;
-            animate background { duration: root.reduced-motion ? 0ms : 300ms; }
-            // Los ojos cerrados son parte de la cara, nunca se oculta la cara.
-            Path {
-                x: parent.width * 0.24; y: parent.height * 0.36;
-                width: parent.width * 0.16; height: parent.height * 0.11;
-                viewbox-width: 20; viewbox-height: 12;
-                stroke: #f2f2f2; stroke-width: 3px; fill: transparent;
-                commands: root.active ? "M 1 10 Q 10 -4 19 10" : "M 1 3 Q 10 14 19 3";
-            }
-            Path {
-                x: parent.width * 0.60; y: parent.height * 0.36;
-                width: parent.width * 0.16; height: parent.height * 0.11;
-                viewbox-width: 20; viewbox-height: 12;
-                stroke: #f2f2f2; stroke-width: 3px; fill: transparent;
-                commands: root.active ? "M 1 10 Q 10 -4 19 10" : "M 1 3 Q 10 14 19 3";
-            }
-            Path {
-                x: parent.width * 0.39; y: parent.height * 0.56;
-                width: parent.width * 0.22; height: parent.height * 0.16;
-                viewbox-width: 24; viewbox-height: 18;
-                stroke: #f2f2f2; stroke-width: 2px; fill: transparent;
-                commands: root.active ? "M 2 3 Q 12 18 22 3" : "M 8 8 L 16 8";
-            }
-            TouchArea {
-                mouse-cursor: pointer;
-                accessible-role: button;
-                accessible-label: root.active ? "soc activo. Clic para descansar" : "soc dormido. Clic para despertar";
-                clicked => {
-                    if ((self.mouse-x - self.width/2) * (self.mouse-x - self.width/2) + (self.mouse-y - self.height/2) * (self.mouse-y - self.height/2) <= self.width * self.width / 4) { focus.focus(); root.toggle(); }
+            y: 0px;
+            width: 320px;
+            // La respiración no debe reiniciar el desplazamiento de la pila cada frame.
+            height: parent.height - 32px - root.base-diameter - 16px;
+            background: transparent;
+            clip: true;
+            chat-stack := Rectangle {
+                y: chat-viewport.height - self.height;
+                width: chat-viewport.width;
+                height: chat-layout.preferred-height;
+                background: transparent;
+                animate y { duration: root.reduced-motion ? 0ms : 180ms; easing: ease-out; }
+                chat-layout := VerticalLayout {
+                    spacing: 10px;
+                    for message in root.chat-bubbles: Rectangle {
+                        background: transparent;
+                        width: 320px;
+                        preferred-height: body.height + 40px;
+                        min-height: body.height + 40px;
+                        max-height: body.height + 40px;
+                        GlassSurface {
+                            x: message.from-user ? 24px : 0px;
+                            width: 296px;
+                            height: parent.height;
+                            show-reflection: false;
+                            subtle-light: true;
+                            radius: 18px;
+                            Text { x: 16px; y: 8px; width: parent.width - 32px; height: 16px; text: message.title; color: #ffffffb0; font-family: "Helvetica Neue"; font-size: 12px; font-weight: 700; }
+                            body := Text {
+                                x: 16px; y: 28px; width: parent.width - 32px;
+                                height: min(88px, self.preferred-height);
+                                text: message.text; color: #f2f2f2; font-family: "Helvetica Neue"; font-size: 16px; font-weight: 400;
+                                wrap: word-wrap; overflow: elide;
+                                accessible-role: text; accessible-label: message.text;
+                            }
+                        }
+                    }
                 }
             }
         }
-        if (!root.active): Text {
-            x: orb.x + orb.width - 6px; y: orb.y - 10px - root.dream-phase * 24px;
+        orb := GlassSurface {
+            x: parent.width - self.width - 24px;
+            y: parent.height - self.height - 32px;
+            width: root.diameter; height: root.diameter;
+            radius: self.width / 2;
+            // Rellenos suaves al despertar, curvas cerradas al descansar.
+            AssistantEye {
+                x: parent.width * 0.24 + root.face-x + root.gaze-x * 3.2px; y: parent.height * 0.34 + root.face-y + root.gaze-y * 2.4px;
+                width: parent.width * 0.16; height: parent.height * 0.15;
+                wake-progress: root.wake-progress; eye-squeeze: root.eye-squeeze;
+            }
+            AssistantEye {
+                x: parent.width * 0.60 + root.face-x + root.gaze-x * 3.2px; y: parent.height * 0.34 + root.face-y + root.gaze-y * 2.4px;
+                width: parent.width * 0.16; height: parent.height * 0.15;
+                wake-progress: root.wake-progress; eye-squeeze: root.eye-squeeze;
+            }
+            Path {
+                x: parent.width * 0.39 + root.face-x; y: parent.height * 0.56 + root.face-y + root.breath * root.sleep-opacity * 0.4px;
+                width: parent.width * 0.22; height: parent.height * 0.16;
+                viewbox-width: 24; viewbox-height: 18;
+                stroke: #f2f2f2; stroke-width: 2px; fill: transparent;
+                MoveTo { x: 8 - root.smile-progress * 6; y: 8 - root.smile-progress * 5; }
+                QuadraticTo {
+                    x: 16 + root.smile-progress * 6; y: 8 - root.smile-progress * 5;
+                    control-x: 12; control-y: 8 + root.smile-progress * 10 + root.breath * (0.6 - root.wake-progress * 0.4);
+                }
+            }
+            // En macOS el marco transparente puede salir de pantalla al mover la cara.
+            WindowMoveArea {
+                enabled: !root.manual-drag;
+                TouchArea {
+                    mouse-cursor: grab;
+                    accessible-role: button;
+                    accessible-label: root.active ? "soc activo. Clic para descansar. Arrastrar para mover" : "soc dormido. Clic para despertar. Arrastrar para mover";
+                    pointer-event(event) => {
+                        if (root.manual-drag && event.button == PointerEventButton.left && event.kind == PointerEventKind.up) { root.finish-drag(); }
+                        if (root.manual-drag && event.button == PointerEventButton.left && event.kind == PointerEventKind.down &&
+                            (self.mouse-x - self.width/2) * (self.mouse-x - self.width/2) + (self.mouse-y - self.height/2) * (self.mouse-y - self.height/2) <= self.width * self.width / 4) { root.begin-drag(); }
+                    }
+                    moved => {
+                        if (root.manual-drag && self.pressed) { root.move-drag(); }
+                    }
+                    clicked => {
+                        if ((self.mouse-x - self.width/2) * (self.mouse-x - self.width/2) + (self.mouse-y - self.height/2) * (self.mouse-y - self.height/2) <= self.width * self.width / 4) { focus.focus(); root.face-clicked(); }
+                    }
+                }
+            }
+        }
+        voice-indicator := ModelIndicator {
+            x: orb.x + orb.width / 2 - 31px;
+            y: orb.y + orb.height + 5px;
+            voice: true;
+            loaded: root.voice-model-loaded;
+            description: root.voice-model-tooltip;
+        }
+        decision-indicator := ModelIndicator {
+            x: voice-indicator.x + voice-indicator.width + 6px;
+            y: voice-indicator.y;
+            loaded: root.decision-model-loaded;
+            description: root.decision-model-tooltip;
+        }
+        if (root.sleep-opacity > 0): Text {
+            x: orb.x + orb.width - 8px + root.dream-phase * 5px;
+            y: orb.y - 6px - root.dream-phase * 30px;
             text: "z"; font-size: 16px + root.dream-phase * 8px;
             font-weight: 600; color: #a3a3a3;
-            opacity: root.reduced-motion ? 0.8 : (1 - root.dream-phase);
+            opacity: root.sleep-opacity * (root.reduced-motion ? 0.8 :
+                Math.sin(root.dream-phase * 180deg) * 0.8);
         }
-        if (!root.active): Text {
-            x: orb.x + orb.width + 5px; y: orb.y - 28px - root.dream-phase * 14px;
+        if (root.sleep-opacity > 0): Text {
+            x: orb.x + orb.width - 2px + root.second-dream-phase * 8px;
+            y: orb.y - 16px - root.second-dream-phase * 32px;
             text: "z"; font-size: 14px; color: #a3a3a3;
-            opacity: root.reduced-motion ? 0.5 : root.dream-phase;
+            opacity: root.sleep-opacity * (root.reduced-motion ? 0.5 :
+                Math.sin(root.second-dream-phase * 180deg) * 0.55);
         }
     }
 }
