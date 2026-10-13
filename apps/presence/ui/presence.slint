@@ -15,7 +15,7 @@ export component TranscriptionSettings inherits Window {
     callback save-decisions();
     callback load-decisions();
     callback unload-decisions();
-    in-out property <bool> command-mode-enabled: true;
+    in-out property <bool> command-mode-enabled: false;
     callback command-mode-changed(bool);
     in-out property <string> shortcut: "Ctrl+Option+Space";
     in-out property <int> mode-index: 0;

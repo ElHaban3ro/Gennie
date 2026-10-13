@@ -8,7 +8,7 @@ Petición del usuario, 2026-10-12: usar Laya multilingüe y el flujo del diagram
 
 `apps/decisions` posee catálogo, autorización, inferencia local, ejecutores y diario SQLite. Presencia consume su Controller público. Bootstrap registra/inicia/para decisions; kernel conserva su independencia. No listeners, HTTP, IA remota ni ejecución de código generado por el modelo. El helper Python está embebido en el binario Rust, sin depender del cwd del paquete.
 
-Nemotron conserva su captura y sus parciales. Solo `Text(finalized=true)` entrega una frase al router: soltar/terminar el dictado delimita la frase. Correcciones dentro de esa frase se resuelven antes de actuar. La casilla «Controlar el ordenador por voz (esta sesión)» empieza marcada; desmarcarla vuelve a dictado temporal. No es una preferencia persistida. Desmarcar o Detener y liberar cancela las decisiones pendientes; una operación ya enviada al OS puede haber ocurrido y no se deshace.
+Nemotron conserva su captura y sus parciales. Solo `Text(finalized=true)` entrega una frase al router: soltar/terminar el dictado delimita la frase. Correcciones dentro de esa frase se resuelven antes de actuar. Por petición posterior del usuario (2026-10-12), la casilla «Controlar el ordenador por voz (esta sesión)» empieza desmarcada: el atajo solo dicta, sin enviar frases al router. La implementación, configuración, precarga e indicadores de Laya permanecen activos; la casilla permite una reactivación explícita en la sesión. No es una preferencia persistida. Desmarcar o Detener y liberar cancela las decisiones pendientes; una operación ya enviada al OS puede haber ocurrido y no se deshace.
 
 | Ruta | Comportamiento |
 |---|---|
