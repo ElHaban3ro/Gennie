@@ -56,6 +56,7 @@ def main():
             if model is None:
                 from kokoro_mlx import KokoroTTS
                 model = KokoroTTS.from_pretrained()
+                send({"event": "loaded"})
             voice = request["voice"]
             if voice not in model.list_voices():
                 send({"ok": False, "error": "La voz seleccionada no existe en el modelo instalado"})
