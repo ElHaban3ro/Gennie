@@ -24,7 +24,6 @@ pub struct Message {
 
 pub struct Snapshot {
     pub messages: Vec<Message>,
-    pub content: String,
 }
 
 #[derive(Clone)]
@@ -120,31 +119,18 @@ fn load(db: &Database) -> soc_db::Result<Snapshot> {
         let mut statement = connection
             .prepare("SELECT speaker,text,created_at FROM presence_history ORDER BY id")?;
         let mut rows = statement.query([])?;
-        let mut content = String::new();
         let mut messages = Vec::new();
         while let Some(row) = rows.next()? {
             let speaker: String = row.get(0)?;
             let text: String = row.get(1)?;
             let created_at: String = row.get(2)?;
-            let label = match speaker.as_str() {
-                "user" => "Tú",
-                "assistant" => "SOC",
-                _ => "Chat",
-            };
-            if !content.is_empty() {
-                content.push_str("\n\n");
-            }
-            content.push_str(&format!("{label} · {created_at} UTC\n{text}"));
             messages.push(Message {
                 speaker,
                 text,
                 created_at,
             });
         }
-        if content.is_empty() {
-            content.push_str("Todavía no hay mensajes guardados.");
-        }
-        Ok(Snapshot { messages, content })
+        Ok(Snapshot { messages })
     })
 }
 
@@ -152,6 +138,26 @@ fn load(db: &Database) -> soc_db::Result<Snapshot> {
 mod tests {
     use super::*;
     use soc_core::AppModule;
+
+    #[test]
+    fn old_memory_notices_are_removed_without_erasing_chat_messages() {
+        let db = Database::memory().unwrap();
+        let module = crate::PresenceModule::default();
+        db.migrate(module.name(), &module.migrations()[..2])
+            .unwrap();
+        save(&db, "user", "Recuerdo guardado · #1\nOrigen: Chat").unwrap();
+        save(&db, "system", "Nuevo chat iniciado").unwrap();
+        save(&db, "system", "Recuperado (1) · #1: Dato\nOrigen: Chat").unwrap();
+        save(&db, "system", "Recuerdo guardado · #2: Dato\nOrigen: Chat").unwrap();
+        save(&db, "assistant", "Respuesta normal").unwrap();
+
+        db.migrate(module.name(), module.migrations()).unwrap();
+        let messages = load(&db).unwrap().messages;
+        assert_eq!(messages.len(), 3);
+        assert_eq!(messages[0].speaker, "user");
+        assert_eq!(messages[1].text, "Nuevo chat iniciado");
+        assert_eq!(messages[2].text, "Respuesta normal");
+    }
 
     #[test]
     fn finalized_messages_survive_reopen_and_keep_order() {
@@ -191,24 +197,14 @@ mod tests {
         assert_eq!(snapshot.messages[1].speaker, "assistant");
         assert_eq!(snapshot.messages[1].text, "Una respuesta");
         assert_eq!(snapshot.messages[2].speaker, "system");
-        assert!(
-            snapshot.content.find("Una pregunta").unwrap()
-                < snapshot.content.find("Una respuesta").unwrap()
-        );
-        assert!(
-            snapshot.content.find("Una respuesta").unwrap()
-                < snapshot.content.find("Nuevo chat iniciado").unwrap()
-        );
+        assert_eq!(snapshot.messages[2].text, "Nuevo chat iniciado");
         drop(writer);
         drop(store);
         db.close().unwrap();
         let reopened = Database::open(&path, 500).unwrap();
         let snapshot = load(&reopened).unwrap();
         assert_eq!(snapshot.messages.len(), 3);
-        assert!(
-            snapshot.content.find("Una pregunta").unwrap()
-                < snapshot.content.find("Una respuesta").unwrap()
-        );
+        assert_eq!(snapshot.messages[0].text, "Una pregunta");
         reopened.close().unwrap();
         let _ = std::fs::remove_file(path);
     }

@@ -3,6 +3,7 @@
 #[path = "../src/answer.rs"]
 mod answer;
 #[path = "../src/chat.rs"]
+#[allow(dead_code)]
 mod chat;
 use slint::{ComponentHandle, Model};
 use soc_presence::{ChatBubble, ChatSource, PresenceWindow};

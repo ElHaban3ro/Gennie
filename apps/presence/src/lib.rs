@@ -56,6 +56,10 @@ impl AppModule for PresenceModule {
                 version: 2,
                 sql: include_str!("../migrations/0002_history.sql"),
             },
+            Migration {
+                version: 3,
+                sql: include_str!("../migrations/0003_remove_memory_activity.sql"),
+            },
         ]
     }
     fn start(&self, state: &AppState) -> Result<()> {
@@ -174,26 +178,10 @@ impl PresenceModule {
         let history_for_open = history_store.clone();
         ui.on_open_history(move || {
             if let Some(ui) = weak_history.upgrade() {
-                ui.set_history_content("Cargando chat…".into());
                 ui.set_history_notice("Cargando chat…".into());
                 ui.set_history_messages(slint::ModelRc::default());
                 if let Err(error) = history_for_open.load() {
-                    ui.set_history_content(error.into());
-                    ui.set_history_notice(ui.get_history_content());
-                }
-            }
-        });
-        let weak_copy = ui.as_weak();
-        ui.on_copy_history(move || {
-            if let Some(ui) = weak_copy.upgrade() {
-                match arboard::Clipboard::new().and_then(|mut clipboard| {
-                    clipboard.set_text(ui.get_history_content().to_string())
-                }) {
-                    Ok(()) => ui.set_history_copy_status("Copiado".into()),
-                    Err(error) => {
-                        eprintln!("event=history_copy_failed error={error}");
-                        ui.set_history_copy_status("Error al copiar".into());
-                    }
+                    ui.set_history_notice(error.into());
                 }
             }
         });
@@ -225,16 +213,45 @@ impl PresenceModule {
                                                         "assistant" => ("SOC", false, false),
                                                         _ => ("Actividad", false, true),
                                                     };
+                                                let prepared = if from_user || system {
+                                                    None
+                                                } else {
+                                                    Some(answer::prepare(&message.text))
+                                                };
                                                 HistoryMessage {
                                                     title: title.into(),
-                                                    text: message.text.clone().into(),
+                                                    text: prepared
+                                                        .as_ref()
+                                                        .map_or_else(
+                                                            || message.text.clone(),
+                                                            |answer| answer.text.clone(),
+                                                        )
+                                                        .into(),
                                                     time: history_time(&message.created_at).into(),
                                                     from_user,
                                                     system,
+                                                    sources: slint::ModelRc::new(
+                                                        slint::VecModel::from(
+                                                            prepared.map_or_else(
+                                                                Vec::new,
+                                                                |answer| {
+                                                                    answer
+                                                                        .sources
+                                                                        .into_iter()
+                                                                        .map(|source| ChatSource {
+                                                                            label: source
+                                                                                .label
+                                                                                .into(),
+                                                                            url: source.url.into(),
+                                                                        })
+                                                                        .collect()
+                                                                },
+                                                            ),
+                                                        ),
+                                                    ),
                                                 }
                                             })
                                             .collect::<Vec<_>>();
-                                        ui.set_history_content(snapshot.content.into());
                                         ui.set_history_notice(
                                             "Todavía no hay mensajes guardados.".into(),
                                         );
@@ -268,7 +285,6 @@ impl PresenceModule {
                                     }
                                     Err(error) => {
                                         let notice = format!("No se pudo leer el chat: {error}");
-                                        ui.set_history_content(notice.clone().into());
                                         ui.set_history_notice(notice.into());
                                         ui.set_history_messages(slint::ModelRc::default());
                                     }
@@ -278,12 +294,9 @@ impl PresenceModule {
                         history::Event::Saved => refresh_chat = true,
                         history::Event::SaveFailed(error) => {
                             if let Some(ui) = weak_history.upgrade() {
-                                ui.set_history_content(
-                                    format!("No se pudo guardar un mensaje en el chat: {error}")
-                                        .into(),
+                                ui.set_history_send_status(
+                                    format!("No se pudo guardar: {error}").into(),
                                 );
-                                ui.set_history_notice(ui.get_history_content());
-                                ui.set_history_messages(slint::ModelRc::default());
                                 ui.set_history_open(true);
                             }
                         }

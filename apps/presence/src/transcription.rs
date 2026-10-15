@@ -3,7 +3,7 @@ use slint::ComponentHandle;
 use soc_core::{AppState, Result};
 use soc_transcription::{Controller, Event, Mode, Settings, TranscriptionModule};
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     collections::{HashMap, VecDeque},
     rc::Rc,
     time::{Duration, Instant},
@@ -145,6 +145,7 @@ impl TranscriptionUi {
         let controller = Rc::new(RefCell::new(module.controller(state)?));
         let settings = TranscriptionSettings::new()?;
         let chat = Rc::new(RefCell::new(crate::chat::Chat::default()));
+        let narration_suppressed = Rc::new(Cell::new(false));
         ui.set_chat_bubbles(slint::ModelRc::from(chat.borrow().model.clone()));
         ui.set_chat_sources(slint::ModelRc::from(chat.borrow().sources.clone()));
         let decisions = decisions
@@ -332,6 +333,51 @@ impl TranscriptionUi {
                 }
             }
         });
+        let llm_control = llm.clone();
+        let weak_ui = ui.as_weak();
+        let messages = chat.clone();
+        let history_for_send = history.clone();
+        let narration_for_send = narration_suppressed.clone();
+        ui.on_send_chat(move |draft| {
+            let Some(window) = weak_ui.upgrade() else {
+                return false;
+            };
+            let text = draft.trim();
+            if text.is_empty() {
+                return false;
+            }
+            if text.chars().count() > 1200 {
+                window.set_history_send_status("Máximo 1.200 caracteres".into());
+                return false;
+            }
+            let Some(control) = &llm_control else {
+                window.set_history_send_status("Conversación no disponible".into());
+                return false;
+            };
+            if control.is_pending() {
+                window.set_history_send_status("Espera la respuesta actual".into());
+                return false;
+            }
+            match control.speak(text) {
+                Ok(()) => {
+                    narration_for_send.set(false);
+                    let now = Instant::now();
+                    let mut messages = messages.borrow_mut();
+                    messages.speech("Tú", text, true, Duration::from_secs(15), now);
+                    messages.decision("Pensando…", false, Duration::from_secs(15), now);
+                    window.set_llm_busy(true);
+                    match history_for_send.save("user", text) {
+                        Ok(()) => window.set_history_send_status("Enviado".into()),
+                        Err(error) => window.set_history_send_status(error.into()),
+                    }
+                    true
+                }
+                Err(error) => {
+                    window.set_history_send_status(error.to_string().into());
+                    false
+                }
+            }
+        });
         populate(&settings, &controller.borrow());
         settings.set_status(controller.borrow().settings_status.clone().into());
         settings.set_model_status("El modelo se carga al abrir soc".into());
@@ -465,7 +511,7 @@ impl TranscriptionUi {
         let mut partial_reply = String::new();
         let mut narration = crate::narration::Narration::default();
         let mut narration_queue = VecDeque::<(u64, String)>::new();
-        let mut narration_suppressed = false;
+        let narration_suppressed = narration_suppressed.clone();
         timer.start(
             slint::TimerMode::Repeated,
             Duration::from_millis(25),
@@ -571,7 +617,7 @@ impl TranscriptionUi {
                                 partial_reply.push_str(&delta);
                                 if !partial_reply.trim().is_empty() {
                                     let bubble_id = messages.decision(&partial_reply, false, ttl, now);
-                                    if !narration_suppressed {
+                                    if !narration_suppressed.get() {
                                         for sentence in narration.push(&delta) {
                                             queue_narration(&mut messages, &mut narration_queue, tts_controller.as_deref(), bubble_id, &sentence);
                                         }
@@ -580,7 +626,7 @@ impl TranscriptionUi {
                             }
                             soc_llm::Event::Reply(reply) => {
                                 let bubble_id = messages.decision(&reply, true, ttl, now);
-                                if !narration_suppressed {
+                                if !narration_suppressed.get() {
                                     let remaining = reply.strip_prefix(&partial_reply).unwrap_or(&reply);
                                     let mut sentences = narration.push(remaining);
                                     if let Some(last) = narration.finish() {
@@ -709,7 +755,7 @@ impl TranscriptionUi {
                         {
                             match llm.speak(&text) {
                                 Ok(()) => {
-                                    narration_suppressed = false;
+                                    narration_suppressed.set(false);
                                     messages.decision("Pensando…", false, ttl, now)
                                 },
                                 Err(error) => messages.decision(&error.to_string(), true, ttl, now),
@@ -742,8 +788,8 @@ impl TranscriptionUi {
                 for event in events {
                     match event {
                         Event::DictationRequested => {
-                            narration_suppressed = llm_controller.as_ref().is_some_and(|controller| controller.is_pending());
-                            if narration_suppressed {
+                            narration_suppressed.set(llm_controller.as_ref().is_some_and(|controller| controller.is_pending()));
+                            if narration_suppressed.get() {
                                 narration.clear();
                             }
                             for (bubble_id, _) in narration_queue.drain(..) {
@@ -817,7 +863,7 @@ impl TranscriptionUi {
                                     if let Some(controller) = &llm_controller {
                                         match controller.speak(&text) {
                                             Ok(()) => {
-                                                narration_suppressed = false;
+                                                narration_suppressed.set(false);
                                                 messages.decision("Pensando…", false, ttl, now)
                                             },
                                             Err(error) => messages.decision(&error.to_string(), true, ttl, now),

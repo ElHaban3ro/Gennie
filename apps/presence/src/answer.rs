@@ -145,4 +145,16 @@ mod tests {
         assert_eq!(answer.text, "Respuesta breve.");
         assert_eq!(answer.sources.len(), 1);
     }
+    #[test]
+    fn keeps_link_label_readable_for_saved_chat() {
+        let answer = prepare(
+            "Descárgalo desde [bluestacks.com](https://www.bluestacks.com/) y revisa las opciones.",
+        );
+        assert_eq!(
+            answer.text,
+            "Descárgalo desde bluestacks.com y revisa las opciones."
+        );
+        assert_eq!(answer.sources[0].label, "bluestacks.com");
+        assert_eq!(answer.sources[0].url, "https://www.bluestacks.com/");
+    }
 }

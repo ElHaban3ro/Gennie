@@ -352,7 +352,7 @@ component ActionButton inherits Rectangle {
 
 export struct ChatBubble { title: string, text: string, from-user: bool }
 export struct ChatSource { label: string, url: string }
-export struct HistoryMessage { title: string, text: string, time: string, from-user: bool, system: bool }
+export struct HistoryMessage { title: string, text: string, time: string, from-user: bool, system: bool, sources: [ChatSource] }
 export struct IndicatorBounds { x: float, y: float, width: float, height: float }
 export component PresenceWindow inherits Window {
     title: "soc";
@@ -375,10 +375,10 @@ export component PresenceWindow inherits Window {
     in-out property <[ChatBubble]> chat-bubbles;
     in-out property <[ChatSource]> chat-sources;
     in-out property <bool> history-open: false;
-    in-out property <string> history-content: "Cargando chat…";
     in-out property <string> history-notice: "Cargando chat…";
     in-out property <[HistoryMessage]> history-messages;
-    in-out property <string> history-copy-status: "Copiar todo";
+    in-out property <string> history-draft: "";
+    in-out property <string> history-send-status: "";
     in-out property <bool> transcription-available: false;
     in property <bool> llm-available: false;
     in property <bool> llm-busy: false;
@@ -432,7 +432,7 @@ export component PresenceWindow inherits Window {
     callback new-chat();
     callback open-source(string);
     callback open-history();
-    callback copy-history();
+    callback send-chat(string) -> bool;
     callback scroll-chat-to-bottom();
     callback set-chat-scroll-offset(float);
     in property <bool> manual-drag: false;
@@ -634,7 +634,6 @@ export component PresenceWindow inherits Window {
             clicked => {
                 root.history-open = !root.history-open;
                 if (root.history-open) {
-                    root.history-copy-status = "Copiar todo";
                     root.open-history();
                 }
             }
@@ -644,6 +643,8 @@ export component PresenceWindow inherits Window {
             y: orb.y + 20px - self.height;
             width: 320px; height: 488px;
             visible: root.active && root.history-open;
+            opacity: root.history-open ? 1 : 0;
+            animate opacity { duration: root.reduced-motion ? 0ms : 180ms; easing: ease-out; }
             background: transparent;
             Rectangle {
                 width: parent.width; height: parent.height;
@@ -671,22 +672,23 @@ export component PresenceWindow inherits Window {
                     background: #ffffff2b;
                 }
                 history-scroll := Flickable {
-                    x: 20px; y: 94px; width: parent.width - 40px; height: parent.height - 148px;
+                    x: 20px; y: 94px; width: parent.width - 40px; height: parent.height - 180px;
                     content-height: max(self.height, history-layout.preferred-height + 8px);
                     history-layout := VerticalLayout {
                         x: 0px; y: 0px;
                         width: parent.width; spacing: 10px;
                         for message in root.history-messages: Rectangle {
                             width: 280px;
-                            preferred-height: message.system ? 32px : bubble-body.preferred-height + 44px;
+                            preferred-height: message.system ? 96px : bubble-body.preferred-height + 44px + (message.sources.length > 0 ? 20px + message.sources.length * 26px : 0px);
                             min-height: self.preferred-height; max-height: self.preferred-height;
                             background: transparent;
                             if message.system: Rectangle {
-                                x: 44px; y: 3px; width: parent.width - 88px; height: 26px;
+                                x: 12px; y: 3px; width: parent.width - 24px; height: parent.height - 6px;
                                 border-radius: 13px; background: #ffffff1c;
-                                Text {
+                                system-body := Text {
+                                    x: 12px; y: 7px; width: parent.width - 24px;
                                     text: message.text; color: #ffffffb0; font-family: "Helvetica Neue";
-                                    font-size: 11px; horizontal-alignment: center; vertical-alignment: center;
+                                    font-size: 11px; wrap: word-wrap;
                                 }
                             }
                             if !message.system: Rectangle {
@@ -716,6 +718,30 @@ export component PresenceWindow inherits Window {
                                 font-size: 14px; wrap: word-wrap; vertical-alignment: top;
                                 accessible-role: text; accessible-label: message.text;
                             }
+                            if !message.system && message.sources.length > 0: VerticalLayout {
+                                x: message.from-user ? 36px : 14px;
+                                y: bubble-body.y + bubble-body.height + 6px;
+                                width: 230px;
+                                spacing: 2px;
+                                Text {
+                                    text: "FUENTES"; height: 16px; color: #f2f2f2a8;
+                                    font-family: "Helvetica Neue"; font-size: 10px; font-weight: 700;
+                                }
+                                for source in message.sources: Rectangle {
+                                    height: 24px; background: transparent;
+                                    Text {
+                                        x: 0px; y: 2px; width: parent.width; height: 20px;
+                                        text: "↗ " + source.label; color: #d4d4d4;
+                                        font-family: "Helvetica Neue"; font-size: 12px; overflow: elide;
+                                    }
+                                    TouchArea {
+                                        mouse-cursor: pointer; accessible-role: button;
+                                        accessible-label: "Abrir fuente " + source.label;
+                                        clicked => { root.open-source(source.url); }
+                                    }
+                                    Tooltip { text: @markdown("Abrir fuente en el navegador"); }
+                                }
+                            }
                         }
                     }
                     if root.history-messages.length == 0: Text {
@@ -739,23 +765,51 @@ export component PresenceWindow inherits Window {
                     }
                 }
                 Rectangle {
-                    x: 18px; y: parent.height - 44px; width: parent.width - 36px; height: 1px;
+                    x: 18px; y: parent.height - 72px; width: parent.width - 36px; height: 1px;
                     background: #ffffff2b;
                 }
                 Rectangle {
-                    x: 18px; y: parent.height - 38px; width: 110px; height: 30px;
+                    x: 18px; y: parent.height - 62px; width: parent.width - 36px; height: 42px;
                     border-radius: 10px;
-                    background: copy-hover.has-hover ? #ffffff2a : #ffffff11;
+                    background: #ffffff11;
                     border-width: 1px; border-color: #ffffff30;
-                    Text {
-                        text: root.history-copy-status; color: #f2f2f2; font-size: 12px;
-                        font-family: "Helvetica Neue";
-                        horizontal-alignment: center; vertical-alignment: center;
+                    if root.history-draft == "": Text {
+                        x: 12px; y: 8px; width: parent.width - 54px; height: 26px;
+                        text: root.llm-available ? "Escribe a SOC…" : "Conversación no disponible";
+                        color: #ffffff85; font-family: "Helvetica Neue"; font-size: 13px;
+                        vertical-alignment: center;
                     }
-                    copy-hover := TouchArea {
-                        mouse-cursor: pointer; accessible-role: button; accessible-label: "Copiar chat";
-                        clicked => { root.copy-history(); }
+                    chat-input := TextInput {
+                        x: 12px; y: 8px; width: parent.width - 54px; height: 26px;
+                        text <=> root.history-draft;
+                        enabled: root.llm-available;
+                        single-line: true; color: #f2f2f2;
+                        font-family: "Helvetica Neue"; font-size: 13px;
+                        vertical-alignment: center;
+                        accepted => {
+                            if (root.send-chat(root.history-draft)) { root.history-draft = ""; }
+                        }
                     }
+                    Rectangle {
+                        x: parent.width - 38px; y: 6px; width: 30px; height: 30px;
+                        border-radius: 10px;
+                        background: root.llm-available && !root.llm-busy && root.history-draft != "" ? #ffffff30 : #ffffff12;
+                        Text {
+                            text: "↑"; color: #f2f2f2; font-size: 18px;
+                            horizontal-alignment: center; vertical-alignment: center;
+                        }
+                        TouchArea {
+                            mouse-cursor: pointer; accessible-role: button; accessible-label: "Enviar mensaje";
+                            clicked => {
+                                if (root.send-chat(root.history-draft)) { root.history-draft = ""; }
+                            }
+                        }
+                    }
+                }
+                Text {
+                    x: 20px; y: parent.height - 17px; width: parent.width - 40px; height: 14px;
+                    text: root.history-send-status; color: #ffffffb8;
+                    font-family: "Helvetica Neue"; font-size: 10px; overflow: elide;
                 }
                 Rectangle {
                     x: parent.width - 181px; y: 17px; width: 120px; height: 30px;
@@ -771,11 +825,7 @@ export component PresenceWindow inherits Window {
                     history-new-chat-hover := TouchArea {
                         mouse-cursor: root.llm-available && !root.llm-busy ? pointer : default;
                         accessible-role: button; accessible-label: "Nuevo chat";
-                        clicked => {
-                            if (root.llm-available && !root.llm-busy) {
-                                root.new-chat();
-                            }
-                        }
+                        clicked => { if (root.llm-available && !root.llm-busy) { root.new-chat(); } }
                     }
                 }
                 Rectangle {
