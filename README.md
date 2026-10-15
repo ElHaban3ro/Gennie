@@ -49,7 +49,7 @@ Cada dictado finaliza automáticamente a los 5 minutos; libera el micrófono y c
 
 ## Voz de SOC con Kokoro
 
-La pestaña «Salida · Kokoro» permite activar o silenciar la lectura de respuestas, escoger una de tres voces españolas, ajustar velocidad entre 70 y 130 % y probar la voz antes de guardar. Las frases completas de la conversación se narran en orden mientras la IA sigue generando texto; el control local también reproduce sus respuestas finales. El texto sigue visible. El TTS trabaja fuera de la interfaz y no guarda audio.
+La pestaña «Salida · Kokoro» permite activar o silenciar la lectura de respuestas, escoger una de tres voces españolas, ajustar velocidad entre 70 y 130 % y probar la voz antes de guardar. También permite mantener el modelo cargado o liberarlo tras 1–120 minutos sin reproducción (10 por defecto). Un altavoz bajo la cara indica si Kokoro está cargado en memoria. Las frases completas de la conversación se narran en orden mientras la IA sigue generando texto; el control local también reproduce sus respuestas finales. El texto sigue visible. El TTS trabaja fuera de la interfaz y no guarda audio.
 
 En macOS Apple Silicon instala una vez Python 3.12 y el motor en un entorno propio de SOC:
 

@@ -2,7 +2,7 @@
 
 Decisions precarga Laya al conectar su Controller si está activado en sus preferencias y resuelve destinos de open_app desde el inventario local de bundles. ModelStatus es una interfaz pública de la app consumida por presence; no pertenece a AppState. [D-018](../decisions/installed-apps.md).
 
-Transcription también expone su propio ModelStatus: separa archivo descargado de modelo cargado en memoria y conserva la carga al terminar una sesión sin palabras. Presence consulta ambos controladores para los indicadores y tooltips bajo la cara; no deduce su estado de los textos de los globos.
+Transcription también expone su propio ModelStatus: separa archivo descargado de modelo cargado en memoria y conserva la carga al terminar una sesión sin palabras. TTS expone el estado de Kokoro y confirma la carga desde el proceso Python antes de rellenar su indicador. Presence consulta los tres controladores para los indicadores y tooltips bajo la cara; no deduce su estado de los textos de los globos.
 
 | Componente | Responsabilidad y recursos | Dependencias |
 |---|---|---|
@@ -33,7 +33,7 @@ Nuevos componentes deben seguir [modules rules](../rules/modules.md); no impleme
 `soc-llm` (`llm`, activa por defecto) posee el chat de SOC. Codex es el proveedor actual, aislado en `codex.rs`; mantiene un proceso hijo app-server, reanuda el `thread_id` de `codex_conversation` y aplica sus preferencias persistidas de modelo, esfuerzo y permisos al crear el hijo. Presence recibe un Controller sin nombres de proveedor y puede pedir otro hilo mediante «Nuevo chat»; el ID activo cambia después de guardarlo. El modo de voz inicial envía cada texto final a este Controller. No abre puertos ni guarda credenciales o audio en SQLite; presence guarda los mensajes finalizados para el historial. Al migrar desde el módulo `codex`, se conserva la selección de activación y el hilo existente. [D-021](../decisions/llm-conversation.md).
 
 ## Voz de salida
-`soc-tts` (`tts`, activa por defecto) recibe los textos finales desde presence y los reproduce sin bloquear Slint. Posee sus preferencias y un proceso local persistente. No guarda texto ni audio. [D-022](../decisions/tts.md).
+`soc-tts` (`tts`, activa por defecto) recibe los textos finales desde presence y los reproduce sin bloquear Slint. Posee sus preferencias y un proceso local que libera tras el plazo de inactividad configurado (10 minutos por defecto). No guarda texto ni audio. [D-022](../decisions/tts.md).
 
 ## Recordatorios
 

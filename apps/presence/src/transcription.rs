@@ -54,6 +54,17 @@ fn decision_model_indicator(status: &soc_decisions::ModelStatus) -> (bool, &'sta
     };
     (*status == ModelStatus::Ready, text)
 }
+fn tts_model_indicator(status: soc_tts::ModelStatus) -> (bool, &'static str) {
+    use soc_tts::ModelStatus;
+    let text = match status {
+        ModelStatus::Disabled => "Kokoro · síntesis de voz\nDesactivado",
+        ModelStatus::Unloaded => "Kokoro · síntesis de voz\nDescargado de memoria",
+        ModelStatus::Loading => "Kokoro · síntesis de voz\nCargando en memoria…",
+        ModelStatus::Ready => "Kokoro · síntesis de voz\nCargado en memoria",
+        ModelStatus::Failed => "Kokoro · síntesis de voz\nError · modelo no disponible",
+    };
+    (status == ModelStatus::Ready, text)
+}
 fn update_voice_indicator(ui: &PresenceWindow, status: soc_transcription::ModelStatus) {
     let (loaded, tooltip) = voice_model_indicator(status);
     ui.set_voice_model_loaded(loaded);
@@ -63,6 +74,11 @@ fn update_decision_indicator(ui: &PresenceWindow, status: &soc_decisions::ModelS
     let (loaded, tooltip) = decision_model_indicator(status);
     ui.set_decision_model_loaded(loaded);
     ui.set_decision_model_tooltip(tooltip.into());
+}
+fn update_tts_indicator(ui: &PresenceWindow, status: soc_tts::ModelStatus) {
+    let (loaded, tooltip) = tts_model_indicator(status);
+    ui.set_tts_model_loaded(loaded);
+    ui.set_tts_model_tooltip(tooltip.into());
 }
 fn populate(window: &TranscriptionSettings, controller: &Controller) {
     let s = &controller.settings;
@@ -159,6 +175,7 @@ impl TranscriptionUi {
             .transpose()?;
         settings.set_tts_available(tts.is_some());
         if let Some(controller) = &tts {
+            update_tts_indicator(ui, controller.model_status());
             let saved = controller.settings();
             settings.set_tts_enabled(saved.enabled);
             settings.set_tts_voice_index(match saved.voice.as_str() {
@@ -167,6 +184,9 @@ impl TranscriptionUi {
                 _ => 0,
             });
             settings.set_tts_speed_percent(saved.speed_percent as i32);
+            settings.set_tts_keep_loaded(saved.unload_seconds.is_none());
+            settings
+                .set_tts_unload_minutes(saved.unload_seconds.unwrap_or(600).div_ceil(60) as i32);
             settings.set_tts_status("La voz se prepara al recibir la primera respuesta".into());
         }
         let tts_save = tts.clone();
@@ -184,6 +204,8 @@ impl TranscriptionUi {
                     }
                     .into(),
                     speed_percent: window.get_tts_speed_percent() as u32,
+                    unload_seconds: (!window.get_tts_keep_loaded())
+                        .then_some(window.get_tts_unload_minutes() as u64 * 60),
                 };
                 match controller.save(next) {
                     Ok(()) => {
@@ -213,6 +235,8 @@ impl TranscriptionUi {
                     }
                     .into(),
                     speed_percent: window.get_tts_speed_percent() as u32,
+                    unload_seconds: (!window.get_tts_keep_loaded())
+                        .then_some(window.get_tts_unload_minutes() as u64 * 60),
                 };
                 match controller.preview(draft) {
                     Ok(id) => {
@@ -538,6 +562,7 @@ impl TranscriptionUi {
                 let now = Instant::now();
                 let mut messages = chat.borrow_mut();
                 if let Some(controller) = &tts_controller {
+                    update_tts_indicator(&ui, controller.model_status());
                     for event in controller.poll() {
                         match event {
                             soc_tts::Event::Started(id) => {
@@ -579,6 +604,8 @@ impl TranscriptionUi {
                                     window.set_tts_enabled(saved.enabled);
                                     window.set_tts_voice_index(match saved.voice.as_str() { "em_alex" => 1, "em_santa" => 2, _ => 0 });
                                     window.set_tts_speed_percent(saved.speed_percent as i32);
+                                    window.set_tts_keep_loaded(saved.unload_seconds.is_none());
+                                    window.set_tts_unload_minutes(saved.unload_seconds.unwrap_or(600).div_ceil(60) as i32);
                                     window.set_tts_status("Voz de SOC guardada".into());
                                 }
                             }
@@ -968,5 +995,15 @@ mod tests {
             assert!(!tooltip.contains("detalle interno"));
         }
         assert!(decision_model_indicator(&DecisionStatus::Ready).0);
+        use soc_tts::ModelStatus as TtsStatus;
+        for status in [
+            TtsStatus::Disabled,
+            TtsStatus::Unloaded,
+            TtsStatus::Loading,
+            TtsStatus::Failed,
+        ] {
+            assert!(!tts_model_indicator(status).0, "{status:?}");
+        }
+        assert!(tts_model_indicator(TtsStatus::Ready).0);
     }
 }

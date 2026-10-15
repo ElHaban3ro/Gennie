@@ -500,6 +500,7 @@ impl PresenceModule {
                         &[
                             ui.get_voice_indicator_bounds(),
                             ui.get_decision_indicator_bounds(),
+                            ui.get_tts_indicator_bounds(),
                             ui.get_new_chat_button_bounds(),
                             ui.get_sources_panel_bounds(),
                             ui.get_history_button_bounds(),

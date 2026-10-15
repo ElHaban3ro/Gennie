@@ -35,6 +35,8 @@ export component TranscriptionSettings inherits Window {
     in-out property <bool> tts-enabled: true;
     in-out property <int> tts-voice-index: 0;
     in-out property <int> tts-speed-percent: 100;
+    in-out property <bool> tts-keep-loaded: false;
+    in-out property <int> tts-unload-minutes: 10;
     in property <bool> tts-saving: false;
     in-out property <string> tts-status: "";
     callback save-tts();
@@ -145,6 +147,13 @@ export component TranscriptionSettings inherits Window {
                         SpinBox { value <=> root.tts-speed-percent; minimum: 70; maximum: 130; }
                         Text { text: "%"; vertical-alignment: center; }
                     }
+                    CheckBox { text: "Mantener Kokoro cargado"; checked <=> root.tts-keep-loaded; enabled: !root.tts-saving; }
+                    HorizontalBox {
+                        Text { text: "Liberar Kokoro tras"; vertical-alignment: center; }
+                        SpinBox { value <=> root.tts-unload-minutes; minimum: 1; maximum: 120; enabled: !root.tts-keep-loaded && !root.tts-saving; }
+                        Text { text: "min"; vertical-alignment: center; }
+                    }
+                    Text { text: root.tts-keep-loaded ? "Kokoro seguirá cargado hasta interrumpir la voz o cerrar SOC." : "Minutos desde que termina la última reproducción. El cambio se aplica al guardar."; wrap: word-wrap; font-size: 12px; }
                     Text { text: "La primera reproducción descarga el modelo. Requiere Python 3.10–3.12 y kokoro-mlx instalado para SOC."; wrap: word-wrap; font-size: 12px; }
                     HorizontalBox {
                         Button { text: "Probar voz"; clicked => { root.preview-tts(); } }
@@ -296,6 +305,7 @@ component AssistantEye inherits Rectangle {
 component ModelIndicator inherits Rectangle {
     in property <bool> loaded;
     in property <bool> voice;
+    in property <bool> speech;
     in property <string> description;
     width: 28px; height: 24px;
     background: transparent;
@@ -309,6 +319,7 @@ component ModelIndicator inherits Rectangle {
         fill: root.loaded ? #f2f2f2 : transparent;
         commands: root.voice ?
             "M 12 2 C 9.8 2 8 3.8 8 6 L 8 11 C 8 13.2 9.8 15 12 15 C 14.2 15 16 13.2 16 11 L 16 6 C 16 3.8 14.2 2 12 2 Z" :
+            root.speech ? "M 3 9 L 7 9 L 12 5 L 12 19 L 7 15 L 3 15 Z" :
             "M 12 2 L 14.7 9.3 L 22 12 L 14.7 14.7 L 12 22 L 9.3 14.7 L 2 12 L 9.3 9.3 Z";
     }
     if root.voice: Path {
@@ -317,6 +328,13 @@ component ModelIndicator inherits Rectangle {
         stroke: root.loaded ? #f2f2f2 : #bcbcbc;
         stroke-width: 1.5px; fill: transparent;
         commands: "M 5 10 L 5 11 C 5 15 8.1 18 12 18 C 15.9 18 19 15 19 11 L 19 10 M 12 18 L 12 22 M 8 22 L 16 22";
+    }
+    if root.speech: Path {
+        x: 5px; y: 3px; width: 18px; height: 18px;
+        viewbox-width: 24; viewbox-height: 24;
+        stroke: root.loaded ? #f2f2f2 : #bcbcbc;
+        stroke-width: 1.5px; fill: transparent;
+        commands: "M 15 9 C 17 10.5 17 13.5 15 15 M 18 6 C 22 9 22 15 18 18";
     }
     Tooltip { text: @markdown("\{root.description}"); }
 }
@@ -384,8 +402,10 @@ export component PresenceWindow inherits Window {
     in property <bool> llm-busy: false;
     in property <bool> voice-model-loaded: false;
     in property <bool> decision-model-loaded: false;
+    in property <bool> tts-model-loaded: false;
     in property <string> voice-model-tooltip: "Nemotron · reconocimiento de voz\nNo disponible";
     in property <string> decision-model-tooltip: "Laya · análisis de órdenes\nNo disponible";
+    in property <string> tts-model-tooltip: "Kokoro · síntesis de voz\nNo disponible";
     out property <IndicatorBounds> voice-indicator-bounds: {
         x: voice-indicator.x / 1px, y: voice-indicator.y / 1px,
         width: voice-indicator.width / 1px, height: voice-indicator.height / 1px,
@@ -393,6 +413,10 @@ export component PresenceWindow inherits Window {
     out property <IndicatorBounds> decision-indicator-bounds: {
         x: decision-indicator.x / 1px, y: decision-indicator.y / 1px,
         width: decision-indicator.width / 1px, height: decision-indicator.height / 1px,
+    };
+    out property <IndicatorBounds> tts-indicator-bounds: {
+        x: tts-indicator.x / 1px, y: tts-indicator.y / 1px,
+        width: tts-indicator.width / 1px, height: tts-indicator.height / 1px,
     };
     out property <IndicatorBounds> new-chat-button-bounds: {
         x: new-chat-button.x / 1px, y: new-chat-button.y / 1px,
@@ -607,7 +631,7 @@ export component PresenceWindow inherits Window {
             }
         }
         voice-indicator := ModelIndicator {
-            x: orb.x + orb.width / 2 - 31px - root.wake-progress * (root.llm-available ? 34px : 17px);
+            x: orb.x + orb.width / 2 - 48px - root.wake-progress * (root.llm-available ? 34px : 17px);
             y: orb.y + orb.height + 5px;
             voice: true;
             loaded: root.voice-model-loaded;
@@ -619,16 +643,23 @@ export component PresenceWindow inherits Window {
             loaded: root.decision-model-loaded;
             description: root.decision-model-tooltip;
         }
-        new-chat-button := ActionButton {
+        tts-indicator := ModelIndicator {
             x: decision-indicator.x + decision-indicator.width + 6px;
-            y: decision-indicator.y - 2px;
+            y: voice-indicator.y;
+            speech: true;
+            loaded: root.tts-model-loaded;
+            description: root.tts-model-tooltip;
+        }
+        new-chat-button := ActionButton {
+            x: tts-indicator.x + tts-indicator.width + 6px;
+            y: tts-indicator.y - 2px;
             visible: root.active && root.llm-available;
             busy: root.llm-busy;
             clicked => { root.new-chat(); }
         }
         history-button := ActionButton {
-            x: (root.llm-available ? new-chat-button.x + new-chat-button.width : decision-indicator.x + decision-indicator.width) + 6px;
-            y: decision-indicator.y - 2px;
+            x: (root.llm-available ? new-chat-button.x + new-chat-button.width : tts-indicator.x + tts-indicator.width) + 6px;
+            y: tts-indicator.y - 2px;
             visible: root.active;
             history: true;
             clicked => {
