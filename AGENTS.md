@@ -10,6 +10,7 @@ soc es un asistente personal futuro; esta base ofrece presencia nativa local en 
 - `apps/transcription`: dictado, preferencias propias, descarga verificada de Nemotron y proceso hijo de audio/inferencia con descarga por inactividad.
 - `apps/decisions`: catálogo, intención semántica y disponibilidad separadas, Laya local/adaptaciones, ejecutores comprobados y diario de intentos; sin reintentos automáticos.
 - `apps/llm`: proceso hijo app-server, sesión ChatGPT de Codex CLI, hilo conversacional único y su identificador SQLite; presence conserva mensajes finalizados en `presence_history`, sin audio persistido.
+- `apps/reminders-plugin`: controlador local de Recordatorios mediante EventKit; lectura, escritura y observador de cambios, sin conexión a la IA o UI todavía.
 - `bootstrap`: composición explícita y secuencia de arranque/cierre. Grafo acíclico; datos de apps no invaden AppState.
 - No existen contracts, HTTP, buses ni testkit sin una necesidad real. Los avisos futuros salen después del commit.
 - Símbolos, archivos y SQL en inglés; comentarios y documentación en español. Ausencias con Option y fechas persistidas ISO 8601 UTC.

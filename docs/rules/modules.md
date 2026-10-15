@@ -14,6 +14,8 @@ Presencia consume Controllers públicos de transcription, decisions y llm median
 
 `soc-tts` es una dependencia opcional de presence, compuesta por bootstrap y sin ciclo. Posee su Controller y recursos propios; ver [D-022](../decisions/tts.md).
 
+`soc-reminders-plugin` es una app independiente registrada en bootstrap, sin dependencias de otras apps ni tablas. Su Controller bloqueante debe consumirse fuera de main. El observador EventKit pertenece al módulo y se detiene antes del cierre; ver [diseño](../decisions/reminders-plugin.md).
+
 ## Dependencias
 Antes de añadir/actualizar: verificar versión exacta en registro oficial y mantenedor, MSRV/plataforma/features/licencia y avisos RustSec o del mantenedor. Guardar fuentes, fecha y límites en docs/decisions/dependencies.md. Lockfile versionado; no afirmar ausencia de vulnerabilidades porque no haya avisos. Revisar tránsito y artefacto objetivo; no habilitar Qt, servidores, red o tray sin necesidad. Winit unstable API se aísla en desktop.rs y requiere reevaluar al actualizar Slint.
 

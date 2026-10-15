@@ -11,8 +11,9 @@ pub fn build(
     decisions: Arc<soc_decisions::DecisionsModule>,
     llm: Arc<soc_llm::LlmModule>,
     tts: Arc<soc_tts::TtsModule>,
+    reminders: Arc<soc_reminders_plugin::RemindersPluginModule>,
 ) -> Vec<Arc<dyn AppModule>> {
-    vec![transcription, decisions, llm, tts, presence]
+    vec![transcription, decisions, llm, tts, reminders, presence]
 }
 
 pub fn order(modules: &[Arc<dyn AppModule>]) -> Result<Vec<usize>> {

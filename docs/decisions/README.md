@@ -1,5 +1,7 @@
 # Índice de decisiones
 
+- [Reminders plugin](reminders-plugin.md): integración local EventKit y eventos de cambios.
+
 - [Voz de salida de SOC D-022](tts.md): Kokoro MLX local, preferencias y reproducción de respuestas.
 
 - [Conversación de SOC D-021](llm-conversation.md): destino predeterminado de la voz, hilo único y estado de conexión.

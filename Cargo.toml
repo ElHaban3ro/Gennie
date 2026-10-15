@@ -1,5 +1,5 @@
 [workspace]
-members = ["kernel/config", "kernel/db", "kernel/core", "apps/presence", "apps/transcription", "apps/decisions", "apps/llm", "apps/tts", "bootstrap"]
+members = ["kernel/config", "kernel/db", "kernel/core", "apps/presence", "apps/transcription", "apps/decisions", "apps/llm", "apps/tts", "apps/reminders-plugin", "bootstrap"]
 resolver = "3"
 
 [workspace.package]
@@ -17,6 +17,7 @@ soc-transcription = { path = "apps/transcription" }
 soc-decisions = { path = "apps/decisions" }
 soc-llm = { path = "apps/llm" }
 soc-tts = { path = "apps/tts" }
+soc-reminders-plugin = { path = "apps/reminders-plugin" }
 cpal = { version = "=0.16.0", default-features = false }
 handy-keys = "=0.3.4"
 transcribe-cpp = { version = "=0.3.1", default-features = false, features = ["metal"] }

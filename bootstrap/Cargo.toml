@@ -14,4 +14,5 @@ soc-transcription.workspace = true
 soc-decisions.workspace = true
 soc-llm.workspace = true
 soc-tts.workspace = true
+soc-reminders-plugin.workspace = true
 serde_json.workspace = true

@@ -64,3 +64,7 @@ Sin dependencias Rust nuevas de registro: soc-decisions reutiliza core/db/serde/
 Para preparar las respuestas con citas, `soc-presence` usa `pulldown-cmark` =0.13.4 ya presente en Cargo.lock, ahora como dependencia directa con `default-features = false`; no se incorporan sus features HTML/CLI. El manifiesto publicado indica licencia MIT y Rust 1.71.1 mínimo. Su [API oficial](https://docs.rs/pulldown-cmark/0.13.4/pulldown_cmark/) expone eventos de Markdown para separar texto y enlaces sin renderizar HTML.
 
 La sonda visual aislada usa la feature de desarrollo `renderer-software` de Slint 1.18.1. Cargo.lock incorpora `i-slint-backend-testing` 1.18.1 para esa feature; no cambia el renderer de producción Winit/FemtoVG. La sonda renderiza fuera del escritorio y verifica el callback de un clic sintético, sin afirmar apertura física del navegador.
+
+## Reminders plugin — 2026-10-14
+
+`soc-reminders-plugin` es un crate local: reutiliza `soc-core`, `soc-config` en pruebas y las versiones ya fijadas de `serde`/`serde_json`. No incorpora versiones nuevas de registro ni paquetes Swift externos. El puente compila con Foundation y EventKit del SDK de macOS instalado; requiere `swiftc` durante el build. Esta incorporación no equivale a una auditoría nueva de las dependencias preexistentes.

@@ -27,6 +27,9 @@ Para una evaluación aislada: `SOC_DATABASE_PATH=/tmp/soc-review.sqlite3 cargo r
 
 ## Verificar y continuar
 
+La integración [Reminders plugin](docs/decisions/reminders-plugin.md) expone a código Rust listas, consultas, creación, edición, borrado y cambios de Recordatorios en macOS. Se compila con EventKit y solicita permiso del sistema al arrancar; la conversación y la UI todavía no consumen esta interfaz.
+
+
 Comandos y alcance en [testing](docs/rules/testing.md). [Arquitectura](docs/architecture/overview.md), [requisitos](docs/initialization/requirements.md), [resultado](docs/initialization/implementation.md), [decisiones](docs/decisions/README.md) y [evidencia](docs/memory/index.md). Antes de modificar, leer [AGENTS.md](AGENTS.md) y reglas afectadas. `.creation` conserva prompt e historia originales, sin sustituir la documentación vigente.
 
 La entrega Git inicial fue autorizada posteriormente; ver [registro de entrega](docs/memory/2026-10-11-git-delivery.md). No se solicita despliegue. Los detalles gráficos son supuestos revisables; consulta la evidencia runtime antes de asumir soporte multi-monitor, Spaces o de otros OS.

@@ -14,6 +14,7 @@ Transcription también expone su propio ModelStatus: separa archivo descargado d
 | soc-decisions | Catálogo, autorización, helper Laya local, preferencias propias y diario decision_attempts | soc-core, soc-db, serde/serde_json; Python externo configurado |
 | soc-llm | Controller y worker de conversación; adaptador Codex con proceso app-server e identificador de hilo | soc-core, soc-db, serde_json; Codex CLI instalado y sesión ChatGPT propia |
 | soc-tts | Preferencias de voz y worker de reproducción con proceso Kokoro MLX propio | soc-core, soc-db, serde/serde_json; Python 3.12 y kokoro-mlx locales |
+| soc-reminders-plugin | Controller de Recordatorios y observador de cambios EventKit | soc-core, serde/serde_json; puente Swift local |
 | soc (bootstrap) | Registro, orden DAG, selección modules, arranque/cierre | Todos los anteriores |
 
 App original: `presence`, nombre persistido, activa por defecto, sin dependencias obligatorias; transcription y decisions son opcionales y ordenan su inicio si están compiladas. Sus recursos: worker y cola de preferencias, ventana principal/globo, ajustes de dictado, AboutSlint e icono/menú de barra superior macOS en status_menu.rs. Propiedad SQL: presence_preferences. Interfaz pública: PresenceModule::run_with_decisions (y wrappers previos) para bootstrap y AppModule para lifecycle. Sin HTTP; consume la interfaz pública de transcription.
@@ -33,3 +34,7 @@ Nuevos componentes deben seguir [modules rules](../rules/modules.md); no impleme
 
 ## Voz de salida
 `soc-tts` (`tts`, activa por defecto) recibe los textos finales desde presence y los reproduce sin bloquear Slint. Posee sus preferencias y un proceso local persistente. No guarda texto ni audio. [D-022](../decisions/tts.md).
+
+## Recordatorios
+
+`soc-reminders-plugin` (`reminders_plugin`, activo por defecto) expone lectura, escritura y eventos de cambios de Recordatorios mediante EventKit. Bootstrap lo inicia y detiene; ningún consumidor de IA o UI está conectado todavía. No posee tablas ni puertos. [Diseño y verificación](../decisions/reminders-plugin.md).

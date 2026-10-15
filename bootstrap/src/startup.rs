@@ -202,12 +202,14 @@ pub fn run() -> Result<()> {
         let decisions = Arc::new(soc_decisions::DecisionsModule::default());
         let llm = Arc::new(soc_llm::LlmModule::default());
         let tts = Arc::new(soc_tts::TtsModule::default());
+        let reminders = Arc::new(soc_reminders_plugin::RemindersPluginModule::default());
         let modules = crate::registry::build(
             presence.clone(),
             transcription.clone(),
             decisions.clone(),
             llm.clone(),
             tts.clone(),
+            reminders.clone(),
         );
         let order = crate::registry::order(&modules)?;
         let active = register(&db, &modules)?;
@@ -313,6 +315,7 @@ mod tests {
             Arc::new(soc_decisions::DecisionsModule::default()),
             Arc::new(soc_llm::LlmModule::default()),
             Arc::new(soc_tts::TtsModule::default()),
+            Arc::new(soc_reminders_plugin::RemindersPluginModule::default()),
         );
         assert!(register(&state.db, &modules).unwrap().contains("presence"));
         state
@@ -352,6 +355,7 @@ mod tests {
             Arc::new(soc_decisions::DecisionsModule::default()),
             Arc::new(soc_llm::LlmModule::default()),
             Arc::new(soc_tts::TtsModule::default()),
+            Arc::new(soc_reminders_plugin::RemindersPluginModule::default()),
         );
         assert!(!register(&state.db, &modules).unwrap().contains("llm"));
     }

@@ -4758,6 +4758,7 @@ dependencies = [
  "soc-decisions",
  "soc-llm",
  "soc-presence",
+ "soc-reminders-plugin",
  "soc-transcription",
  "soc-tts",
 ]
@@ -4825,6 +4826,16 @@ dependencies = [
  "soc-transcription",
  "soc-tts",
  "tray-icon",
+]
+
+[[package]]
+name = "soc-reminders-plugin"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "soc-config",
+ "soc-core",
 ]
 
 [[package]]

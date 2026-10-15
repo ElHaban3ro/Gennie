@@ -27,6 +27,10 @@ Decisions posee worker serial y helper Python embebido, cancelación por generac
 
 Una apertura se emite una sola vez. Los errores esperables al observar su resultado se recuperan con lecturas acotadas, nunca con otra apertura. Un resultado incierto conserva el helper/modelo y no se convierte en contexto exitoso; el diario distingue failed/uncertain/verified. Errores del helper llevan categorías fijas y etapa de operación; no guardar excepciones, stderr ni argumentos libres del OS. El mensaje al usuario distingue inferencia de ejecución no confirmada.
 
+## Integración con Recordatorios
+
+Reminders plugin ejecuta llamadas EventKit en un puente Swift local. Su Controller es bloqueante; invocarlo desde un worker y detener el proceso observador en el cierre. Los eventos solo transportan identificador y tipo; la fuente se consulta de nuevo para obtener contenido. [Diseño](../decisions/reminders-plugin.md).
+
 ## Voz de salida
 `apps/tts` recibe texto final desde presencia y reproduce con Kokoro MLX en un worker fuera de main. Divide respuestas largas en frases breves y conserva un único stream de reproducción; los fragmentos siguientes se sintetizan mientras suena el primero. Su cola es acotada, sin persistir texto/audio ni registrar contenido. Un error de síntesis no pierde la respuesta escrita y debe verse en la UI. Guardar preferencias confirma después del commit. El intento de dictado invalida la generación de audio en cola y mata solo el hijo TTS activo; la siguiente respuesta lo vuelve a crear. Cierre mata y espera únicamente al hijo TTS. Ver [D-022](../decisions/tts.md).
 
