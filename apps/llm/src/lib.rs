@@ -74,6 +74,14 @@ impl AppModule for LlmModule {
                 version: 2,
                 sql: include_str!("../migrations/0002_preferences.sql"),
             },
+            Migration {
+                version: 3,
+                sql: include_str!("../migrations/0003_memory.sql"),
+            },
+            Migration {
+                version: 4,
+                sql: include_str!("../migrations/0004_remove_memory.sql"),
+            },
         ]
     }
     fn start(&self, state: &AppState) -> Result<()> {
@@ -361,6 +369,56 @@ mod tests {
         settings::save(&db, &next).unwrap();
         assert_eq!(settings::load(&db).unwrap(), next);
         assert_eq!(load_thread(&db).unwrap().as_deref(), Some("saved-thread"));
+    }
+    #[test]
+    fn legacy_memories_are_removed_without_losing_the_conversation() {
+        let path = std::env::temp_dir().join(format!(
+            "soc-llm-remove-memory-{}-{}.sqlite3",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let module = LlmModule::default();
+        let db = Database::open(&path, 500).unwrap();
+        db.migrate(module.name(), &module.migrations()[..3])
+            .unwrap();
+        save_thread(&db, "saved-thread").unwrap();
+        db.with_connection(|connection| {
+            connection.execute(
+                "INSERT INTO llm_memory(text,source) VALUES(?1,?2)",
+                ["Dato antiguo", "Chat"],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+
+        db.migrate(module.name(), module.migrations()).unwrap();
+        assert_eq!(load_thread(&db).unwrap().as_deref(), Some("saved-thread"));
+        assert_eq!(settings::load(&db).unwrap(), Settings::default());
+        db.with_connection(|connection| {
+            let count: i64 = connection.query_row(
+                "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='llm_memory'",
+                [],
+                |row| row.get(0),
+            )?;
+            assert_eq!(count, 0);
+            Ok(())
+        })
+        .unwrap();
+        db.close().unwrap();
+
+        let reopened = Database::open(&path, 500).unwrap();
+        reopened
+            .migrate(module.name(), module.migrations())
+            .unwrap();
+        assert_eq!(
+            load_thread(&reopened).unwrap().as_deref(),
+            Some("saved-thread")
+        );
+        reopened.close().unwrap();
+        let _ = std::fs::remove_file(path);
     }
     #[test]
     fn legacy_codex_thread_survives_llm_migration() {

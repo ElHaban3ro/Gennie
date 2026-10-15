@@ -13,6 +13,8 @@ python3 scripts/check_invariants.py
 ```
 Para cambios solo SQL/persistencia: `cargo test --locked -p soc-db -p soc-presence`; para config: `cargo test --locked -p soc-config`. Si cambian AppState/registro/features/lifecycle, ampliar al workspace. No repetir campañas tras checks verdes sin nueva modificación o duda concreta. Documentación pura requiere enlaces/enrutamiento, no tests artificiales.
 
+Retirada de memoria de SOC: comprobar que la migración 0004 de llm elimina `llm_memory` con filas anteriores, conserva el hilo y las preferencias, y reabre sin la tabla. La migración 0003 de llm permanece inmutable para bases que ya la aplicaron. La migración 0003 de presence retira únicamente avisos de memoria generados por SOC, sin borrar mensajes normales.
+
 ## Casos necesarios
 Registro: duplicados, ciclos, requerida ausente/apagada, opcional presente/ausente, orphans y conservación de selección. Migraciones: rollback real, checksum, namespace, reapertura y downgrade rechazado. Lifecycle: idempotencia, orden inverso, fallo de startup y error secundario sin ocultar original. Preferencias: escritura y reapertura real; UI actualiza éxito después de commit. Futuras compensaciones/eventos deben probar sus efectos, no simular una garantía ausente.
 
