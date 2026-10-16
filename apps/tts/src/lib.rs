@@ -450,7 +450,7 @@ fn python_path() -> Result<std::path::PathBuf> {
 }
 fn model_cache() -> Result<std::path::PathBuf> {
     let home = std::env::var_os("HOME").ok_or("HOME no disponible para Kokoro")?;
-    Ok(std::path::PathBuf::from(home).join("Library/Application Support/soc/tts/hf"))
+    Ok(std::path::PathBuf::from(home).join("Library/Application Support/AIModels/huggingface"))
 }
 fn speak(
     process: &mut Option<Process>,

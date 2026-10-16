@@ -6,7 +6,10 @@ from pathlib import Path
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--python', type=Path, required=True)
-parser.add_argument('--model', type=Path, required=True)
+parser.add_argument(
+    '--model', type=Path,
+    default=Path.home()/'Library/Application Support/AIModels/huggingface/hub/models--convaiinnovations--laya/snapshots/7b928d828b7b0e022f929d9bd2e44165aa270148/multilingual',
+)
 parser.add_argument('--adapter', type=Path)
 parser.add_argument('--output', type=Path)
 args = parser.parse_args()

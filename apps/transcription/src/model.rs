@@ -17,7 +17,7 @@ pub fn path() -> Result<PathBuf> {
     let home =
         std::env::var_os("HOME").ok_or("No se encontró la carpeta personal para el modelo")?;
     Ok(PathBuf::from(home)
-        .join("Library/Application Support/soc/models")
+        .join("Library/Application Support/AIModels/gguf")
         .join(FILE_NAME))
 }
 #[derive(Serialize, Deserialize)]

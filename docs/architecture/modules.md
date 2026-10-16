@@ -1,5 +1,7 @@
 # Mapa de módulos
 
+Los tres consumidores de modelos locales comparten rutas de pesos por usuario bajo `~/Library/Application Support/AIModels`; sus procesos, preferencias y entornos siguen perteneciendo a cada app. [Almacén compartido](../decisions/model-storage.md).
+
 Decisions precarga Laya al conectar su Controller si está activado en sus preferencias y resuelve destinos de open_app desde el inventario local de bundles. ModelStatus es una interfaz pública de la app consumida por presence; no pertenece a AppState. [D-018](../decisions/installed-apps.md).
 
 Transcription también expone su propio ModelStatus: separa archivo descargado de modelo cargado en memoria y conserva la carga al terminar una sesión sin palabras. TTS expone el estado de Kokoro y confirma la carga desde el proceso Python antes de rellenar su indicador. Presence consulta los tres controladores para los indicadores y tooltips bajo la cara; no deduce su estado de los textos de los globos.

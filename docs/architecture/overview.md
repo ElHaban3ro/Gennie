@@ -1,5 +1,7 @@
 # Arquitectura vigente
 
+Los pesos de Nemotron, Kokoro y Laya se reúnen bajo `~/Library/Application Support/AIModels`, fuera de los datos y checkouts de SOC. [Almacén compartido](../decisions/model-storage.md).
+
 D-018 añade precarga asíncrona de Laya e inventario de apps instaladas como destinos de open_app, dentro de decisions. No hay nuevos componentes de kernel, migraciones ni servidores. [Diseño](../decisions/installed-apps.md).
 
 D-019 añade preferencias propias de Laya en SQLite y ajustes separados en la presencia. El worker existente procesa su guardado; no se añade infraestructura de kernel. [Diseño](../decisions/laya-settings.md).
