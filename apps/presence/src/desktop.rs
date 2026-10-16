@@ -316,6 +316,412 @@ pub fn position(window: &slint::Window) -> Result<()> {
         .ok_or("Ventana nativa todavía no disponible")?
 }
 
+// El vidrio nativo vive detrás de la ventana Slint: Winit exige que su propia
+// NSView siga siendo contentView, y la ventana hija no recibe eventos.
+#[cfg(target_os = "macos")]
+pub struct NativeFaceGlass {
+    window: objc2::rc::Retained<objc2_app_kit::NSWindow>,
+    glass: objc2::rc::Retained<objc2_app_kit::NSGlassEffectView>,
+}
+
+// El tamaño máximo del selector (224 px) más margen para la respiración.
+#[cfg(target_os = "macos")]
+const FACE_GLASS_CANVAS: f64 = 226.0;
+
+#[cfg(target_os = "macos")]
+impl NativeFaceGlass {
+    pub fn new(window: &slint::Window, diameter: f32) -> Result<Option<Self>> {
+        use objc2::MainThreadOnly;
+        use objc2::runtime::AnyClass;
+        use objc2_app_kit::{
+            NSBackingStoreType, NSColor, NSGlassEffectView, NSView, NSWindow, NSWindowOrderingMode,
+            NSWindowStyleMask,
+        };
+        use objc2_foundation::{NSPoint, NSRect, NSSize};
+        use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+
+        // La clase no existe antes de macOS 26; allí se conserva el material Slint.
+        if AnyClass::get(c"NSGlassEffectView").is_none() {
+            return Ok(None);
+        }
+        let native = window
+            .with_winit_window(|native| -> Result<Self> {
+                let handle = native.window_handle()?;
+                let RawWindowHandle::AppKit(raw) = handle.as_raw() else {
+                    return Err("Ventana nativa no AppKit".into());
+                };
+                // SAFETY: el handle Winit mantiene viva la NSView durante este callback.
+                let view = unsafe { raw.ns_view.cast::<objc2_app_kit::NSView>().as_ref() };
+                let parent = view.window().ok_or("La cara no tiene NSWindow")?;
+                let marker = objc2::MainThreadMarker::new().ok_or("AppKit requiere main")?;
+                let frame = face_glass_frame(parent.frame());
+                // SAFETY: se crea y configura en el hilo principal; AppKit conserva
+                // la ventana hija y su vista hasta retirarlas explícitamente.
+                let child = unsafe {
+                    NSWindow::initWithContentRect_styleMask_backing_defer(
+                        NSWindow::alloc(marker),
+                        frame,
+                        NSWindowStyleMask::Borderless,
+                        NSBackingStoreType::Buffered,
+                        false,
+                    )
+                };
+                child.setOpaque(false);
+                let clear = NSColor::clearColor();
+                child.setBackgroundColor(Some(&clear));
+                child.setHasShadow(false);
+                child.setIgnoresMouseEvents(true);
+                child.setLevel(parent.level());
+                let container = NSView::new(marker);
+                container.setFrame(NSRect {
+                    origin: NSPoint { x: 0.0, y: 0.0 },
+                    size: NSSize {
+                        width: FACE_GLASS_CANVAS,
+                        height: FACE_GLASS_CANVAS,
+                    },
+                });
+                let glass = NSGlassEffectView::new(marker);
+                glass.setFrame(face_glass_view_frame(diameter));
+                glass.setStyle(objc2_app_kit::NSGlassEffectViewStyle::Regular);
+                set_glass_radius(&glass, diameter);
+                container.addSubview(&glass);
+                child.setContentView(Some(&container));
+                // SAFETY: parent y child son ventanas vivas del mismo hilo principal.
+                unsafe { parent.addChildWindow_ordered(&child, NSWindowOrderingMode::Below) };
+                child.orderFront(None);
+                Ok(Self {
+                    window: child,
+                    glass,
+                })
+            })
+            .ok_or("Ventana Winit de presencia no disponible")??;
+        Ok(Some(native))
+    }
+
+    pub fn update(&self, diameter: f32) {
+        if let Some(parent) = self.window.parentWindow() {
+            let frame = face_glass_frame(parent.frame());
+            if self.window.frame() != frame {
+                self.window.setFrame_display(frame, true);
+            }
+            let glass_frame = face_glass_view_frame(diameter);
+            if self.glass.frame() != glass_frame {
+                self.glass.setFrame(glass_frame);
+                set_glass_radius(&self.glass, diameter);
+            }
+        }
+    }
+
+    pub fn configure(&self, style: i32, tint: i32, strength: f32) {
+        use objc2_app_kit::{NSColor, NSGlassEffectViewStyle};
+        self.glass.setStyle(if style == 1 {
+            NSGlassEffectViewStyle::Clear
+        } else {
+            NSGlassEffectViewStyle::Regular
+        });
+        let rgb = match tint {
+            1 => Some((0.14, 0.16, 0.18)),
+            2 => Some((0.67, 0.69, 0.72)),
+            3 => Some((0.28, 0.48, 0.70)),
+            _ => None,
+        };
+        if let Some((red, green, blue)) = rgb
+            && strength > 0.0
+        {
+            let color = NSColor::colorWithSRGBRed_green_blue_alpha(
+                red,
+                green,
+                blue,
+                f64::from(strength.clamp(0.0, 70.0)) / 100.0,
+            );
+            self.glass.setTintColor(Some(&color));
+        } else {
+            self.glass.setTintColor(None);
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl Drop for NativeFaceGlass {
+    fn drop(&mut self) {
+        if let Some(parent) = self.window.parentWindow() {
+            parent.removeChildWindow(&self.window);
+        }
+        self.window.orderOut(None);
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn face_glass_frame(parent: objc2_foundation::NSRect) -> objc2_foundation::NSRect {
+    use objc2_foundation::{NSPoint, NSRect, NSSize};
+    NSRect {
+        origin: NSPoint {
+            x: parent.origin.x + parent.size.width - FACE_GLASS_CANVAS - 24.0,
+            y: parent.origin.y + 32.0,
+        },
+        size: NSSize {
+            width: FACE_GLASS_CANVAS,
+            height: FACE_GLASS_CANVAS,
+        },
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn face_glass_view_frame(diameter: f32) -> objc2_foundation::NSRect {
+    use objc2_foundation::{NSPoint, NSRect, NSSize};
+    let diameter = f64::from(diameter);
+    NSRect {
+        origin: NSPoint {
+            x: FACE_GLASS_CANVAS - diameter,
+            y: 0.0,
+        },
+        size: NSSize {
+            width: diameter,
+            height: diameter,
+        },
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn set_glass_radius(glass: &objc2_app_kit::NSGlassEffectView, diameter: f32) {
+    // objc2-app-kit expone este setter solo con CoreFoundation; el selector
+    // forma parte de NSGlassEffectView desde macOS 26.
+    let _: () = unsafe { objc2::msg_send![glass, setCornerRadius: f64::from(diameter) / 2.0] };
+}
+
+// Una sola ventana hija recorta las vistas de vidrio al viewport de los globos.
+// Sus marcos provienen del layout real de Slint, incluido el texto que cambia de altura.
+#[cfg(target_os = "macos")]
+pub struct NativeBubbleGlass {
+    window: objc2::rc::Retained<objc2_app_kit::NSWindow>,
+    container: objc2::rc::Retained<objc2_app_kit::NSView>,
+    glasses: Vec<objc2::rc::Retained<objc2_app_kit::NSGlassEffectView>>,
+}
+
+// La ventana principal puede quedar parcialmente fuera de pantalla. AppKit
+// limita por defecto la ventana hija al borde superior y separa el vidrio
+// de los textos de Slint; esta clase nueva conserva el marco solicitado.
+#[cfg(target_os = "macos")]
+fn bubble_glass_window_class() -> &'static objc2::runtime::AnyClass {
+    use objc2::{
+        ClassType,
+        runtime::{AnyClass, AnyObject, ClassBuilder, Imp, Sel},
+    };
+    use objc2_app_kit::{NSScreen, NSWindow};
+    use objc2_foundation::NSRect;
+    static CLASS: std::sync::OnceLock<&'static AnyClass> = std::sync::OnceLock::new();
+
+    extern "C-unwind" fn constrain(
+        _window: &AnyObject,
+        _selector: Sel,
+        frame: NSRect,
+        _screen: Option<&NSScreen>,
+    ) -> NSRect {
+        frame
+    }
+
+    CLASS.get_or_init(|| {
+        let builder = ClassBuilder::new(c"SOCBubbleGlassWindow", NSWindow::class())
+            .expect("Clase nativa de globos disponible");
+        let class = builder.register();
+        let selector = objc2::sel!(constrainFrameRect:toScreen:);
+        let inherited = NSWindow::class()
+            .instance_method(selector)
+            .expect("Método de límites NSWindow disponible");
+        // SAFETY: misma ABI y codificación que el método heredado; no hay
+        // instancias de esta clase todavía.
+        let added = unsafe {
+            let imp: Imp = std::mem::transmute(
+                constrain
+                    as extern "C-unwind" fn(&AnyObject, Sel, NSRect, Option<&NSScreen>) -> NSRect,
+            );
+            objc2::ffi::class_addMethod(
+                class as *const _ as *mut _,
+                selector,
+                imp,
+                objc2::ffi::method_getTypeEncoding(inherited),
+            )
+        };
+        assert!(added.as_bool(), "No se pudo liberar el marco de los globos");
+        class
+    })
+}
+
+#[cfg(target_os = "macos")]
+impl NativeBubbleGlass {
+    pub fn new(window: &slint::Window, viewport: crate::IndicatorBounds) -> Result<Option<Self>> {
+        use objc2::runtime::AnyClass;
+        use objc2_app_kit::{
+            NSBackingStoreType, NSColor, NSView, NSWindow, NSWindowOrderingMode, NSWindowStyleMask,
+        };
+        use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+
+        if AnyClass::get(c"NSGlassEffectView").is_none() {
+            return Ok(None);
+        }
+        let native = window
+            .with_winit_window(|native| -> Result<Self> {
+                let handle = native.window_handle()?;
+                let RawWindowHandle::AppKit(raw) = handle.as_raw() else {
+                    return Err("Ventana nativa no AppKit".into());
+                };
+                // SAFETY: el handle Winit mantiene viva la vista durante este callback.
+                let view = unsafe { raw.ns_view.cast::<NSView>().as_ref() };
+                let parent = view.window().ok_or("La presencia no tiene NSWindow")?;
+                let marker = objc2::MainThreadMarker::new().ok_or("AppKit requiere main")?;
+                // SAFETY: creación y vínculo de ventanas vivas en el hilo principal.
+                let child = unsafe {
+                    NSWindow::initWithContentRect_styleMask_backing_defer(
+                        objc2::msg_send![bubble_glass_window_class(), alloc],
+                        bubble_glass_window_frame(parent.frame(), &viewport),
+                        NSWindowStyleMask::Borderless,
+                        NSBackingStoreType::Buffered,
+                        false,
+                    )
+                };
+                child.setOpaque(false);
+                child.setBackgroundColor(Some(&NSColor::clearColor()));
+                child.setHasShadow(false);
+                child.setIgnoresMouseEvents(true);
+                child.setLevel(parent.level());
+                let container = NSView::new(marker);
+                container.setFrame(bubble_glass_content_frame(&viewport));
+                child.setContentView(Some(&container));
+                unsafe { parent.addChildWindow_ordered(&child, NSWindowOrderingMode::Below) };
+                child.orderFront(None);
+                Ok(Self {
+                    window: child,
+                    container,
+                    glasses: Vec::new(),
+                })
+            })
+            .ok_or("Ventana Winit de presencia no disponible")??;
+        Ok(Some(native))
+    }
+
+    pub fn update(
+        &mut self,
+        viewport: crate::IndicatorBounds,
+        bounds: &[(usize, crate::IndicatorBounds)],
+        count: usize,
+        hidden: bool,
+    ) {
+        use objc2_app_kit::{NSColor, NSGlassEffectView, NSGlassEffectViewStyle};
+
+        let Some(parent) = self.window.parentWindow() else {
+            return;
+        };
+        while self.glasses.len() > count {
+            if let Some(glass) = self.glasses.pop() {
+                glass.removeFromSuperview();
+            }
+        }
+        let should_show = !hidden && count > 0 && viewport.height > 0.0;
+        if !should_show {
+            for glass in &self.glasses {
+                glass.setHidden(true);
+            }
+            return;
+        }
+        let frame = bubble_glass_window_frame(parent.frame(), &viewport);
+        if self.window.frame() != frame {
+            self.window.setFrame_display(frame, true);
+        }
+        let content_frame = bubble_glass_content_frame(&viewport);
+        if self.container.frame() != content_frame {
+            self.container.setFrame(content_frame);
+        }
+        while self.glasses.len() < count {
+            let Some(marker) = objc2::MainThreadMarker::new() else {
+                return;
+            };
+            let index = self.glasses.len();
+            let glass = NSGlassEffectView::new(marker);
+            glass.setStyle(NSGlassEffectViewStyle::Regular);
+            glass.setTintColor(Some(&NSColor::colorWithSRGBRed_green_blue_alpha(
+                0.12, 0.12, 0.13, 0.28,
+            )));
+            let _: () = unsafe { objc2::msg_send![&glass, setCornerRadius: 18.0_f64] };
+            if let Some((_, bubble)) = bounds.iter().find(|(candidate, _)| *candidate == index) {
+                glass.setFrame(bubble_glass_view_frame(&viewport, bubble));
+            } else {
+                glass.setHidden(true);
+            }
+            self.container.addSubview(&glass);
+            self.glasses.push(glass);
+        }
+        for (index, glass) in self.glasses.iter().enumerate() {
+            if let Some((_, bubble)) = bounds.iter().find(|(candidate, _)| *candidate == index) {
+                let rect = bubble_glass_view_frame(&viewport, bubble);
+                if glass.frame() != rect {
+                    glass.setFrame(rect);
+                }
+                glass.setHidden(false);
+            } else {
+                glass.setHidden(true);
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl Drop for NativeBubbleGlass {
+    fn drop(&mut self) {
+        if let Some(parent) = self.window.parentWindow() {
+            parent.removeChildWindow(&self.window);
+        }
+        self.window.orderOut(None);
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn bubble_glass_window_frame(
+    parent: objc2_foundation::NSRect,
+    viewport: &crate::IndicatorBounds,
+) -> objc2_foundation::NSRect {
+    use objc2_foundation::{NSPoint, NSRect, NSSize};
+    NSRect {
+        origin: NSPoint {
+            x: parent.origin.x + f64::from(viewport.x),
+            y: parent.origin.y + parent.size.height - f64::from(viewport.y + viewport.height),
+        },
+        size: NSSize {
+            width: f64::from(viewport.width),
+            height: f64::from(viewport.height),
+        },
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn bubble_glass_content_frame(viewport: &crate::IndicatorBounds) -> objc2_foundation::NSRect {
+    use objc2_foundation::{NSPoint, NSRect, NSSize};
+    NSRect {
+        origin: NSPoint { x: 0.0, y: 0.0 },
+        size: NSSize {
+            width: f64::from(viewport.width),
+            height: f64::from(viewport.height),
+        },
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn bubble_glass_view_frame(
+    viewport: &crate::IndicatorBounds,
+    bubble: &crate::IndicatorBounds,
+) -> objc2_foundation::NSRect {
+    use objc2_foundation::{NSPoint, NSRect, NSSize};
+    NSRect {
+        origin: NSPoint {
+            x: f64::from(bubble.x - viewport.x),
+            y: f64::from(viewport.y + viewport.height - bubble.y - bubble.height),
+        },
+        size: NSSize {
+            width: f64::from(bubble.width),
+            height: f64::from(bubble.height),
+        },
+    }
+}
+
 // Una lectura de cursor, sin event tap ni permisos de accesibilidad.
 #[cfg(target_os = "macos")]
 pub fn update_pointer_state(
@@ -549,6 +955,70 @@ pub fn clear_drag_bounds() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn bubble_glass_uses_slint_layout_and_viewport_clip() {
+        use objc2_foundation::{NSPoint, NSRect, NSSize};
+
+        let parent = NSRect {
+            origin: NSPoint { x: 100.0, y: 200.0 },
+            size: NSSize {
+                width: 568.0,
+                height: 980.0,
+            },
+        };
+        let viewport = crate::IndicatorBounds {
+            x: 224.0,
+            y: 0.0,
+            width: 320.0,
+            height: 804.0,
+        };
+        let bubble = crate::IndicatorBounds {
+            x: 248.0,
+            y: 706.0,
+            width: 296.0,
+            height: 98.0,
+        };
+        let window = bubble_glass_window_frame(parent, &viewport);
+        let content = bubble_glass_content_frame(&viewport);
+        let view = bubble_glass_view_frame(&viewport, &bubble);
+        assert_eq!(window.origin.x, 324.0);
+        assert_eq!(window.origin.y, 376.0);
+        assert_eq!(window.size.height, 804.0);
+        assert_eq!(content.size, window.size);
+        assert_eq!(view.origin.x, 24.0);
+        assert_eq!(view.origin.y, 0.0);
+        assert_eq!(view.size.width, 296.0);
+        assert_eq!(view.size.height, 98.0);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn breathing_keeps_native_window_frame_stable() {
+        use objc2_foundation::{NSPoint, NSRect, NSSize};
+
+        let parent = NSRect {
+            origin: NSPoint { x: 100.0, y: 200.0 },
+            size: NSSize {
+                width: 568.0,
+                height: 980.0,
+            },
+        };
+        let resting = face_glass_frame(parent);
+        for diameter in [63.2, 63.6, 64.2, 64.8] {
+            assert_eq!(face_glass_frame(parent), resting);
+            let view = face_glass_view_frame(diameter);
+            assert!((view.origin.x + view.size.width - FACE_GLASS_CANVAS).abs() < 0.001);
+            assert_eq!(view.size.height, f64::from(diameter));
+            assert!(
+                (resting.origin.x + view.origin.x
+                    - (parent.origin.x + parent.size.width - f64::from(diameter) - 24.0))
+                    .abs()
+                    < 0.001
+            );
+        }
+    }
+
     #[cfg(target_os = "macos")]
     #[test]
     fn drag_native_reentry_is_coalesced_without_losing_outer_gesture() {

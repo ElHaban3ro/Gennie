@@ -1,5 +1,5 @@
 use crate::{PresenceWindow, TranscriptionSettings};
-use slint::ComponentHandle;
+use slint::{ComponentHandle, Model};
 use soc_core::{AppState, Result};
 use soc_transcription::{Controller, Event, Mode, Settings, TranscriptionModule};
 use std::{
@@ -940,7 +940,10 @@ impl TranscriptionUi {
                         Event::Heartbeat => continue,
                     }
                 }
-                if messages.expire(now) && !ui.get_history_open() {
+                let dialogue_finished = messages.expire(now);
+                if messages.model.row_count() > 0 {
+                    ui.set_active(true);
+                } else if dialogue_finished && !ui.get_history_open() {
                     ui.set_active(false);
                 }
             },

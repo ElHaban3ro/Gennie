@@ -7,7 +7,7 @@ mod repository;
 #[cfg(target_os = "macos")]
 mod status_menu;
 mod transcription;
-use slint::ComponentHandle;
+use slint::{ComponentHandle, Model};
 use soc_core::{AppModule, AppState, Migration, Result};
 use std::sync::{
     Mutex,
@@ -314,7 +314,11 @@ impl PresenceModule {
         let weak = ui.as_weak();
         ui.on_toggle(move || {
             if let Some(ui) = weak.upgrade() {
-                if ui.get_active() && ui.get_speech_active() {
+                if ui.get_active()
+                    && (ui.get_speech_active()
+                        || ui.get_chat_bubbles().row_count() > 0
+                        || ui.get_history_open())
+                {
                     return;
                 }
                 ui.set_active(!ui.get_active());
@@ -460,6 +464,66 @@ impl PresenceModule {
             std::rc::Rc::new(std::cell::RefCell::new(None::<status_menu::StatusMenu>));
         #[cfg(target_os = "macos")]
         let menu_events = status_menu.clone();
+        #[cfg(target_os = "macos")]
+        let face_glass =
+            std::rc::Rc::new(std::cell::RefCell::new(None::<desktop::NativeFaceGlass>));
+        #[cfg(target_os = "macos")]
+        let face_glass_events = face_glass.clone();
+        #[cfg(target_os = "macos")]
+        let bubble_glass =
+            std::rc::Rc::new(std::cell::RefCell::new(None::<desktop::NativeBubbleGlass>));
+        #[cfg(target_os = "macos")]
+        let bubble_glass_events = bubble_glass.clone();
+        #[cfg(target_os = "macos")]
+        let bubble_bounds =
+            std::rc::Rc::new(std::cell::RefCell::new(std::collections::BTreeMap::<
+                usize,
+                IndicatorBounds,
+            >::new()));
+        #[cfg(target_os = "macos")]
+        {
+            let bubble_bounds = bubble_bounds.clone();
+            ui.on_bubble_geometry(move |index, x, y, width, height| {
+                bubble_bounds.borrow_mut().insert(
+                    index as usize,
+                    IndicatorBounds {
+                        x,
+                        y,
+                        width,
+                        height,
+                    },
+                );
+            });
+        }
+        #[cfg(target_os = "macos")]
+        let bubble_bounds_events = bubble_bounds.clone();
+        let glass_settings = FaceGlassSettings::new()?;
+        let weak_glass_settings = glass_settings.as_weak();
+        ui.on_face_glass_settings(move || {
+            if let Some(settings) = weak_glass_settings.upgrade()
+                && let Err(error) = desktop::present_window(settings.window())
+            {
+                eprintln!("event=face_glass_settings_failed error={error}");
+            }
+        });
+        let weak_ui = ui.as_weak();
+        let weak_glass_settings = glass_settings.as_weak();
+        #[cfg(target_os = "macos")]
+        let face_glass_controls = face_glass.clone();
+        glass_settings.on_changed(move || {
+            if let (Some(ui), Some(settings)) = (weak_ui.upgrade(), weak_glass_settings.upgrade()) {
+                ui.set_sleep_diameter(settings.get_sleep_diameter());
+                ui.set_awake_diameter(settings.get_awake_diameter());
+                #[cfg(target_os = "macos")]
+                if let Some(glass) = face_glass_controls.borrow().as_ref() {
+                    glass.configure(
+                        settings.get_style_index(),
+                        settings.get_tint_index(),
+                        settings.get_tint_strength(),
+                    );
+                }
+            }
+        });
         let hit_timer = slint::Timer::default();
         let active_sources = source_launchers.clone();
         let weak = ui.as_weak();
@@ -480,6 +544,29 @@ impl PresenceModule {
                     menu.process_events(&ui);
                 }
                 if let Some(ui) = weak.upgrade() {
+                    #[cfg(target_os = "macos")]
+                    if let Some(glass) = face_glass_events.borrow().as_ref() {
+                        glass.update(ui.get_actual_diameter());
+                    }
+                    #[cfg(target_os = "macos")]
+                    if let Some(glass) = bubble_glass_events.borrow_mut().as_mut() {
+                        let count = ui.get_chat_bubbles().row_count();
+                        bubble_bounds_events
+                            .borrow_mut()
+                            .retain(|index, _| *index < count);
+                        let bounds = bubble_bounds_events
+                            .borrow()
+                            .iter()
+                            .filter(|(index, _)| **index < count)
+                            .map(|(index, bounds)| (*index, bounds.clone()))
+                            .collect::<Vec<_>>();
+                        glass.update(
+                            ui.get_bubble_viewport_bounds(),
+                            &bounds,
+                            count,
+                            ui.get_history_open(),
+                        );
+                    }
                     #[cfg(target_os = "macos")]
                     let Some(captured) = desktop::with_drag(&drag_events, |gesture| {
                         if let Err(error) = gesture.update(ui.window())
@@ -526,6 +613,12 @@ impl PresenceModule {
         let startup_error = fatal_error.clone();
         #[cfg(target_os = "macos")]
         let startup_menu = status_menu.clone();
+        #[cfg(target_os = "macos")]
+        let startup_face_glass = face_glass.clone();
+        #[cfg(target_os = "macos")]
+        let startup_bubble_glass = bubble_glass.clone();
+        #[cfg(target_os = "macos")]
+        let weak_startup_glass_settings = glass_settings.as_weak();
         let weak = ui.as_weak();
         slint::spawn_local(async move {
             if let Some(ui) = weak.upgrade() {
@@ -534,6 +627,30 @@ impl PresenceModule {
                     Ok(_) => {
                         let prepare = || -> Result<()> {
                             desktop::position(ui.window())?;
+                            #[cfg(target_os = "macos")]
+                            if let Some(glass) = desktop::NativeFaceGlass::new(
+                                ui.window(),
+                                ui.get_actual_diameter(),
+                            )? {
+                                if let Some(settings) = weak_startup_glass_settings.upgrade() {
+                                    glass.configure(
+                                        settings.get_style_index(),
+                                        settings.get_tint_index(),
+                                        settings.get_tint_strength(),
+                                    );
+                                    settings.set_native_available(true);
+                                }
+                                *startup_face_glass.borrow_mut() = Some(glass);
+                                ui.set_native_face_glass(true);
+                            }
+                            #[cfg(target_os = "macos")]
+                            if let Some(glass) = desktop::NativeBubbleGlass::new(
+                                ui.window(),
+                                ui.get_bubble_viewport_bounds(),
+                            )? {
+                                *startup_bubble_glass.borrow_mut() = Some(glass);
+                                ui.set_native_bubble_glass(true);
+                            }
                             desktop::install_cursor_tracking(&ui);
                             #[cfg(target_os = "macos")]
                             {
@@ -561,6 +678,10 @@ impl PresenceModule {
         let run_result = ui.run();
         #[cfg(target_os = "macos")]
         desktop::clear_drag_bounds();
+        #[cfg(target_os = "macos")]
+        face_glass.borrow_mut().take();
+        #[cfg(target_os = "macos")]
+        bubble_glass.borrow_mut().take();
         if let Some(transcription) = &transcription_ui {
             transcription.stop();
         }
@@ -573,6 +694,7 @@ impl PresenceModule {
         history_timer.stop();
         #[cfg(target_os = "macos")]
         status_menu.borrow_mut().take();
+        glass_settings.hide()?;
         ui.hide()?;
         about.hide()?;
         run_result?;

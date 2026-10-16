@@ -20,7 +20,7 @@ i-slint-backend-winit.workspace = true
 slint-build.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
-objc2-app-kit.workspace = true
+objc2-app-kit = { workspace = true, features = ["NSGlassEffectView", "NSGraphics", "NSColor", "objc2-core-foundation"] }
 objc2.workspace = true
 objc2-foundation.workspace = true
 tray-icon.workspace = true

@@ -11,6 +11,8 @@ Propietario: kernel/config. `Config` contiene ruta DB y busy timeout; `Secrets` 
 ## Preferencias de app
 presence posee `reduced_motion` booleano, default false, aplicable sin reinicio, sin unidad. Se carga al abrir; su edición desde la UI está desactivada y el soporte interno queda reservado para configuración futura, con confirmación después del commit. Estado activo/dormido no persiste. No hay app configs ni ConfigSource porque solo hay un consumidor y un ajuste propio; extraer contrato kernel cuando otro módulo necesite lectura transversal, sin importar repositorio de otra app. Si se añaden catálogos, declarar tipo/default/restricciones/reinicio, rechazar duplicados/defaults inválidos y conservar ajustes de módulos apagados. Aviso futuro configs.changed lleva nombres, sin valores, después de commit. Nunca usar default para ruta externa obligatoria.
 
+El panel Vidrio de la cara es un laboratorio visual de sesión, no una preferencia persistida: estilo, tinte, fuerza y tamaños se aplican inmediatamente. Al reiniciar vuelven a Regular, humo claro al 29 %, 64 px dormida y 128 px despierta. No añade SQL, variables SOC_ ni guardado implícito.
+
 ## Verificación
 Validar obligatorias, rangos, precedencia y sincronización ejemplo/declaraciones; reapertura del archivo demuestra persistencia. Ver testing y database para transacciones.
 
