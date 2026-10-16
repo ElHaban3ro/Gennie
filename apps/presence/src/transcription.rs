@@ -30,7 +30,6 @@ pub struct TranscriptionUi {
     settings: TranscriptionSettings,
     timer: slint::Timer,
     controller: Rc<RefCell<Controller>>,
-    decisions: Option<Rc<soc_decisions::Controller>>,
 }
 fn voice_model_indicator(status: soc_transcription::ModelStatus) -> (bool, &'static str) {
     use soc_transcription::ModelStatus;
@@ -43,16 +42,6 @@ fn voice_model_indicator(status: soc_transcription::ModelStatus) -> (bool, &'sta
         ModelStatus::Failed => "Nemotron · reconocimiento de voz\nError · modelo no disponible",
     };
     (status == ModelStatus::Ready, text)
-}
-fn decision_model_indicator(status: &soc_decisions::ModelStatus) -> (bool, &'static str) {
-    use soc_decisions::ModelStatus;
-    let text = match status {
-        ModelStatus::Unloaded => "Laya · análisis de órdenes\nDescargado de memoria",
-        ModelStatus::Loading => "Laya · análisis de órdenes\nCargando en memoria…",
-        ModelStatus::Ready => "Laya · análisis de órdenes\nCargado en memoria",
-        ModelStatus::Failed(_) => "Laya · análisis de órdenes\nError · modelo no disponible",
-    };
-    (*status == ModelStatus::Ready, text)
 }
 fn tts_model_indicator(status: soc_tts::ModelStatus) -> (bool, &'static str) {
     use soc_tts::ModelStatus;
@@ -70,11 +59,6 @@ fn update_voice_indicator(ui: &PresenceWindow, status: soc_transcription::ModelS
     ui.set_voice_model_loaded(loaded);
     ui.set_voice_model_tooltip(tooltip.into());
 }
-fn update_decision_indicator(ui: &PresenceWindow, status: &soc_decisions::ModelStatus) {
-    let (loaded, tooltip) = decision_model_indicator(status);
-    ui.set_decision_model_loaded(loaded);
-    ui.set_decision_model_tooltip(tooltip.into());
-}
 fn update_tts_indicator(ui: &PresenceWindow, status: soc_tts::ModelStatus) {
     let (loaded, tooltip) = tts_model_indicator(status);
     ui.set_tts_model_loaded(loaded);
@@ -87,11 +71,6 @@ fn populate(window: &TranscriptionSettings, controller: &Controller) {
     window.set_mode_index(if s.mode == Mode::Hold { 0 } else { 1 });
     window.set_bubble_seconds(s.bubble_seconds as i32);
     window.set_unload_minutes(s.unload_seconds.div_ceil(60) as i32);
-}
-fn populate_decisions(window: &TranscriptionSettings, settings: &soc_decisions::Settings) {
-    window.set_decision_preload(settings.preload);
-    window.set_decision_keep_loaded(settings.unload_seconds.is_none());
-    window.set_decision_unload_minutes(settings.unload_seconds.unwrap_or(600).div_ceil(60) as i32);
 }
 fn populate_llm(window: &TranscriptionSettings, settings: &soc_llm::Settings) {
     window.set_llm_read_files(settings.read_files);
@@ -153,7 +132,6 @@ impl TranscriptionUi {
         ui: &PresenceWindow,
         module: &TranscriptionModule,
         state: &AppState,
-        decisions: Option<&soc_decisions::DecisionsModule>,
         llm: Option<&soc_llm::LlmModule>,
         tts: Option<&soc_tts::TtsModule>,
         history: crate::history::Writer,
@@ -164,9 +142,6 @@ impl TranscriptionUi {
         let narration_suppressed = Rc::new(Cell::new(false));
         ui.set_chat_bubbles(slint::ModelRc::from(chat.borrow().model.clone()));
         ui.set_chat_sources(slint::ModelRc::from(chat.borrow().sources.clone()));
-        let decisions = decisions
-            .map(|module| module.controller().map(Rc::new))
-            .transpose()?;
         let llm = llm
             .map(|module| module.controller().map(Rc::new))
             .transpose()?;
@@ -266,24 +241,6 @@ impl TranscriptionUi {
             .into(),
         );
         update_voice_indicator(ui, controller.borrow().model_status());
-        if let Some(controller) = &decisions {
-            update_decision_indicator(ui, &controller.model_status());
-            populate_decisions(&settings, &controller.settings());
-        }
-        settings.set_decisions_available(decisions.is_some());
-        let interaction_mode = Rc::new(std::cell::Cell::new(settings.get_interaction_mode_index()));
-        let mode = interaction_mode.clone();
-        let control = decisions.clone();
-        let messages = chat.clone();
-        settings.on_interaction_mode_changed(move |index| {
-            mode.set(index);
-            if index != 2
-                && let Some(control) = &control
-            {
-                control.cancel();
-                messages.borrow_mut().cancel_decision();
-            }
-        });
         let llm_control = llm.clone();
         let weak = settings.as_weak();
         settings.on_connect_llm(move || {
@@ -469,45 +426,6 @@ impl TranscriptionUi {
                 }
             }
         });
-        let weak = settings.as_weak();
-        let control = decisions.clone();
-        settings.on_save_decisions(move || {
-            if let Some(window) = weak.upgrade()
-                && let Some(control) = &control
-            {
-                let next = soc_decisions::Settings {
-                    preload: window.get_decision_preload(),
-                    unload_seconds: (!window.get_decision_keep_loaded()).then_some(
-                        u64::try_from(window.get_decision_unload_minutes()).unwrap_or(0) * 60,
-                    ),
-                };
-                match control.save_settings(next) {
-                    Ok(()) => {
-                        window.set_decision_saving(true);
-                        window.set_decision_settings_status("Guardando ajustes de Laya…".into());
-                    }
-                    Err(error) => window.set_decision_settings_status(error.to_string().into()),
-                }
-            }
-        });
-        let weak = settings.as_weak();
-        let control = decisions.clone();
-        settings.on_load_decisions(move || {
-            if let Some(control) = &control
-                && let Err(error) = control.load_model()
-                && let Some(window) = weak.upgrade()
-            {
-                window.set_decision_settings_status(error.to_string().into());
-            }
-        });
-        let control = decisions.clone();
-        let messages = chat.clone();
-        settings.on_unload_decisions(move || {
-            if let Some(control) = &control {
-                control.unload_model();
-                messages.borrow_mut().cancel_decision();
-            }
-        });
         let c = controller.clone();
         settings.on_prepare(move || c.borrow_mut().prepare());
         let c = controller.clone();
@@ -524,14 +442,10 @@ impl TranscriptionUi {
         let weak_settings = settings.as_weak();
 
         let mut last_status = String::new();
-        let decision_controller = decisions.clone();
         let llm_controller = llm.clone();
         let tts_controller = tts.clone();
         let pending_for_timer_audio = pending_tts.clone();
         let history_for_timer = history.clone();
-        let pending_local_text = Rc::new(RefCell::new(None::<String>));
-        let pending_for_timer = pending_local_text.clone();
-        let mut last_decision_status = None;
         let mut partial_reply = String::new();
         let mut narration = crate::narration::Narration::default();
         let mut narration_queue = VecDeque::<(u64, String)>::new();
@@ -574,7 +488,9 @@ impl TranscriptionUi {
                                 }
                             }
                             soc_tts::Event::Finished(id) => {
-                                if let Some(bubble_id) = pending_for_timer_audio.borrow_mut().remove(&id) {
+                                if let Some(bubble_id) =
+                                    pending_for_timer_audio.borrow_mut().remove(&id)
+                                {
                                     messages.finish_audio(bubble_id, ttl, now);
                                     if let Some(window) = weak_settings.upgrade() {
                                         window.set_tts_status("Reproducción terminada".into());
@@ -582,16 +498,28 @@ impl TranscriptionUi {
                                 }
                             }
                             soc_tts::Event::Failed(id, error) => {
-                                if let Some(bubble_id) = pending_for_timer_audio.borrow_mut().remove(&id) {
+                                if let Some(bubble_id) =
+                                    pending_for_timer_audio.borrow_mut().remove(&id)
+                                {
                                     messages.finish_audio(bubble_id, ttl, now);
                                 }
                                 if let Some(window) = weak_settings.upgrade() {
-                                    window.set_tts_status(format!("Voz no disponible: {error}").into());
+                                    window.set_tts_status(
+                                        format!("Voz no disponible: {error}").into(),
+                                    );
                                 }
-                                messages.status("Voz", &format!("Voz no disponible: {error}"), true, ttl, now);
+                                messages.status(
+                                    "Voz",
+                                    &format!("Voz no disponible: {error}"),
+                                    true,
+                                    ttl,
+                                    now,
+                                );
                             }
                             soc_tts::Event::Interrupted(id) => {
-                                if let Some(bubble_id) = pending_for_timer_audio.borrow_mut().remove(&id) {
+                                if let Some(bubble_id) =
+                                    pending_for_timer_audio.borrow_mut().remove(&id)
+                                {
                                     messages.finish_audio(bubble_id, ttl, now);
                                 }
                                 if let Some(window) = weak_settings.upgrade() {
@@ -602,17 +530,25 @@ impl TranscriptionUi {
                                 if let Some(window) = weak_settings.upgrade() {
                                     window.set_tts_saving(false);
                                     window.set_tts_enabled(saved.enabled);
-                                    window.set_tts_voice_index(match saved.voice.as_str() { "em_alex" => 1, "em_santa" => 2, _ => 0 });
+                                    window.set_tts_voice_index(match saved.voice.as_str() {
+                                        "em_alex" => 1,
+                                        "em_santa" => 2,
+                                        _ => 0,
+                                    });
                                     window.set_tts_speed_percent(saved.speed_percent as i32);
                                     window.set_tts_keep_loaded(saved.unload_seconds.is_none());
-                                    window.set_tts_unload_minutes(saved.unload_seconds.unwrap_or(600).div_ceil(60) as i32);
+                                    window.set_tts_unload_minutes(
+                                        saved.unload_seconds.unwrap_or(600).div_ceil(60) as i32,
+                                    );
                                     window.set_tts_status("Voz de SOC guardada".into());
                                 }
                             }
                             soc_tts::Event::SaveFailed(error) => {
                                 if let Some(window) = weak_settings.upgrade() {
                                     window.set_tts_saving(false);
-                                    window.set_tts_status(format!("Error al guardar: {error}").into());
+                                    window.set_tts_status(
+                                        format!("Error al guardar: {error}").into(),
+                                    );
                                 }
                             }
                         }
@@ -643,10 +579,17 @@ impl TranscriptionUi {
                             soc_llm::Event::ReplyDelta(delta) => {
                                 partial_reply.push_str(&delta);
                                 if !partial_reply.trim().is_empty() {
-                                    let bubble_id = messages.decision(&partial_reply, false, ttl, now);
+                                    let bubble_id =
+                                        messages.decision(&partial_reply, false, ttl, now);
                                     if !narration_suppressed.get() {
                                         for sentence in narration.push(&delta) {
-                                            queue_narration(&mut messages, &mut narration_queue, tts_controller.as_deref(), bubble_id, &sentence);
+                                            queue_narration(
+                                                &mut messages,
+                                                &mut narration_queue,
+                                                tts_controller.as_deref(),
+                                                bubble_id,
+                                                &sentence,
+                                            );
                                         }
                                     }
                                 }
@@ -654,13 +597,20 @@ impl TranscriptionUi {
                             soc_llm::Event::Reply(reply) => {
                                 let bubble_id = messages.decision(&reply, true, ttl, now);
                                 if !narration_suppressed.get() {
-                                    let remaining = reply.strip_prefix(&partial_reply).unwrap_or(&reply);
+                                    let remaining =
+                                        reply.strip_prefix(&partial_reply).unwrap_or(&reply);
                                     let mut sentences = narration.push(remaining);
                                     if let Some(last) = narration.finish() {
                                         sentences.push(last);
                                     }
                                     for sentence in sentences {
-                                        queue_narration(&mut messages, &mut narration_queue, tts_controller.as_deref(), bubble_id, &sentence);
+                                        queue_narration(
+                                            &mut messages,
+                                            &mut narration_queue,
+                                            tts_controller.as_deref(),
+                                            bubble_id,
+                                            &sentence,
+                                        );
                                     }
                                 }
                                 narration.clear();
@@ -674,7 +624,9 @@ impl TranscriptionUi {
                             }
                             soc_llm::Event::NewChatReady => {
                                 messages.decision("Nuevo chat iniciado", true, ttl, now);
-                                if let Err(error) = history_for_timer.save("system", "Nuevo chat iniciado") {
+                                if let Err(error) =
+                                    history_for_timer.save("system", "Nuevo chat iniciado")
+                                {
                                     messages.status("Chat", error, true, ttl, now);
                                 }
                                 if let Some(window) = weak_settings.upgrade() {
@@ -688,7 +640,8 @@ impl TranscriptionUi {
                                 }
                                 narration.clear();
                                 messages.decision(&error, true, ttl, now);
-                                if let Err(save_error) = history_for_timer.save("assistant", &error) {
+                                if let Err(save_error) = history_for_timer.save("assistant", &error)
+                                {
                                     messages.status("Chat", save_error, true, ttl, now);
                                 }
                             }
@@ -696,13 +649,18 @@ impl TranscriptionUi {
                                 if let Some(window) = weak_settings.upgrade() {
                                     window.set_llm_saving(false);
                                     populate_llm(&window, &saved);
-                                    window.set_llm_settings_status("Ajustes de Codex guardados".into());
+                                    window.set_llm_settings_status(
+                                        "Ajustes de Codex guardados".into(),
+                                    );
                                 }
                             }
                             soc_llm::Event::SettingsSaveFailed(error) => {
                                 if let Some(window) = weak_settings.upgrade() {
                                     window.set_llm_saving(false);
-                                    window.set_llm_settings_status(format!("No se pudieron guardar los ajustes: {error}").into());
+                                    window.set_llm_settings_status(
+                                        format!("No se pudieron guardar los ajustes: {error}")
+                                            .into(),
+                                    );
                                 }
                             }
                         }
@@ -718,7 +676,9 @@ impl TranscriptionUi {
                         match tts.speak(text) {
                             Ok(Some(id)) => {
                                 narration_queue.pop_front();
-                                pending_for_timer_audio.borrow_mut().insert(id, Some(bubble_id));
+                                pending_for_timer_audio
+                                    .borrow_mut()
+                                    .insert(id, Some(bubble_id));
                                 ui.set_active(true);
                             }
                             Ok(None) => {
@@ -730,92 +690,32 @@ impl TranscriptionUi {
                                 narration_queue.pop_front();
                                 messages.finish_audio(Some(bubble_id), ttl, now);
                                 if let Some(window) = weak_settings.upgrade() {
-                                    window.set_tts_status(format!("Voz no disponible: {error}").into());
+                                    window.set_tts_status(
+                                        format!("Voz no disponible: {error}").into(),
+                                    );
                                 }
-                                messages.status("Voz", &format!("Voz no disponible: {error}"), true, ttl, now);
+                                messages.status(
+                                    "Voz",
+                                    &format!("Voz no disponible: {error}"),
+                                    true,
+                                    ttl,
+                                    now,
+                                );
                             }
                         }
                     }
-                    ui.set_speech_active(!pending_for_timer_audio.borrow().is_empty() || !narration_queue.is_empty());
-                }
-                if let Some(controller) = &decision_controller {
-                    if let Some(saved) = controller.poll_settings() && let Some(window) = weak_settings.upgrade() {
-                        window.set_decision_saving(false);
-                        match saved {
-                            Ok(settings) => {
-                                populate_decisions(&window, &settings);
-                                window.set_decision_settings_status("Ajustes de Laya guardados".into());
-                            }
-                            Err(error) => window.set_decision_settings_status(error.into()),
-                        }
-                    }
-                    let outcomes = controller.poll();
-                    let model_status = controller.model_status();
-                    update_decision_indicator(&ui, &model_status);
-                    if let Some(window) = weak_settings.upgrade() {
-                        window.set_decision_model_loaded(model_status == soc_decisions::ModelStatus::Ready);
-                        window.set_decision_model_busy(controller.is_pending() || model_status == soc_decisions::ModelStatus::Loading);
-                    }
-                    if last_decision_status.as_ref() != Some(&model_status) {
-                        let (text, finished) = match &model_status {
-                            soc_decisions::ModelStatus::Loading => ("Cargando Laya…".to_string(), false),
-                            soc_decisions::ModelStatus::Ready if controller.is_pending() => ("Analizando la orden…".to_string(), false),
-                            soc_decisions::ModelStatus::Ready => ("Análisis de órdenes listo".to_string(), true),
-                            soc_decisions::ModelStatus::Unloaded => ("Laya no está cargado en memoria".to_string(), true),
-                            soc_decisions::ModelStatus::Failed(error) => (format!("Control local no disponible: {error}"), true),
-                        };
-                        if let Some(window) = weak_settings.upgrade() {
-                            window.set_decision_model_status(text.clone().into());
-                        }
-                        if model_status != soc_decisions::ModelStatus::Unloaded
-                            && outcomes.is_empty()
-                            && !(controller.is_pending() && matches!(&model_status, soc_decisions::ModelStatus::Failed(_)))
-                        {
-                            messages.decision(&text, finished, ttl, now);
-                        }
-                        last_decision_status = Some(model_status);
-                    }
-                    for outcome in outcomes {
-                        let text = pending_for_timer.borrow_mut().take();
-                        if outcome.prediction.as_ref().is_some_and(|prediction| prediction.route == soc_decisions::Route::GodCall)
-                            && let (Some(text), Some(llm)) = (text, llm_controller.as_ref())
-                        {
-                            match llm.speak(&text) {
-                                Ok(()) => {
-                                    narration_suppressed.set(false);
-                                    messages.decision("Pensando…", false, ttl, now)
-                                },
-                                Err(error) => messages.decision(&error.to_string(), true, ttl, now),
-                            };
-                        } else {
-                            let bubble_id = messages.decision(&outcome.message, true, ttl, now);
-                            if let Some(tts) = &tts_controller {
-                                match tts.speak(&crate::answer::prepare(&outcome.message).text) {
-                                    Ok(Some(id)) => {
-                                        pending_for_timer_audio.borrow_mut().insert(id, Some(bubble_id));
-                                        messages.begin_audio(Some(bubble_id));
-                                        ui.set_active(true);
-                                        ui.set_speech_active(true);
-                                    }
-                                    Ok(None) => {}
-                                    Err(error) => {
-                                        if let Some(window) = weak_settings.upgrade() {
-                                            window.set_tts_status(format!("Voz no disponible: {error}").into());
-                                        }
-                                        messages.status("Voz", &format!("Voz no disponible: {error}"), true, ttl, now);
-                                    }
-                                }
-                            }
-                            if let Err(error) = history_for_timer.save("assistant", &outcome.message) {
-                                messages.status("Chat", error, true, ttl, now);
-                            }
-                        }
-                    }
+                    ui.set_speech_active(
+                        !pending_for_timer_audio.borrow().is_empty() || !narration_queue.is_empty(),
+                    );
                 }
                 for event in events {
                     match event {
                         Event::DictationRequested => {
-                            narration_suppressed.set(llm_controller.as_ref().is_some_and(|controller| controller.is_pending()));
+                            narration_suppressed.set(
+                                llm_controller
+                                    .as_ref()
+                                    .is_some_and(|controller| controller.is_pending()),
+                            );
                             if narration_suppressed.get() {
                                 narration.clear();
                             }
@@ -827,7 +727,10 @@ impl TranscriptionUi {
                             {
                                 match tts.interrupt() {
                                     Ok(()) => {
-                                        let pending = pending_for_timer_audio.borrow_mut().drain().collect::<Vec<_>>();
+                                        let pending = pending_for_timer_audio
+                                            .borrow_mut()
+                                            .drain()
+                                            .collect::<Vec<_>>();
                                         for (_, bubble_id) in pending {
                                             messages.finish_audio(bubble_id, ttl, now);
                                         }
@@ -838,7 +741,10 @@ impl TranscriptionUi {
                                     }
                                     Err(error) => {
                                         if let Some(window) = weak_settings.upgrade() {
-                                            window.set_tts_status(format!("No se pudo interrumpir la voz: {error}").into());
+                                            window.set_tts_status(
+                                                format!("No se pudo interrumpir la voz: {error}")
+                                                    .into(),
+                                            );
                                         }
                                     }
                                 }
@@ -861,8 +767,7 @@ impl TranscriptionUi {
                         }
                         Event::ModelLoaded => {
                             if let Some(window) = weak_settings.upgrade() {
-                                window
-                                    .set_model_status("Reconocimiento de voz listo".into());
+                                window.set_model_status("Reconocimiento de voz listo".into());
                             }
                             messages.loaded(ttl, now);
                         }
@@ -883,34 +788,32 @@ impl TranscriptionUi {
                                     ttl,
                                     now,
                                 );
-                                if finalized && let Err(error) = history_for_timer.save("user", &text) {
+                                if finalized
+                                    && let Err(error) = history_for_timer.save("user", &text)
+                                {
                                     messages.status("Chat", error, true, ttl, now);
                                 }
-                                if finalized && interaction_mode.get() == 0 {
+                                if finalized {
                                     if let Some(controller) = &llm_controller {
                                         match controller.speak(&text) {
                                             Ok(()) => {
                                                 narration_suppressed.set(false);
                                                 messages.decision("Pensando…", false, ttl, now)
-                                            },
-                                            Err(error) => messages.decision(&error.to_string(), true, ttl, now),
+                                            }
+                                            Err(error) => messages.decision(
+                                                &error.to_string(),
+                                                true,
+                                                ttl,
+                                                now,
+                                            ),
                                         };
                                     } else {
-                                        messages.decision("Conversación no disponible en esta instancia", true, ttl, now);
-                                    }
-                                }
-                                if finalized && interaction_mode.get() == 2 && let Some(controller) = &decision_controller {
-                                    if controller.is_pending() {
-                                        messages.status("SOC", "Hay una orden en curso. Espera su resultado antes de dar otra.", true, ttl, now);
-                                    } else {
-                                        match controller.submit(&text, true) {
-                                            Ok(()) => {
-                                                *pending_local_text.borrow_mut() = Some(text.clone());
-                                                let status = if controller.model_status() == soc_decisions::ModelStatus::Ready { "Analizando la orden…" } else { "Preparando Laya; la orden está en espera…" };
-                                                messages.decision(status, false, ttl, now);
-                                            }
-                                            Err(error) => messages.status("SOC", &error.to_string(), true, ttl, now),
-                                        }
+                                        messages.decision(
+                                            "Conversación no disponible en esta instancia",
+                                            true,
+                                            ttl,
+                                            now,
+                                        );
                                     }
                                 }
                             }
@@ -952,15 +855,11 @@ impl TranscriptionUi {
             settings,
             timer,
             controller,
-            decisions,
         })
     }
     pub fn stop(&self) {
         self.timer.stop();
         self.controller.borrow_mut().cancel();
-        if let Some(controller) = &self.decisions {
-            controller.cancel();
-        }
         let _ = self.settings.hide();
     }
 }
@@ -987,17 +886,6 @@ mod tests {
             assert!(!voice_model_indicator(status).0, "{status:?}");
         }
         assert!(voice_model_indicator(VoiceStatus::Ready).0);
-        use soc_decisions::ModelStatus as DecisionStatus;
-        for status in [
-            DecisionStatus::Unloaded,
-            DecisionStatus::Loading,
-            DecisionStatus::Failed("detalle interno".into()),
-        ] {
-            let (loaded, tooltip) = decision_model_indicator(&status);
-            assert!(!loaded, "{status:?}");
-            assert!(!tooltip.contains("detalle interno"));
-        }
-        assert!(decision_model_indicator(&DecisionStatus::Ready).0);
         use soc_tts::ModelStatus as TtsStatus;
         for status in [
             TtsStatus::Disabled,

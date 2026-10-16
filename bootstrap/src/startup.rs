@@ -227,11 +227,6 @@ pub fn run() -> Result<()> {
                 } else {
                     None
                 },
-                if active.contains("decisions") {
-                    Some(&decisions)
-                } else {
-                    None
-                },
                 if active.contains("llm") {
                     Some(&llm)
                 } else {

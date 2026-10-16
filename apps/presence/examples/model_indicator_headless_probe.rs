@@ -1,4 +1,4 @@
-//! Verifica geometría y relleno de los tres indicadores sin ventana nativa ni modelos.
+//! Verifica geometría y relleno de los dos indicadores sin ventana nativa ni modelos.
 use slint::platform::software_renderer::{
     MinimalSoftwareWindow, PremultipliedRgbaColor, RepaintBufferType, TargetPixel,
 };
@@ -58,14 +58,11 @@ fn main() -> soc_core::Result<()> {
     ui.show()?;
 
     let voice = ui.get_voice_indicator_bounds();
-    let decision = ui.get_decision_indicator_bounds();
     let tts = ui.get_tts_indicator_bounds();
     let chat = ui.get_new_chat_button_bounds();
-    assert!(voice.x + voice.width < decision.x);
-    assert!(decision.x + decision.width < tts.x);
+    assert!(voice.x + voice.width < tts.x);
     assert!(tts.x + tts.width < chat.x);
-    assert_eq!(voice.y, decision.y);
-    assert_eq!(decision.y, tts.y);
+    assert_eq!(voice.y, tts.y);
 
     let before = render(&window);
     ui.set_tts_model_loaded(true);
@@ -87,7 +84,7 @@ fn main() -> soc_core::Result<()> {
         file.write_all(&[pixel.red, pixel.green, pixel.blue])?;
     }
     println!(
-        "three_indicators=ok tts_fill_changed_pixels={changed_in_icon} voice={voice:?} decision={decision:?} tts={tts:?} chat={chat:?}"
+        "two_indicators=ok tts_fill_changed_pixels={changed_in_icon} voice={voice:?} tts={tts:?} chat={chat:?}"
     );
     ui.hide()?;
     Ok(())

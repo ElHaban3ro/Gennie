@@ -1,99 +1,8 @@
-import { AboutSlint, VerticalBox, HorizontalBox, LineEdit, ComboBox, SpinBox, Slider, Button, CheckBox, TabWidget } from "std-widgets.slint";
-export component FaceGlassSettings inherits Window {
-    title: "Vidrio de la cara · soc";
-    width: 380px; height: 540px;
-    in property <bool> native-available: false;
-    in-out property <int> style-index: 0;
-    in-out property <int> tint-index: 2;
-    in-out property <float> tint-strength: 29;
-    in-out property <float> sleep-diameter: 64;
-    in-out property <float> awake-diameter: 128;
-    callback changed();
-    VerticalBox {
-        padding: 20px; spacing: 12px;
-        Text { text: "Prueba el vidrio en tiempo real"; font-size: 21px; font-weight: 600; }
-        Text {
-            text: root.native-available ? "Los cambios afectan solo a la cara y duran esta sesión." : "El vidrio nativo requiere macOS 26 o posterior. Puedes probar los tamaños.";
-            wrap: word-wrap; font-size: 12px;
-        }
-        Text { text: "Estilo de vidrio"; font-size: 12px; }
-        ComboBox {
-            model: ["Regular", "Clear"];
-            current-index <=> root.style-index;
-            enabled: root.native-available;
-            selected => { root.changed(); }
-        }
-        Text { text: "Tinte"; font-size: 12px; }
-        ComboBox {
-            model: ["Sin tinte", "Grafito", "Humo claro", "Azul frío"];
-            current-index <=> root.tint-index;
-            enabled: root.native-available;
-            selected => { root.changed(); }
-        }
-        HorizontalBox {
-            Text { text: "Fuerza del tinte"; font-size: 12px; }
-            Text { text: Math.round(root.tint-strength) + "%"; horizontal-alignment: right; font-size: 12px; }
-        }
-        Slider {
-            minimum: 0; maximum: 70; step: 1;
-            value <=> root.tint-strength;
-            enabled: root.native-available && root.tint-index != 0;
-            changed => { root.changed(); }
-        }
-        HorizontalBox {
-            Text { text: "Tamaño dormida"; font-size: 12px; }
-            Text { text: Math.round(root.sleep-diameter) + " px"; horizontal-alignment: right; font-size: 12px; }
-        }
-        Slider {
-            minimum: 64; maximum: 112; step: 1;
-            value <=> root.sleep-diameter;
-            changed => { root.changed(); }
-        }
-        HorizontalBox {
-            Text { text: "Tamaño despierta"; font-size: 12px; }
-            Text { text: Math.round(root.awake-diameter) + " px"; horizontal-alignment: right; font-size: 12px; }
-        }
-        Slider {
-            minimum: 128; maximum: 224; step: 1;
-            value <=> root.awake-diameter;
-            changed => { root.changed(); }
-        }
-        Text {
-            text: "macOS controla el desenfoque y la refracción del borde; sus intensidades no son ajustables aquí.";
-            wrap: word-wrap; font-size: 12px;
-        }
-        Rectangle { vertical-stretch: 1; }
-        Button {
-            text: "Restablecer";
-            clicked => {
-                root.style-index = 0;
-                root.tint-index = 2;
-                root.tint-strength = 29;
-                root.sleep-diameter = 64;
-                root.awake-diameter = 128;
-                root.changed();
-            }
-        }
-    }
-}
+import { AboutSlint, VerticalBox, HorizontalBox, LineEdit, ComboBox, SpinBox, Button, CheckBox, TabWidget } from "std-widgets.slint";
 export component TranscriptionSettings inherits Window {
     title: "Voz y asistente · soc";
     width: 440px; height: 690px;
     in-out property <bool> enabled: true;
-    in property <bool> decisions-available: false;
-    in property <string> decision-model-status: "Preparando Laya…";
-    in property <bool> decision-model-loaded: false;
-    in property <bool> decision-model-busy: false;
-    in property <bool> decision-saving: false;
-    in property <string> decision-settings-status: "";
-    in-out property <bool> decision-preload: true;
-    in-out property <bool> decision-keep-loaded: false;
-    in-out property <int> decision-unload-minutes: 10;
-    callback save-decisions();
-    callback load-decisions();
-    callback unload-decisions();
-    in-out property <int> interaction-mode-index: 0;
-    callback interaction-mode-changed(int);
     in property <bool> llm-available: false;
     in property <bool> llm-connected: false;
     in property <bool> llm-busy: false;
@@ -147,12 +56,7 @@ export component TranscriptionSettings inherits Window {
                     Button { text: root.recording-shortcut ? "Pulsa las teclas · Esc cancela" : root.shortcut; clicked => { root.capture-shortcut(!root.recording-shortcut); } }
                 }
                 ComboBox { model: ["Mantener pulsado para hablar", "Pulsar para iniciar y terminar"]; current-index <=> root.mode-index; }
-                Text { text: "Al terminar de hablar"; font-size: 12px; }
-                ComboBox {
-                    model: ["Conversar con SOC", "Solo transcribir", "Control local con Laya"];
-                    current-index <=> root.interaction-mode-index;
-                    selected => { root.interaction-mode-changed(self.current-index); }
-                }
+                Text { text: "La transcripción final se envía a Codex."; wrap: word-wrap; font-size: 12px; }
                 Text { text: "Micrófono de entrada"; font-size: 12px; }
                 HorizontalBox {
                     ComboBox { model: root.microphones; current-index <=> root.microphone-index; }
@@ -242,53 +146,6 @@ export component TranscriptionSettings inherits Window {
                 Rectangle { vertical-stretch: 1; }
             }
         }
-        Tab {
-            title: "Órdenes · Laya";
-            if root.decisions-available: VerticalBox {
-                padding: 16px; spacing: 12px;
-                Text { text: "Análisis de órdenes"; font-size: 21px; font-weight: 600; }
-                Text { text: "Laya multilingüe · modelo local"; font-size: 12px; }
-                Text { text: "Para usar órdenes locales, elige «Control local con Laya» en la pestaña Voz."; wrap: word-wrap; font-size: 12px; }
-                Text { text: root.decision-model-status; wrap: word-wrap; font-size: 12px; }
-                CheckBox {
-                    text: "Cargar Laya al iniciar soc";
-                    checked <=> root.decision-preload;
-                    enabled: !root.decision-saving;
-                }
-                Text { text: "La precarga se aplica al próximo inicio de soc."; wrap: word-wrap; font-size: 12px; }
-                CheckBox {
-                    text: "Mantener Laya cargado";
-                    checked <=> root.decision-keep-loaded;
-                    enabled: !root.decision-saving;
-                }
-                HorizontalBox {
-                    Text { text: "Liberar Laya tras"; vertical-alignment: center; }
-                    SpinBox {
-                        value <=> root.decision-unload-minutes;
-                        minimum: 1; maximum: 120;
-                        enabled: !root.decision-keep-loaded && !root.decision-saving;
-                    }
-                    Text { text: "min"; vertical-alignment: center; }
-                }
-                Text {
-                    text: root.decision-keep-loaded ? "Sin descarga por inactividad. Puedes liberarlo manualmente." : "Minutos desde que termina la última orden. El cambio se aplica al guardar.";
-                    wrap: word-wrap; font-size: 12px;
-                }
-                HorizontalBox {
-                    Button { text: "Cargar Laya"; enabled: !root.decision-model-loaded && !root.decision-model-busy; clicked => { root.load-decisions(); } }
-                    Button { text: "Liberar Laya"; enabled: root.decision-model-loaded || root.decision-model-busy; clicked => { root.unload-decisions(); } }
-                }
-                Text { text: "Liberar Laya cancela la orden en curso. La siguiente orden lo cargará de nuevo."; wrap: word-wrap; font-size: 12px; }
-                Text { text: root.decision-settings-status; wrap: word-wrap; font-size: 12px; }
-                Button { text: root.decision-saving ? "Guardando…" : "Guardar Laya"; enabled: !root.decision-saving; clicked => { root.save-decisions(); } }
-                Rectangle { vertical-stretch: 1; }
-            }
-            if !root.decisions-available: Text {
-                x: 16px; y: 16px; width: parent.width - 32px;
-                text: "El control de órdenes no está disponible en esta instancia.";
-                wrap: word-wrap;
-            }
-        }
     }
 }
 export component AboutWindow inherits Window {
@@ -307,16 +164,17 @@ component GlassSurface inherits Rectangle {
     in property <bool> subtle-light: false;
     in property <bool> native-background: false;
     in property <bool> native-bubble-backing: false;
+    in property <bool> borderless: false;
     border-radius: radius;
     // Translucidez y reflejos; no captura/desenfoca el escritorio.
     background: root.native-bubble-backing ? #17191c98 : root.native-background ? transparent : root.subtle-light ? @linear-gradient(135deg, #383838a8 0%, #282828c7 42%, #181818d9 100%) : @linear-gradient(135deg, #8c8c8ca8 0%, #303030c7 42%, #181818d9 100%);
-    border-width: root.native-background && !root.native-bubble-backing ? 0px : 1px;
-    border-color: root.native-bubble-backing ? #ffffff2a : root.subtle-light ? @linear-gradient(135deg, #ffffff28 0%, #ffffff0a 48%, #ffffff18 100%) : @linear-gradient(135deg, #ffffffb0 0%, #ffffff24 48%, #ffffff60 100%);
+    border-width: root.borderless || root.native-background ? 0px : 1px;
+    border-color: root.subtle-light ? @linear-gradient(135deg, #ffffff28 0%, #ffffff0a 48%, #ffffff18 100%) : @linear-gradient(135deg, #ffffffb0 0%, #ffffff24 48%, #ffffff60 100%);
     drop-shadow-blur: 8px;
     drop-shadow-offset-y: 3px;
     drop-shadow-color: root.native-background && !root.native-bubble-backing ? transparent : #00000035;
     Rectangle {
-        visible: !root.native-background;
+        visible: !root.native-background && !root.borderless;
         x: 2px; y: 2px;
         width: parent.width - 4px; height: parent.height - 4px;
         border-radius: max(0px, root.radius - 2px);
@@ -489,18 +347,12 @@ export component PresenceWindow inherits Window {
     in property <bool> llm-available: false;
     in property <bool> llm-busy: false;
     in property <bool> voice-model-loaded: false;
-    in property <bool> decision-model-loaded: false;
     in property <bool> tts-model-loaded: false;
     in property <string> voice-model-tooltip: "Nemotron · reconocimiento de voz\nNo disponible";
-    in property <string> decision-model-tooltip: "Laya · análisis de órdenes\nNo disponible";
     in property <string> tts-model-tooltip: "Kokoro · síntesis de voz\nNo disponible";
     out property <IndicatorBounds> voice-indicator-bounds: {
         x: voice-indicator.x / 1px, y: voice-indicator.y / 1px,
         width: voice-indicator.width / 1px, height: voice-indicator.height / 1px,
-    };
-    out property <IndicatorBounds> decision-indicator-bounds: {
-        x: decision-indicator.x / 1px, y: decision-indicator.y / 1px,
-        width: decision-indicator.width / 1px, height: decision-indicator.height / 1px,
     };
     out property <IndicatorBounds> tts-indicator-bounds: {
         x: tts-indicator.x / 1px, y: tts-indicator.y / 1px,
@@ -556,7 +408,6 @@ export component PresenceWindow inherits Window {
     callback motion-changed();
     callback about();
     callback transcription-settings();
-    callback face-glass-settings();
     callback bubble-geometry(int, float, float, float, float);
     scroll-chat-to-bottom => {
         history-scroll.content-y = -max(0px, history-scroll.content-height - history-scroll.height);
@@ -648,6 +499,7 @@ export component PresenceWindow inherits Window {
                             subtle-light: true;
                             native-background: root.native-bubble-glass;
                             native-bubble-backing: root.native-bubble-glass;
+                            borderless: true;
                             radius: 18px;
                             Text { x: 16px; y: 8px; width: parent.width - 32px; height: 16px; text: message.title; color: #ffffffb0; font-family: "Helvetica Neue"; font-size: 12px; font-weight: 700; }
                             body := Text {
@@ -741,20 +593,14 @@ export component PresenceWindow inherits Window {
             }
         }
         voice-indicator := ModelIndicator {
-            x: orb.x + orb.width / 2 - 48px - root.wake-progress * (root.llm-available ? 34px : 17px);
+            x: orb.x + orb.width / 2 - 31px - root.wake-progress * (root.llm-available ? 34px : 17px);
             y: orb.y + orb.height + 5px;
             voice: true;
             loaded: root.voice-model-loaded;
             description: root.voice-model-tooltip;
         }
-        decision-indicator := ModelIndicator {
-            x: voice-indicator.x + voice-indicator.width + 6px;
-            y: voice-indicator.y;
-            loaded: root.decision-model-loaded;
-            description: root.decision-model-tooltip;
-        }
         tts-indicator := ModelIndicator {
-            x: decision-indicator.x + decision-indicator.width + 6px;
+            x: voice-indicator.x + voice-indicator.width + 6px;
             y: voice-indicator.y;
             speech: true;
             loaded: root.tts-model-loaded;

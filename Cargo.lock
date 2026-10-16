@@ -4821,7 +4821,6 @@ dependencies = [
  "soc-config",
  "soc-core",
  "soc-db",
- "soc-decisions",
  "soc-llm",
  "soc-transcription",
  "soc-tts",

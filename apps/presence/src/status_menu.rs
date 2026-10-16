@@ -18,7 +18,6 @@ pub struct StatusMenu {
     rest: MenuItem,
     about: MenuItem,
     transcription: MenuItem,
-    face_glass: MenuItem,
     exit: MenuItem,
 }
 
@@ -30,8 +29,7 @@ impl StatusMenu {
         let rest = MenuItem::new("Descansar", false, None);
         assistant.append_items(&[&wake, &rest])?;
         let about = MenuItem::new("Acerca de soc", true, None);
-        let transcription = MenuItem::new("Voz y órdenes…", true, None);
-        let face_glass = MenuItem::new("Vidrio de la cara…", true, None);
+        let transcription = MenuItem::new("Voz y asistente…", true, None);
         let exit = MenuItem::new(
             "Salir de soc",
             true,
@@ -40,7 +38,6 @@ impl StatusMenu {
         menu.append_items(&[
             &assistant,
             &transcription,
-            &face_glass,
             &about,
             &PredefinedMenuItem::separator(),
             &exit,
@@ -64,7 +61,6 @@ impl StatusMenu {
         app.append_items(&[
             &about,
             &transcription,
-            &face_glass,
             &PredefinedMenuItem::separator(),
             &PredefinedMenuItem::hide(Some("Ocultar soc")),
             &PredefinedMenuItem::hide_others(Some("Ocultar otros")),
@@ -81,7 +77,6 @@ impl StatusMenu {
             rest,
             about,
             transcription,
-            face_glass,
             exit,
         })
     }
@@ -96,8 +91,6 @@ impl StatusMenu {
                 ui.invoke_about();
             } else if event.id == *self.transcription.id() {
                 ui.invoke_transcription_settings();
-            } else if event.id == *self.face_glass.id() {
-                ui.invoke_face_glass_settings();
             } else if event.id == *self.exit.id() {
                 ui.invoke_exit();
                 return;

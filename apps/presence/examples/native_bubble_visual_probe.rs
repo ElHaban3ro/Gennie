@@ -99,6 +99,8 @@ fn main() -> soc_core::Result<()> {
     })?;
     let timer = slint::Timer::default();
     let weak = ui.as_weak();
+    let closing_bubble = bubble.clone();
+    let closing_face = face.clone();
     timer.start(
         slint::TimerMode::Repeated,
         Duration::from_millis(16),
@@ -118,7 +120,9 @@ fn main() -> soc_core::Result<()> {
             }
         },
     );
-    slint::Timer::single_shot(Duration::from_secs(30), || {
+    slint::Timer::single_shot(Duration::from_secs(30), move || {
+        closing_bubble.borrow_mut().take();
+        closing_face.borrow_mut().take();
         let _ = slint::quit_event_loop();
     });
     ui.run()?;

@@ -44,7 +44,7 @@ impl AppModule for PresenceModule {
         "presence"
     }
     fn optional_dependencies(&self) -> &'static [&'static str] {
-        &["transcription", "decisions", "llm", "tts"]
+        &["transcription", "llm", "tts"]
     }
     fn migrations(&self) -> &'static [Migration] {
         &[
@@ -121,30 +121,20 @@ impl PresenceModule {
         state: &AppState,
         module: Option<&soc_transcription::TranscriptionModule>,
     ) -> Result<()> {
-        self.run_with_decisions(state, module, None)
-    }
-    pub fn run_with_decisions(
-        &self,
-        state: &AppState,
-        module: Option<&soc_transcription::TranscriptionModule>,
-        decisions: Option<&soc_decisions::DecisionsModule>,
-    ) -> Result<()> {
-        self.run_with_llm(state, module, decisions, None)
+        self.run_with_llm(state, module, None)
     }
     pub fn run_with_llm(
         &self,
         state: &AppState,
         module: Option<&soc_transcription::TranscriptionModule>,
-        decisions: Option<&soc_decisions::DecisionsModule>,
         llm: Option<&soc_llm::LlmModule>,
     ) -> Result<()> {
-        self.run_with_tts(state, module, decisions, llm, None)
+        self.run_with_tts(state, module, llm, None)
     }
     pub fn run_with_tts(
         &self,
         state: &AppState,
         module: Option<&soc_transcription::TranscriptionModule>,
-        decisions: Option<&soc_decisions::DecisionsModule>,
         llm: Option<&soc_llm::LlmModule>,
         tts: Option<&soc_tts::TtsModule>,
     ) -> Result<()> {
@@ -452,7 +442,6 @@ impl PresenceModule {
                     &ui,
                     module,
                     state,
-                    decisions,
                     llm,
                     tts,
                     history_store.writer(),
@@ -497,33 +486,6 @@ impl PresenceModule {
         }
         #[cfg(target_os = "macos")]
         let bubble_bounds_events = bubble_bounds.clone();
-        let glass_settings = FaceGlassSettings::new()?;
-        let weak_glass_settings = glass_settings.as_weak();
-        ui.on_face_glass_settings(move || {
-            if let Some(settings) = weak_glass_settings.upgrade()
-                && let Err(error) = desktop::present_window(settings.window())
-            {
-                eprintln!("event=face_glass_settings_failed error={error}");
-            }
-        });
-        let weak_ui = ui.as_weak();
-        let weak_glass_settings = glass_settings.as_weak();
-        #[cfg(target_os = "macos")]
-        let face_glass_controls = face_glass.clone();
-        glass_settings.on_changed(move || {
-            if let (Some(ui), Some(settings)) = (weak_ui.upgrade(), weak_glass_settings.upgrade()) {
-                ui.set_sleep_diameter(settings.get_sleep_diameter());
-                ui.set_awake_diameter(settings.get_awake_diameter());
-                #[cfg(target_os = "macos")]
-                if let Some(glass) = face_glass_controls.borrow().as_ref() {
-                    glass.configure(
-                        settings.get_style_index(),
-                        settings.get_tint_index(),
-                        settings.get_tint_strength(),
-                    );
-                }
-            }
-        });
         let hit_timer = slint::Timer::default();
         let active_sources = source_launchers.clone();
         let weak = ui.as_weak();
@@ -586,7 +548,6 @@ impl PresenceModule {
                         ui.get_actual_diameter(),
                         &[
                             ui.get_voice_indicator_bounds(),
-                            ui.get_decision_indicator_bounds(),
                             ui.get_tts_indicator_bounds(),
                             ui.get_new_chat_button_bounds(),
                             ui.get_sources_panel_bounds(),
@@ -617,8 +578,6 @@ impl PresenceModule {
         let startup_face_glass = face_glass.clone();
         #[cfg(target_os = "macos")]
         let startup_bubble_glass = bubble_glass.clone();
-        #[cfg(target_os = "macos")]
-        let weak_startup_glass_settings = glass_settings.as_weak();
         let weak = ui.as_weak();
         slint::spawn_local(async move {
             if let Some(ui) = weak.upgrade() {
@@ -632,14 +591,7 @@ impl PresenceModule {
                                 ui.window(),
                                 ui.get_actual_diameter(),
                             )? {
-                                if let Some(settings) = weak_startup_glass_settings.upgrade() {
-                                    glass.configure(
-                                        settings.get_style_index(),
-                                        settings.get_tint_index(),
-                                        settings.get_tint_strength(),
-                                    );
-                                    settings.set_native_available(true);
-                                }
+                                glass.configure(0, 2, 29.0);
                                 *startup_face_glass.borrow_mut() = Some(glass);
                                 ui.set_native_face_glass(true);
                             }
@@ -694,7 +646,6 @@ impl PresenceModule {
         history_timer.stop();
         #[cfg(target_os = "macos")]
         status_menu.borrow_mut().take();
-        glass_settings.hide()?;
         ui.hide()?;
         about.hide()?;
         run_result?;

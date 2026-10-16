@@ -9,7 +9,6 @@ publish.workspace = true
 soc-core.workspace = true
 soc-db.workspace = true
 soc-transcription.workspace = true
-soc-decisions.workspace = true
 soc-llm.workspace = true
 soc-tts.workspace = true
 pulldown-cmark.workspace = true

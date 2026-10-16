@@ -8,21 +8,13 @@ use slint::{ComponentHandle, winit_030::WinitWindowAccessor};
 use soc_presence::{IndicatorBounds, PresenceWindow, TranscriptionSettings};
 use std::{cell::RefCell, collections::BTreeMap, path::Path, rc::Rc, time::Duration};
 
-fn set_models(ui: &PresenceWindow, voice: bool, decision: bool, tts: bool) {
+fn set_models(ui: &PresenceWindow, voice: bool, tts: bool) {
     ui.set_voice_model_loaded(voice);
-    ui.set_decision_model_loaded(decision);
     ui.set_tts_model_loaded(tts);
     ui.set_voice_model_tooltip(
         format!(
             "Nemotron · reconocimiento de voz\n{}",
             if voice { "Cargado" } else { "Descargado" }
-        )
-        .into(),
-    );
-    ui.set_decision_model_tooltip(
-        format!(
-            "Laya · análisis de órdenes\n{}",
-            if decision { "Cargado" } else { "Descargado" }
         )
         .into(),
     );
@@ -45,13 +37,11 @@ fn snapshot(ui: &PresenceWindow, output: &Path, label: &str) -> Vec<u8> {
     )
     .expect("Guardar dimensiones");
     println!(
-        "snapshot={label} simulated_models=true active={} voice_loaded={} decision_loaded={} tts_loaded={} voice_bounds={:?} decision_bounds={:?} tts_bounds={:?}",
+        "snapshot={label} simulated_models=true active={} voice_loaded={} tts_loaded={} voice_bounds={:?} tts_bounds={:?}",
         ui.get_active(),
         ui.get_voice_model_loaded(),
-        ui.get_decision_model_loaded(),
         ui.get_tts_model_loaded(),
         ui.get_voice_indicator_bounds(),
-        ui.get_decision_indicator_bounds(),
         ui.get_tts_indicator_bounds(),
     );
     pixels.as_bytes().to_vec()
@@ -66,13 +56,7 @@ fn verify_frames(frames: &BTreeMap<&str, Vec<u8>>) -> soc_core::Result<()> {
             500,
             usize::MAX,
         ),
-        (
-            "active_all_loaded",
-            "active_decision_tooltip_synthetic",
-            500,
-            usize::MAX,
-        ),
-        ("sleep_both_loaded", "sleep_all_loaded", 10, usize::MAX),
+        ("sleep_voice_loaded", "sleep_all_loaded", 10, usize::MAX),
         (
             "active_all_loaded",
             "active_tts_tooltip_synthetic",
@@ -108,7 +92,6 @@ fn synthetic_hover(ui: &PresenceWindow, model: Option<u8>) {
     if let Some(model) = model {
         let bounds = match model {
             0 => ui.get_voice_indicator_bounds(),
-            1 => ui.get_decision_indicator_bounds(),
             _ => ui.get_tts_indicator_bounds(),
         };
         ui.window().dispatch_event(WindowEvent::PointerMoved {
@@ -133,7 +116,7 @@ fn main() -> soc_core::Result<()> {
     let ui = PresenceWindow::new()?;
     // Eliminar animación decorativa hace comparables las capturas de relleno.
     ui.set_reduced_motion(true);
-    set_models(&ui, interactive, interactive, interactive);
+    set_models(&ui, interactive, interactive);
     ui.set_active(interactive);
     let weak = ui.as_weak();
     ui.on_face_clicked(move || {
@@ -155,7 +138,6 @@ fn main() -> soc_core::Result<()> {
                         ui.get_actual_diameter(),
                         &[
                             ui.get_voice_indicator_bounds(),
-                            ui.get_decision_indicator_bounds(),
                             ui.get_tts_indicator_bounds(),
                         ],
                         false,
@@ -222,12 +204,10 @@ fn main() -> soc_core::Result<()> {
             (400, "sleep_unloaded"),
             (1100, "sleep_voice_loaded"),
             (2300, "sleep_voice_tooltip_synthetic"),
-            (3100, "sleep_both_loaded"),
             (3500, "sleep_all_loaded"),
             (4000, "active_all_loaded"),
             (4500, "active_tts_tooltip_synthetic"),
-            (5000, "active_decision_tooltip_synthetic"),
-            (5400, "active_tooltip_exited_synthetic"),
+            (5000, "active_tooltip_exited_synthetic"),
             (6000, "active_unloaded"),
             (6800, "sleep_unloaded_again"),
         ]
@@ -245,30 +225,22 @@ fn main() -> soc_core::Result<()> {
         });
     }
     if !interactive {
-        for (time, voice, decision, tts, active) in [
-            (800, true, false, false, false),
-            (2800, true, true, false, false),
-            (3300, true, true, true, false),
-            (3700, true, true, true, true),
-            (5600, false, false, false, true),
-            (6300, false, false, false, false),
+        for (time, voice, tts, active) in [
+            (800, true, false, false),
+            (3300, true, true, false),
+            (3700, true, true, true),
+            (5600, false, false, true),
+            (6300, false, false, false),
         ] {
             let weak = ui.as_weak();
             slint::Timer::single_shot(Duration::from_millis(time), move || {
                 if let Some(ui) = weak.upgrade() {
-                    set_models(&ui, voice, decision, tts);
+                    set_models(&ui, voice, tts);
                     ui.set_active(active);
                 }
             });
         }
-        for (time, model) in [
-            (1300, Some(0)),
-            (2500, None),
-            (4300, Some(2)),
-            (4700, None),
-            (4900, Some(1)),
-            (5200, None),
-        ] {
+        for (time, model) in [(1300, Some(0)), (2500, None), (4300, Some(1)), (4700, None)] {
             let weak = ui.as_weak();
             slint::Timer::single_shot(Duration::from_millis(time), move || {
                 if let Some(ui) = weak.upgrade() {
