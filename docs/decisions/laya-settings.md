@@ -1,5 +1,7 @@
 # D-019 — Ajustes propios de Laya
 
+Estado vigente desde 2026-10-16: Laya permanece en `soc-decisions` para herramientas independientes; Presence ya no muestra la pestaña ni crea su Controller. Las referencias a UI y precarga de sesión a continuación describen la integración anterior.
+
 2026-10-12. El usuario observa liberación temprana y pide configuración independiente para Laya. No se ha medido el intervalo de su incidente concreto. El código anterior fijaba 600 s y cerraba el helper también ante error/cancelación; la UI atribuía Unloaded a inactividad sin conocer la causa.
 
 `decisions` posee `decision_preferences`, añadida mediante 0002 sin modificar 0001 ni el diario. Settings público contiene preload=true y unload_seconds=Some(600). Admite minutos enteros entre 1 y 120; None significa no liberar por inactividad. La precarga se decide al conectar el Controller; desactivarla no impide cargar al recibir una orden. El temporizador cambia después del commit y cuenta desde la finalización de la última petición o carga, sin contar inferencia como inactividad.
