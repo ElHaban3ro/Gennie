@@ -1,5 +1,4 @@
 mod codex;
-mod resources;
 mod settings;
 
 pub use settings::Settings;
@@ -188,11 +187,9 @@ impl AppModule for LlmModule {
                         Ok(None) => {}
                         Err(error) => {
                             let message = error.to_string();
-                            if error.downcast_ref::<codex::WebSearchMissing>().is_none() {
-                                session = None;
-                                worker_process.kill();
-                                let _ = event_sender.send(Event::Disconnected(message.clone()));
-                            }
+                            session = None;
+                            worker_process.kill();
+                            let _ = event_sender.send(Event::Disconnected(message.clone()));
                             let _ = event_sender.send(Event::Failed(message));
                         }
                     }
@@ -483,7 +480,7 @@ mod tests {
 
     #[test]
     #[ignore = "consume una búsqueda web real de la suscripción ChatGPT mediante Codex CLI"]
-    fn real_app_server_verifies_requested_web_search() {
+    fn real_app_server_accepts_web_search_request() {
         let db = Database::memory().unwrap();
         let module = LlmModule::default();
         db.migrate(module.name(), module.migrations()).unwrap();
@@ -506,41 +503,6 @@ mod tests {
             .speak("Busca en Internet cuál es el ave viva más grande por peso y altura y cita una fuente.")
             .unwrap();
         assert!(!reply.trim().is_empty());
-        drop(session);
-        let _ = std::fs::remove_dir_all(base);
-    }
-
-    #[test]
-    #[ignore = "consume dos turnos reales de la suscripción ChatGPT mediante Codex CLI"]
-    fn real_app_server_searches_after_transcription_correction() {
-        let db = Database::memory().unwrap();
-        let module = LlmModule::default();
-        db.migrate(module.name(), module.migrations()).unwrap();
-        let base = std::env::temp_dir().join(format!(
-            "soc-llm-correction-probe-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        let mut session = codex::Session::connect_in(
-            &db,
-            codex::ProcessHandle::default(),
-            base.clone(),
-            &Settings::default(),
-        )
-        .unwrap();
-        let _first = session
-            .speak("Por favor, te internet colecer había más grande del mundo")
-            .unwrap();
-        let reply = session
-            .speak("Na verdade, te pregunté por el avión más grande del mundo")
-            .unwrap();
-        assert!(
-            reply.contains("http"),
-            "la respuesta debe incluir una fuente"
-        );
         drop(session);
         let _ = std::fs::remove_dir_all(base);
     }

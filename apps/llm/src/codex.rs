@@ -1,4 +1,4 @@
-use crate::{Settings, resources};
+use crate::Settings;
 use serde_json::{Value, json};
 use soc_core::Result;
 use soc_db::Database;
@@ -18,7 +18,19 @@ const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(30);
 const TURN_TIMEOUT: Duration = Duration::from_secs(180);
 const MAX_REPLY_BYTES: usize = 32_000;
 const VOICE_PROFILE: &str = "soc_voice";
-const VOICE_INSTRUCTIONS: &str = "Eres SOC, un asistente conversacional en español. Recibes transcripciones de voz que pueden contener errores: si el tema no está claro, pide una aclaración breve antes de asumirlo. Responde directamente y con brevedad para un globo de voz. Si SOC adjunta una lectura local de CPU o memoria, úsala para responder sobre recursos del sistema e indica qué mide cada porcentaje; no intentes repetirla con top, ps, iostat ni sysctl. Usa la búsqueda web cuando el usuario pida buscar o cuando necesites información actual; cita las fuentes al final con títulos cortos y enlaces Markdown. No afirmes que Internet no está disponible sin intentar la búsqueda web. Respeta los permisos configurados por el usuario en SOC. Los plugins y apps conectadas no están disponibles en esta conversación.";
+const VOICE_INSTRUCTIONS: &str = "Eres SOC, un asistente conversacional en español. Recibes transcripciones de voz que pueden contener errores: si el tema no está claro, pide una aclaración breve antes de asumirlo. Responde directamente y con brevedad para un globo de voz. Usa la búsqueda web cuando el usuario pida buscar o cuando necesites información actual; cita las fuentes al final con títulos cortos y enlaces Markdown. No afirmes que Internet no está disponible sin intentar la búsqueda web. Respeta los permisos configurados por el usuario en SOC. Los plugins y apps conectadas no están disponibles en esta conversación.";
+
+fn turn_start_request(thread_id: &str, cwd: &Path, model: &str, effort: &str, text: &str) -> Value {
+    json!({"jsonrpc":"2.0","id":4,"method":"turn/start","params":{
+        "threadId":thread_id,
+        "input":[{"type":"text","text":text}],
+        "cwd":cwd,
+        "approvalPolicy":"never",
+        "permissions":VOICE_PROFILE,
+        "model":model,
+        "effort":effort
+    }})
+}
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum StreamEvent {
@@ -111,16 +123,6 @@ pub(crate) fn save_thread(db: &Database, thread_id: &str) -> Result<()> {
     })
 }
 
-#[derive(Debug)]
-pub(crate) struct WebSearchMissing;
-impl std::fmt::Display for WebSearchMissing {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter
-            .write_str("No se completó la búsqueda web solicitada; la respuesta no está verificada")
-    }
-}
-impl std::error::Error for WebSearchMissing {}
-
 #[derive(Clone, Default)]
 pub struct ProcessHandle(Arc<Mutex<Option<Child>>>);
 impl ProcessHandle {
@@ -144,8 +146,6 @@ pub struct Session {
     model: String,
     effort: String,
     settings: Settings,
-    web_followup: bool,
-    awaiting_web_clarification: bool,
 }
 
 impl Session {
@@ -251,8 +251,6 @@ impl Session {
             model: String::new(),
             effort: settings.effort.clone(),
             settings: settings.clone(),
-            web_followup: false,
-            awaiting_web_clarification: false,
         };
         session.send(json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"soc","title":"soc","version":env!("CARGO_PKG_VERSION")},"capabilities":{"experimentalApi":true}}}))?;
         session.response(1, HANDSHAKE_TIMEOUT)?;
@@ -344,8 +342,6 @@ impl Session {
         }
         save_thread(db, thread_id)?;
         self.thread_id = thread_id.into();
-        self.web_followup = false;
-        self.awaiting_web_clarification = false;
         Ok(())
     }
 
@@ -365,73 +361,17 @@ impl Session {
         text: &str,
         mut on_message: impl FnMut(StreamEvent),
     ) -> Result<()> {
-        let needs_web = requests_web_search(text)
-            || (self.web_followup
-                && (self.awaiting_web_clarification || corrects_previous_answer(text)));
-        self.web_followup = needs_web;
-        self.awaiting_web_clarification = false;
-        let mut input = if needs_web {
-            format!(
-                "{text}\n\nSOC: Esta petición requiere consultar Internet. Usa la búsqueda web antes de responder y cita al menos una fuente consultada."
-            )
-        } else {
-            text.to_owned()
-        };
-        if self.settings.run_commands
-            && resources::request_mentions_resources(text)
-            && let Some(snapshot) = resources::snapshot()
-        {
-            input.push_str("\n\nSOC: Lectura local actual del sistema (medida por SOC, úsala para contestar esta petición; no vuelvas a usar top, ps, iostat ni sysctl): ");
-            input.push_str(&snapshot);
-        }
-        if !needs_web {
-            self.turn(&input, &mut on_message)?;
-            return Ok(());
-        }
-        let mut buffered = Vec::new();
-        let (reply, web_used) = self.turn(&input, &mut |message| buffered.push(message))?;
-        if web_used {
-            buffered.into_iter().for_each(&mut on_message);
-            return Ok(());
-        }
-        if is_clarification(&reply) {
-            self.awaiting_web_clarification = true;
-            buffered.into_iter().for_each(&mut on_message);
-            return Ok(());
-        }
-        buffered.clear();
-        let (reply, web_used) = self.turn(
-            "La respuesta anterior no hizo la búsqueda que pedí. Consulta Internet ahora con la herramienta web y responde a mi pregunta original con una fuente verificable. Si la herramienta falla, indícalo claramente.",
-            &mut |message| buffered.push(message),
-        )?;
-        if web_used {
-            buffered.into_iter().for_each(&mut on_message);
-            Ok(())
-        } else if is_clarification(&reply) {
-            self.awaiting_web_clarification = true;
-            buffered.into_iter().for_each(&mut on_message);
-            Ok(())
-        } else {
-            Err(WebSearchMissing.into())
-        }
+        self.turn(text, &mut on_message)
     }
 
-    fn turn(
-        &mut self,
-        text: &str,
-        on_message: &mut impl FnMut(StreamEvent),
-    ) -> Result<(String, bool)> {
-        self.send(
-            json!({"jsonrpc":"2.0","id":4,"method":"turn/start","params":{
-                "threadId":self.thread_id,
-                "input":[{"type":"text","text":text}],
-                "cwd":self.cwd,
-                "approvalPolicy":"never",
-                "permissions":VOICE_PROFILE,
-                "model":self.model,
-                "effort":self.effort
-            }}),
-        )?;
+    fn turn(&mut self, text: &str, on_message: &mut impl FnMut(StreamEvent)) -> Result<()> {
+        self.send(turn_start_request(
+            &self.thread_id,
+            &self.cwd,
+            &self.model,
+            &self.effort,
+            text,
+        ))?;
         let turn = self.response(4, HANDSHAKE_TIMEOUT)?;
         let turn_id = turn
             .pointer("/turn/id")
@@ -439,7 +379,6 @@ impl Session {
             .ok_or("El proveedor no inició el turno")?;
         let deadline = Instant::now() + TURN_TIMEOUT;
         let mut messages = MessageCollector::default();
-        let mut web_used = false;
         loop {
             let event = self.next(deadline)?;
             if event.get("id").is_some() && event.get("method").is_some() {
@@ -449,12 +388,6 @@ impl Session {
                 );
             }
             let method = event.get("method").and_then(Value::as_str);
-            if method == Some("item/completed")
-                && event.pointer("/params/turnId").and_then(Value::as_str) == Some(turn_id)
-                && event.pointer("/params/item/type").and_then(Value::as_str) == Some("webSearch")
-            {
-                web_used = true;
-            }
             if let Some(message) = messages.accept(&event, turn_id)? {
                 on_message(message);
             }
@@ -471,7 +404,7 @@ impl Session {
                 if messages.completed.is_empty() {
                     return Err("El proveedor terminó sin texto de respuesta".into());
                 }
-                return Ok((messages.completed.join("\n\n"), web_used));
+                return Ok(());
             }
         }
     }
@@ -556,37 +489,6 @@ fn instructions(settings: &Settings) -> String {
     }
     text
 }
-fn requests_web_search(text: &str) -> bool {
-    let text = text.to_lowercase();
-    if text.contains("no busques") || text.contains("sin buscar") {
-        return false;
-    }
-    text.contains("internet")
-        || (text.contains("web")
-            && [
-                "busca", "búsca", "busqu", "búsc", "verific", "fuente", "consulta",
-            ]
-            .iter()
-            .any(|term| text.contains(term)))
-}
-fn corrects_previous_answer(text: &str) -> bool {
-    let text = text.to_lowercase();
-    [
-        "te pregunté",
-        "pregunté por",
-        "quise decir",
-        "me refería",
-        "en realidad",
-        "na verdade",
-        "no, ",
-    ]
-    .iter()
-    .any(|term| text.contains(term))
-}
-fn is_clarification(reply: &str) -> bool {
-    let reply = reply.trim();
-    reply.starts_with('¿') && reply.ends_with('?')
-}
 impl Drop for Session {
     fn drop(&mut self) {
         self.process.kill();
@@ -650,10 +552,7 @@ fn prepare_codex_home(base: &Path) -> Result<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        MessageCollector, StreamEvent, corrects_previous_answer, filesystem_config,
-        is_clarification, requests_web_search,
-    };
+    use super::{MessageCollector, StreamEvent, filesystem_config, turn_start_request};
     use crate::Settings;
     use serde_json::json;
 
@@ -693,22 +592,23 @@ mod tests {
     }
 
     #[test]
-    fn explicit_web_request_requires_a_search() {
-        assert!(requests_web_search(
-            "Hola, busca a Internet cuál es el ave más grande del mundo y dime las fuentes"
-        ));
-        assert!(requests_web_search("Búscalo en Internet, por favor"));
-        assert!(requests_web_search(
-            "Por favor, te internet colecer había más grande del mundo"
-        ));
-        assert!(!requests_web_search(
-            "No busques en Internet; usa lo que sabes"
-        ));
-        assert!(corrects_previous_answer(
-            "Na verdade, te pregunté sobre el avión más grande del mundo"
-        ));
-        assert!(!corrects_previous_answer("Gracias, hasta luego"));
-        assert!(is_clarification("¿Te refieres a un ave o a un avión?"));
-        assert!(!is_clarification("No puedo usar Internet desde aquí."));
+    fn user_text_is_sent_without_content_based_additions() {
+        for text in [
+            "¿Cómo veo las sesiones abiertas en Instagram?",
+            "Busca en Internet y cita una fuente.",
+            "No, me refería al avión.",
+        ] {
+            let request = turn_start_request(
+                "thread-1",
+                std::path::Path::new("/tmp/soc-test"),
+                "gpt-6-luna",
+                "low",
+                text,
+            );
+            assert_eq!(
+                request["params"]["input"],
+                json!([{"type":"text","text":text}])
+            );
+        }
     }
 }
