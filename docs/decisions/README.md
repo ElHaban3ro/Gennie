@@ -1,5 +1,7 @@
 # Índice de decisiones
 
+- [Composición de la cara sobre el escritorio D-023](wallpaper-face.md): material nativo global, ajustes de apariencia y límites de las capturas.
+
 - [Reminders plugin](reminders-plugin.md): integración local EventKit y eventos de cambios.
 
 - [Voz de salida de SOC D-022](tts.md): Kokoro MLX local, preferencias y reproducción de respuestas.

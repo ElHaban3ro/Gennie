@@ -3,7 +3,7 @@
 Propietario: kernel/db abre y comparte la conexión; bootstrap la crea una vez. Adaptación deliberada de los patrones PostgreSQL del prompt a SQLite local. No pool artificial: Arc/Mutex serializa una conexión. Apps no abren otra ni cargan ruta del entorno. Foreign keys ON, WAL y synchronous FULL; busy timeout configurable 1..5000 ms. No hay TTL/min/max de pool inaplicables a una sola conexión.
 
 ## Propiedad y operaciones
-bootstrap posee modules; presence posee presence_preferences. Repositorio de app concentra SQL parametrizado. Transacciones se abren y cierran por operación; no esperar UI/red con lock o transacción tomada. Configuración persistida de UI no es datos de negocio y no exige auditoría por defecto. Diseñar auditoría antes de acciones futuras de administración/sistema que la requieran; cambio y registro juntos.
+bootstrap posee modules; presence posee presence_preferences y presence_appearance. Repositorio de app concentra SQL parametrizado. Transacciones se abren y cierran por operación; no esperar UI/red con lock o transacción tomada. Configuración persistida de UI no es datos de negocio y no exige auditoría por defecto. Diseñar auditoría antes de acciones futuras de administración/sistema que la requieran; cambio y registro juntos.
 
 ## Migraciones
 transcription posee transcription_preferences. La migración 0002 añade microphone_name opcional y amplía unload_seconds a 600, llevando el tiempo existente a 10 minutos por petición explícita. Conserva los demás ajustes y el historial de 0001. La 0003 fija bubble_seconds DEFAULT 15 y convierte los valores de 5 a 15, preservando otros tiempos, micrófono y demás preferencias. Mantiene el updated_at de las filas cuyo valor no cambia; las migraciones anteriores siguen inmutables.
@@ -29,3 +29,9 @@ Worker termina antes de DB.close; clones quedan cerrados juntos. No borrar DB pa
 `presence_history` pertenece a presence y nace en su migración 0002, sin cambiar 0001. Guarda por orden de inserción emisor (`user`, `assistant` o `system`), texto final y fecha UTC. Incluye transcripciones finales, respuestas del proveedor, resultados de control local y la separación «Nuevo chat iniciado». No guarda parciales ni estados de carga. Una cola acotada escribe fuera de main y drena al cerrar; un fallo de escritura debe mostrarse. El historial anterior a esta migración no se reconstruye automáticamente.
 
 La migración 0003 de `llm` creó `llm_memory` y debe permanecer inmutable por las bases que ya la aplicaron. La 0004 retira su tabla y sus filas al iniciar con el binario actualizado. La migración 0003 de presence elimina solo los avisos de sistema generados por esa memoria en `presence_history`; conserva mensajes normales y separadores. `codex_conversation` conserva el hilo, que puede incluir referencias antiguas a recuerdos en su contexto propio.
+
+La migración 0004 de presence crea `presence_appearance` sin modificar migraciones ni preferencias anteriores. La fila completa se valida en Rust y mediante CHECK de SQLite; un único UPDATE guarda todos sus campos y fecha UTC de forma atómica. El worker existente confirma después del commit y drena antes de cerrar la DB.
+
+La migración 0005 de presence adopta el perfil de apariencia confirmado por el usuario solo si la fila conserva la combinación completa de defaults de 0004. No cambia perfiles distintos ni modifica 0004; las instalaciones nuevas aplican ambas migraciones y terminan con el perfil nuevo.
+
+La migración 0006 de presence actualiza el perfil completo de 0005 (0/200/101/14/0/300/300) al confirmado el 18 de octubre (0/200/101/5/0/67/300); conserva cualquier otra combinación guardada. Las migraciones anteriores permanecen inmutables.

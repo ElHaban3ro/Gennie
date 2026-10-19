@@ -9,9 +9,21 @@ Propietario: kernel/config. `Config` contiene ruta DB y busy timeout; `Secrets` 
 .env fuera de Git. .env.example lista todas las variables y distingue obligatorias/defaults; test compara declaraciones y defaults. No sobrescribir .env existente. Falta de ruta falla temprano con nombre, no valor. Error de parseo no debe filtrar valores sensibles; cuando se añadan secretos sanitizar mensajes del parser también.
 
 ## Preferencias de app
-presence posee `reduced_motion` booleano, default false, aplicable sin reinicio, sin unidad. Se carga al abrir; su edición desde la UI está desactivada y el soporte interno queda reservado para configuración futura, con confirmación después del commit. Estado activo/dormido no persiste. No hay app configs ni ConfigSource porque solo hay un consumidor y un ajuste propio; extraer contrato kernel cuando otro módulo necesite lectura transversal, sin importar repositorio de otra app. Si se añaden catálogos, declarar tipo/default/restricciones/reinicio, rechazar duplicados/defaults inválidos y conservar ajustes de módulos apagados. Aviso futuro configs.changed lleva nombres, sin valores, después de commit. Nunca usar default para ruta externa obligatoria.
+presence posee `reduced_motion` booleano, default false, aplicable sin reinicio, sin unidad. Se carga al abrir; su edición desde la UI está desactivada y el soporte interno queda reservado para configuración futura, con confirmación después del commit. Estado activo/dormido no persiste. No hay app configs ni ConfigSource porque estos ajustes tienen un único consumidor en presence; extraer contrato kernel cuando otro módulo necesite lectura transversal, sin importar repositorio de otra app. Si se añaden catálogos, declarar tipo/default/restricciones/reinicio, rechazar duplicados/defaults inválidos y conservar ajustes de módulos apagados. Aviso futuro configs.changed lleva nombres, sin valores, después de commit. Nunca usar default para ruta externa obligatoria.
 
-El vidrio de la cara no tiene ajustes en la interfaz ni preferencia persistida: usa Regular, humo claro al 29 %, 64 px dormida y 128 px despierta. No añade SQL, variables SOC_ ni guardado implícito.
+La ventana «Apariencia…» del menú SOC está disponible aunque transcription esté apagado. Presence posee `presence_appearance` (migración 0004, fila única); sus valores enteros son:
+
+| Ajuste | Default | Rango / unidad |
+|---|---|---|
+| blur_radius | 0 | 0..30 px |
+| saturation_percent | 200 | 0..200 % |
+| brightness_percent | 101 | 50..150 % (100 neutro) |
+| tint_percent | 5 | 0..60 %, relleno grafito global |
+| border_percent | 0 | 0..100 %, borde global |
+| border_width_hundredths | 67 | 0..300 centésimas de px |
+| transition_ms | 300 | 0..300 ms, suavidad al editar el material |
+
+Los sliders previsualizan en vivo sin escribir SQLite. Guardar usa la cola acotada de preferencias y confirma después del commit; no requiere reinicio. Deshacer restaura el último guardado; Valores iniciales recupera los defaults en vista previa. Cerrar la ventana conserva la vista previa durante esa ejecución; sin Guardar se descarta al reiniciar. Copiar valores escribe solo el resumen elegido en el portapapeles por acción del usuario. Desenfoque, saturación, luminosidad, tinte y borde afectan a la misma superficie nativa sobre escritorio y apps. Saturación escala el valor nativo 1,2; luminosidad desplaza sus puntos blanco 0,96 y negro 0,4, sin valores negativos. El radio y el color usan entradas internas del filtro de AppKit, con detección de compatibilidad. La duración controla la transición al editar esos parámetros; `transition_ms` conserva su dato y rango anteriores, pero ya no hay transición por cobertura de ventanas. Si el radio no está disponible, Apariencia informa de la limitación. Los diámetros siguen fijos en 64/128 px. Sin variables SOC_ nuevas ni cambios de Config/AppState. El perfil revisado por el usuario el 18 de octubre queda como default del programa: 0/200/101/5/0/67/300. La migración 0006 convierte únicamente la combinación completa de defaults de 0005; conserva cualquier otro perfil guardado.
 
 ## Verificación
 Validar obligatorias, rangos, precedencia y sincronización ejemplo/declaraciones; reapertura del archivo demuestra persistencia. Ver testing y database para transacciones.
