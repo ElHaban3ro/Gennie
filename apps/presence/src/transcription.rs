@@ -162,7 +162,7 @@ impl TranscriptionUi {
             settings.set_tts_keep_loaded(saved.unload_seconds.is_none());
             settings
                 .set_tts_unload_minutes(saved.unload_seconds.unwrap_or(600).div_ceil(60) as i32);
-            settings.set_tts_status("La voz se prepara al recibir la primera respuesta".into());
+            settings.set_tts_status("La voz se prepara al iniciar el dictado".into());
         }
         let tts_save = tts.clone();
         let weak_tts_settings = settings.as_weak();
@@ -551,6 +551,20 @@ impl TranscriptionUi {
                                     );
                                 }
                             }
+                            soc_tts::Event::PreloadFailed(error) => {
+                                if let Some(window) = weak_settings.upgrade() {
+                                    window.set_tts_status(
+                                        format!("Voz no disponible: {error}").into(),
+                                    );
+                                }
+                                messages.status(
+                                    "Voz",
+                                    &format!("Voz no disponible: {error}"),
+                                    true,
+                                    ttl,
+                                    now,
+                                );
+                            }
                         }
                     }
                     ui.set_speech_active(!pending_for_timer_audio.borrow().is_empty());
@@ -748,6 +762,14 @@ impl TranscriptionUi {
                                         }
                                     }
                                 }
+                            }
+                            if let Some(tts) = &tts_controller
+                                && let Err(error) = tts.preload()
+                                && let Some(window) = weak_settings.upgrade()
+                            {
+                                window.set_tts_status(
+                                    format!("No se pudo preparar la voz: {error}").into(),
+                                );
                             }
                             ui.set_active(true);
                         }

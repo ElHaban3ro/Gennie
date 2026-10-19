@@ -2,11 +2,40 @@
 import sys
 import types
 import unittest
+import io
+from unittest.mock import patch
 
 import worker
 
 
 class StreamingTest(unittest.TestCase):
+    def test_load_prepares_model_without_playback_and_reuses_it(self):
+        created = []
+
+        class Model:
+            def close(self):
+                pass
+
+            def list_voices(self):
+                return ["em_alex"]
+
+        class KokoroTTS:
+            @staticmethod
+            def from_pretrained():
+                created.append(True)
+                return Model()
+
+        kokoro = types.ModuleType("kokoro_mlx")
+        kokoro.KokoroTTS = KokoroTTS
+        output = io.StringIO()
+        requests = io.StringIO('{"command":"load"}\n{"text":"Hola","voice":"em_alex","speed":1.0}\n')
+        with patch.dict(sys.modules, {"kokoro_mlx": kokoro}), patch.object(sys, "stdin", requests), patch.object(sys, "stdout", output), patch.object(worker, "speak") as speak:
+            worker.main()
+
+        self.assertEqual(created, [True])
+        self.assertEqual([line.strip() for line in output.getvalue().splitlines()], ['{"event": "loaded"}', '{"ok": true}', '{"ok": true}'])
+        speak.assert_called_once()
+
     def test_long_text_reaches_playback_before_later_synthesis(self):
         events = []
 

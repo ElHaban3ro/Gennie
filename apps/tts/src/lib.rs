@@ -40,6 +40,7 @@ pub struct Controller {
     model_status: Arc<AtomicU8>,
 }
 enum CommandMessage {
+    Preload(u64),
     Speak(u64, u64, String),
     Preview(u64, u64, Settings),
     Save(Settings),
@@ -47,6 +48,7 @@ enum CommandMessage {
 }
 #[derive(Debug)]
 pub enum Event {
+    PreloadFailed(String),
     Started(u64),
     Finished(u64),
     Failed(u64, String),
@@ -160,6 +162,49 @@ impl AppModule for TtsModule {
                         break;
                     }
                     match command {
+                        CommandMessage::Preload(request_generation) => {
+                            if worker_generation.load(Ordering::SeqCst) != request_generation {
+                                continue;
+                            }
+                            let enabled = worker_settings.lock().is_ok_and(|s| s.enabled);
+                            if !enabled {
+                                continue;
+                            }
+                            if process.is_some() {
+                                if ModelStatus::from_atomic(
+                                    worker_model_status.load(Ordering::SeqCst),
+                                ) == ModelStatus::Ready
+                                {
+                                    continue;
+                                }
+                                close_process(&mut process, &worker_child, &worker_model_status);
+                            }
+                            let result = preload(
+                                &mut process,
+                                &worker_child,
+                                &worker_model_status,
+                                &worker_generation,
+                                request_generation,
+                            );
+                            if worker_generation.load(Ordering::SeqCst) != request_generation {
+                                close_process(&mut process, &worker_child, &worker_model_status);
+                                continue;
+                            }
+                            match result {
+                                Ok(()) => idle_since = Some(Instant::now()),
+                                Err(error) => {
+                                    close_process(
+                                        &mut process,
+                                        &worker_child,
+                                        &worker_model_status,
+                                    );
+                                    worker_model_status
+                                        .store(ModelStatus::Failed.atomic(), Ordering::SeqCst);
+                                    let _ =
+                                        event_sender.send(Event::PreloadFailed(error.to_string()));
+                                }
+                            }
+                        }
                         CommandMessage::Speak(id, request_generation, text) => {
                             if worker_generation.load(Ordering::SeqCst) != request_generation {
                                 let _ = event_sender.send(Event::Interrupted(id));
@@ -402,6 +447,20 @@ impl Controller {
             .map_err(|_| "Cola de voz ocupada")?;
         Ok(Some(id))
     }
+    pub fn preload(&self) -> Result<()> {
+        if !self.settings().enabled
+            || matches!(
+                self.model_status(),
+                ModelStatus::Loading | ModelStatus::Ready
+            )
+        {
+            return Ok(());
+        }
+        let generation = self.generation.load(Ordering::SeqCst);
+        self.sender
+            .try_send(CommandMessage::Preload(generation))
+            .map_err(|_| "Cola de voz ocupada".into())
+    }
     pub fn preview(&self, settings: Settings) -> Result<u64> {
         settings.validate()?;
         let id = self.next_utterance.fetch_add(1, Ordering::Relaxed);
@@ -461,6 +520,52 @@ fn speak(
     text: &str,
     settings: &Settings,
 ) -> Result<()> {
+    ensure_process(process, child, model_status, generation, request_generation)?;
+    let process = process.as_mut().ok_or("Proceso TTS no disponible")?;
+    serde_json::to_writer(
+        &mut process.stdin,
+        &SpeakRequest {
+            text,
+            voice: &settings.voice,
+            speed: settings.speed_percent as f32 / 100.0,
+        },
+    )?;
+    process.stdin.write_all(b"\n")?;
+    process.stdin.flush()?;
+    read_speak_response(
+        &mut process.stdout,
+        model_status,
+        generation,
+        request_generation,
+    )
+}
+
+fn preload(
+    process: &mut Option<Process>,
+    child: &Arc<Mutex<Option<Child>>>,
+    model_status: &AtomicU8,
+    generation: &AtomicU64,
+    request_generation: u64,
+) -> Result<()> {
+    ensure_process(process, child, model_status, generation, request_generation)?;
+    let process = process.as_mut().ok_or("Proceso TTS no disponible")?;
+    process.stdin.write_all(b"{\"command\":\"load\"}\n")?;
+    process.stdin.flush()?;
+    read_speak_response(
+        &mut process.stdout,
+        model_status,
+        generation,
+        request_generation,
+    )
+}
+
+fn ensure_process(
+    process: &mut Option<Process>,
+    child: &Arc<Mutex<Option<Child>>>,
+    model_status: &AtomicU8,
+    generation: &AtomicU64,
+    request_generation: u64,
+) -> Result<()> {
     let mut child_guard = child.lock().map_err(|_| "Proceso TTS inválido")?;
     if generation.load(Ordering::SeqCst) != request_generation {
         return Err("Reproducción interrumpida".into());
@@ -485,23 +590,7 @@ fn speak(
         });
     }
     drop(child_guard);
-    let process = process.as_mut().ok_or("Proceso TTS no disponible")?;
-    serde_json::to_writer(
-        &mut process.stdin,
-        &SpeakRequest {
-            text,
-            voice: &settings.voice,
-            speed: settings.speed_percent as f32 / 100.0,
-        },
-    )?;
-    process.stdin.write_all(b"\n")?;
-    process.stdin.flush()?;
-    read_speak_response(
-        &mut process.stdout,
-        model_status,
-        generation,
-        request_generation,
-    )
+    Ok(())
 }
 
 fn read_speak_response(
@@ -583,6 +672,31 @@ mod tests {
             ModelStatus::from_atomic(status.load(Ordering::SeqCst)),
             ModelStatus::Ready
         );
+    }
+    #[cfg(unix)]
+    #[test]
+    fn preload_confirms_model_without_sending_speech() {
+        let mut spawned = Command::new("/bin/sh")
+            .arg("-c")
+            .arg("IFS= read -r request; test \"$request\" = '{\"command\":\"load\"}' || exit 2; printf '{\"event\":\"loaded\"}\\n{\"ok\":true}\\n'; IFS= read -r unused")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut process = Some(Process {
+            stdin: spawned.stdin.take().unwrap(),
+            stdout: BufReader::new(spawned.stdout.take().unwrap()),
+        });
+        let child = Arc::new(Mutex::new(Some(spawned)));
+        let status = AtomicU8::new(ModelStatus::Loading.atomic());
+        let generation = AtomicU64::new(0);
+        preload(&mut process, &child, &status, &generation, 0).unwrap();
+        assert_eq!(
+            ModelStatus::from_atomic(status.load(Ordering::SeqCst)),
+            ModelStatus::Ready
+        );
+        assert!(process.is_some());
+        close_process(&mut process, &child, &status);
     }
     #[test]
     fn settings_survive_module_restart_and_stop_with_controller_held() {
