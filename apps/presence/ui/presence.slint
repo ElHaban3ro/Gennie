@@ -1,4 +1,4 @@
-import { AboutSlint, VerticalBox, HorizontalBox, LineEdit, ComboBox, SpinBox, Button, CheckBox, TabWidget } from "std-widgets.slint";
+import { AboutSlint, VerticalBox, HorizontalBox, LineEdit, ComboBox, SpinBox, Button, CheckBox, TabWidget, Slider } from "std-widgets.slint";
 export component TranscriptionSettings inherits Window {
     title: "Voz y asistente · soc";
     width: 440px; height: 690px;
@@ -148,6 +148,108 @@ export component TranscriptionSettings inherits Window {
         }
     }
 }
+component AppearanceSlider inherits VerticalBox {
+    in property <string> label;
+    in property <string> suffix;
+    in property <float> minimum: 0;
+    in property <float> maximum: 100;
+    in property <float> step: 1;
+    in property <float> divisor: 1;
+    in property <bool> enabled: true;
+    in-out property <float> value;
+    callback edited();
+    padding: 0px; spacing: 4px;
+    HorizontalBox {
+        Text { text: root.label; font-size: 13px; horizontal-stretch: 1; }
+        Text { text: round(root.value / root.divisor * 100) / 100 + root.suffix; font-size: 13px; }
+    }
+    Slider {
+        accessible-label: root.label;
+        minimum: root.minimum; maximum: root.maximum; step: root.step;
+        enabled: root.enabled; value <=> root.value;
+        changed(v) => { root.value = v; root.edited(); }
+    }
+}
+export component AppearanceSettings inherits Window {
+    title: "Apariencia · soc";
+    width: 480px; height: 760px;
+    in property <bool> saving: false;
+    in property <bool> native-blur-available: false;
+    in-out property <string> notice: "Vista previa en vivo · guarda para conservar al reiniciar";
+    in property <string> values;
+    callback preview();
+    callback save();
+    callback reset();
+    callback restore-saved();
+    callback copy-values();
+    callback preview-transition();
+    in-out property <float> blur-radius: 0;
+    in-out property <float> saturation-percent: 200;
+    in-out property <float> brightness-percent: 101;
+    in-out property <float> tint-percent: 5;
+    in-out property <float> border-percent: 0;
+    in-out property <float> border-width-hundredths: 67;
+    in-out property <float> transition-ms: 300;
+    VerticalBox {
+        padding: 22px; spacing: 10px;
+        Text { text: "El vidrio de tu cara"; font-size: 22px; font-weight: 600; }
+        Text { text: root.native-blur-available ? "Ajusta mientras miras la cara. El desenfoque se aplica al escritorio y a las ventanas." : "El ajuste del material nativo no está disponible en esta versión de macOS."; wrap: word-wrap; font-size: 12px; }
+        AppearanceSlider {
+            label: "Desenfoque del fondo"; suffix: " px";
+            minimum: 0; maximum: 30; step: 1; divisor: 1;
+            value <=> root.blur-radius; enabled: !root.saving;
+            edited => { root.preview(); }
+        }
+        AppearanceSlider {
+            label: "Saturación del vidrio"; suffix: " %";
+            minimum: 0; maximum: 200; step: 1; divisor: 1;
+            value <=> root.saturation-percent; enabled: !root.saving;
+            edited => { root.preview(); root.notice = "Prueba la saturación sobre un fondo con color; en grises apenas se aprecia."; }
+        }
+        AppearanceSlider {
+            label: "Luminosidad del vidrio"; suffix: " %";
+            minimum: 50; maximum: 150; step: 1; divisor: 1;
+            value <=> root.brightness-percent; enabled: !root.saving;
+            edited => { root.preview(); }
+        }
+        AppearanceSlider {
+            label: "Tinte oscuro"; suffix: " %";
+            minimum: 0; maximum: 60; step: 1; divisor: 1;
+            value <=> root.tint-percent; enabled: !root.saving;
+            edited => { root.preview(); }
+        }
+        AppearanceSlider {
+            label: "Intensidad del borde"; suffix: " %";
+            minimum: 0; maximum: 100; step: 1; divisor: 1;
+            value <=> root.border-percent; enabled: !root.saving;
+            edited => { root.preview(); }
+        }
+        AppearanceSlider {
+            label: root.border-percent > 0 ? "Grosor del borde" : "Grosor · activa la intensidad del borde"; suffix: " px";
+            minimum: 0; maximum: 300; step: 5; divisor: 100;
+            value <=> root.border-width-hundredths; enabled: !root.saving && root.border-percent > 0;
+            edited => { root.preview(); }
+        }
+        AppearanceSlider {
+            label: "Duración del cambio de desenfoque/color"; suffix: " ms";
+            minimum: 0; maximum: 300; step: 10; divisor: 1;
+            value <=> root.transition-ms; enabled: !root.saving;
+            edited => { root.preview(); }
+        }
+        HorizontalBox {
+            Text { text: "Se aprecia al cambiar desenfoque o color."; font-size: 11px; vertical-alignment: center; horizontal-stretch: 1; }
+            Button { text: "Probar"; enabled: !root.saving; clicked => { root.preview-transition(); } }
+        }
+        Text { text: root.notice; wrap: word-wrap; font-size: 12px; }
+        HorizontalBox {
+            Button { text: "Deshacer"; enabled: !root.saving; clicked => { root.restore-saved(); } }
+            Button { text: "Valores iniciales"; enabled: !root.saving; clicked => { root.reset(); } }
+            Button { text: root.saving ? "Guardando…" : "Guardar"; enabled: !root.saving; clicked => { root.save(); } }
+        }
+        LineEdit { text: root.values; read-only: true; }
+        Button { text: "Copiar valores para compartir"; clicked => { root.copy-values(); } }
+    }
+}
 export component AboutWindow inherits Window {
     title: "Acerca de soc";
     width: 320px; height: 240px;
@@ -157,22 +259,21 @@ export component AboutWindow inherits Window {
         AboutSlint { }
     }
 }
-// Material Slint para globos y fallback de la cara en sistemas sin vidrio nativo.
+// Material Slint para globos y alternativa de la cara fuera de macOS.
 component GlassSurface inherits Rectangle {
     in property <length> radius: 18px;
     in property <bool> show-reflection: true;
     in property <bool> subtle-light: false;
     in property <bool> native-background: false;
-    in property <bool> native-bubble-backing: false;
     in property <bool> borderless: false;
     border-radius: radius;
     // Translucidez y reflejos; no captura/desenfoca el escritorio.
-    background: root.native-bubble-backing ? #17191c98 : root.native-background ? transparent : root.subtle-light ? @linear-gradient(135deg, #383838a8 0%, #282828c7 42%, #181818d9 100%) : @linear-gradient(135deg, #8c8c8ca8 0%, #303030c7 42%, #181818d9 100%);
+    background: root.native-background ? transparent : root.subtle-light ? @linear-gradient(135deg, #383838a8 0%, #282828c7 42%, #181818d9 100%) : @linear-gradient(135deg, #8c8c8ca8 0%, #303030c7 42%, #181818d9 100%);
     border-width: root.borderless || root.native-background ? 0px : 1px;
     border-color: root.subtle-light ? @linear-gradient(135deg, #ffffff28 0%, #ffffff0a 48%, #ffffff18 100%) : @linear-gradient(135deg, #ffffffb0 0%, #ffffff24 48%, #ffffff60 100%);
     drop-shadow-blur: 8px;
     drop-shadow-offset-y: 3px;
-    drop-shadow-color: root.native-background && !root.native-bubble-backing ? transparent : #00000035;
+    drop-shadow-color: root.native-background ? transparent : #00000035;
     Rectangle {
         visible: !root.native-background && !root.borderless;
         x: 2px; y: 2px;
@@ -408,6 +509,7 @@ export component PresenceWindow inherits Window {
     callback motion-changed();
     callback about();
     callback transcription-settings();
+    callback appearance-settings();
     callback bubble-geometry(int, float, float, float, float);
     scroll-chat-to-bottom => {
         history-scroll.content-y = -max(0px, history-scroll.content-height - history-scroll.height);
@@ -450,8 +552,6 @@ export component PresenceWindow inherits Window {
     property <length> face-x: drift * (1 - wake-progress) * 1.4px + gaze-x * 1.6px;
     property <length> face-y: gaze-y * 1px + breath * (1.1 - wake-progress * 0.6) * 1px -
         (reduced-motion ? 0px : Math.sin(wake-progress * 180deg) * 3px);
-    property <float> dream-phase: Math.mod(motion-time, 5.9s) / 5.9s;
-    property <float> second-dream-phase: Math.mod(motion-time + 2.1s, 7.7s) / 7.7s;
     property <float> sleep-opacity: 1 - wake-progress;
     focus := FocusScope {
         width: parent.width; height: parent.height;
@@ -498,7 +598,6 @@ export component PresenceWindow inherits Window {
                             show-reflection: false;
                             subtle-light: true;
                             native-background: root.native-bubble-glass;
-                            native-bubble-backing: root.native-bubble-glass;
                             borderless: true;
                             radius: 18px;
                             Text { x: 16px; y: 8px; width: parent.width - 32px; height: 16px; text: message.title; color: #ffffffb0; font-family: "Helvetica Neue"; font-size: 12px; font-weight: 700; }
@@ -543,12 +642,17 @@ export component PresenceWindow inherits Window {
                 }
             }
         }
-        orb := GlassSurface {
+        orb := Rectangle {
             x: parent.width - self.width - 24px;
             y: parent.height - self.height - 32px;
             width: root.diameter; height: root.diameter;
-            radius: self.width / 2;
-            native-background: root.native-face-glass;
+            background: transparent;
+            // Con superficie nativa, Slint solo dibuja los rasgos y recibe el gesto.
+            if !root.native-face-glass: GlassSurface {
+                width: parent.width; height: parent.height;
+                radius: self.width / 2;
+                show-reflection: false;
+            }
             // Rellenos suaves al despertar, curvas cerradas al descansar.
             AssistantEye {
                 x: parent.width * 0.24 + root.face-x + root.gaze-x * 3.2px; y: parent.height * 0.34 + root.face-y + root.gaze-y * 2.4px;
@@ -826,21 +930,6 @@ export component PresenceWindow inherits Window {
                     }
                 }
             }
-        }
-        if (root.sleep-opacity > 0): Text {
-            x: orb.x + orb.width - 8px + root.dream-phase * 5px;
-            y: orb.y - 6px - root.dream-phase * 30px;
-            text: "z"; font-size: 16px + root.dream-phase * 8px;
-            font-weight: 600; color: #a3a3a3;
-            opacity: root.sleep-opacity * (root.reduced-motion ? 0.8 :
-                Math.sin(root.dream-phase * 180deg) * 0.8);
-        }
-        if (root.sleep-opacity > 0): Text {
-            x: orb.x + orb.width - 2px + root.second-dream-phase * 8px;
-            y: orb.y - 16px - root.second-dream-phase * 32px;
-            text: "z"; font-size: 14px; color: #a3a3a3;
-            opacity: root.sleep-opacity * (root.reduced-motion ? 0.5 :
-                Math.sin(root.second-dream-phase * 180deg) * 0.55);
         }
     }
 }

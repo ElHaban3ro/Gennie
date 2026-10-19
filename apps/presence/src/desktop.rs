@@ -1,6 +1,25 @@
 use slint::winit_030::{WinitWindowAccessor, winit};
 use soc_core::Result;
 
+pub fn copy_text(text: &str) -> Result<()> {
+    #[cfg(target_os = "macos")]
+    {
+        let pasteboard = objc2_app_kit::NSPasteboard::generalPasteboard();
+        pasteboard.clearContents();
+        // SAFETY: constante NSString del framework AppKit, disponible en macOS.
+        let text_type = unsafe { objc2_app_kit::NSPasteboardTypeString };
+        if !pasteboard.setString_forType(&objc2_foundation::NSString::from_str(text), text_type) {
+            return Err("No se pudieron copiar los valores".into());
+        }
+        Ok(())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = text;
+        Err("Selecciona los valores y cópialos desde el campo de texto".into())
+    }
+}
+
 #[cfg(any(target_os = "macos", test))]
 #[derive(Default)]
 pub struct DragGesture {
@@ -316,34 +335,76 @@ pub fn position(window: &slint::Window) -> Result<()> {
         .ok_or("Ventana nativa todavía no disponible")?
 }
 
-// El vidrio nativo vive detrás de la ventana Slint: Winit exige que su propia
-// NSView siga siendo contentView, y la ventana hija no recibe eventos.
+// La superficie translúcida vive detrás de la ventana Slint: Winit exige que
+// su propia NSView siga siendo contentView, y la ventana hija no recibe eventos.
 #[cfg(target_os = "macos")]
-pub struct NativeFaceGlass {
+pub struct NativeFaceSurface {
     window: objc2::rc::Retained<objc2_app_kit::NSWindow>,
-    glass: objc2::rc::Retained<objc2_app_kit::NSGlassEffectView>,
+    glass: Option<objc2::rc::Retained<objc2_app_kit::NSGlassEffectView>>,
+    circle: objc2::rc::Retained<objc2_app_kit::NSBox>,
+    wallpaper: *mut std::ffi::c_void,
+    style: std::cell::Cell<Option<NativeFaceStyle>>,
+}
+
+#[cfg(target_os = "macos")]
+#[derive(Clone, Copy, PartialEq)]
+pub struct NativeFaceStyle {
+    pub blur: f64,
+    pub saturation: f64,
+    pub brightness: f64,
+    pub tint: f64,
+    pub border_width: f64,
+    pub border_opacity: f64,
+    pub transition: f64,
+}
+
+#[cfg(target_os = "macos")]
+unsafe extern "C" {
+    fn soc_face_wallpaper_create(
+        container: *mut std::ffi::c_void,
+        glass: *mut std::ffi::c_void,
+    ) -> *mut std::ffi::c_void;
+    fn soc_face_wallpaper_update(
+        material: *mut std::ffi::c_void,
+        window: *mut std::ffi::c_void,
+        x: f64,
+        y: f64,
+        diameter: f64,
+    );
+    fn soc_face_wallpaper_destroy(material: *mut std::ffi::c_void);
+    fn soc_face_wallpaper_native_blur_supported(material: *mut std::ffi::c_void) -> i32;
+    fn soc_face_wallpaper_configure(
+        material: *mut std::ffi::c_void,
+        blur: f64,
+        saturation: f64,
+        brightness: f64,
+        border_width: f64,
+        border_opacity: f64,
+        transition: f64,
+    );
 }
 
 // El tamaño máximo del selector (224 px) más margen para la respiración.
 #[cfg(target_os = "macos")]
-const FACE_GLASS_CANVAS: f64 = 226.0;
+const FACE_SURFACE_CANVAS: f64 = 226.0;
 
 #[cfg(target_os = "macos")]
-impl NativeFaceGlass {
+impl NativeFaceSurface {
+    pub fn native_blur_supported(&self) -> bool {
+        // SAFETY: el helper pertenece a esta superficie y solo se consulta en main.
+        unsafe { soc_face_wallpaper_native_blur_supported(self.wallpaper) != 0 }
+    }
+
     pub fn new(window: &slint::Window, diameter: f32) -> Result<Option<Self>> {
-        use objc2::MainThreadOnly;
         use objc2::runtime::AnyClass;
         use objc2_app_kit::{
-            NSBackingStoreType, NSColor, NSGlassEffectView, NSView, NSWindow, NSWindowOrderingMode,
+            NSBackingStoreType, NSBox, NSBoxType, NSColor, NSGlassEffectView,
+            NSGlassEffectViewStyle, NSTitlePosition, NSView, NSWindow, NSWindowOrderingMode,
             NSWindowStyleMask,
         };
         use objc2_foundation::{NSPoint, NSRect, NSSize};
         use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
-        // La clase no existe antes de macOS 26; allí se conserva el material Slint.
-        if AnyClass::get(c"NSGlassEffectView").is_none() {
-            return Ok(None);
-        }
         let native = window
             .with_winit_window(|native| -> Result<Self> {
                 let handle = native.window_handle()?;
@@ -354,12 +415,12 @@ impl NativeFaceGlass {
                 let view = unsafe { raw.ns_view.cast::<objc2_app_kit::NSView>().as_ref() };
                 let parent = view.window().ok_or("La cara no tiene NSWindow")?;
                 let marker = objc2::MainThreadMarker::new().ok_or("AppKit requiere main")?;
-                let frame = face_glass_frame(parent.frame());
+                let frame = face_surface_frame(parent.frame());
                 // SAFETY: se crea y configura en el hilo principal; AppKit conserva
                 // la ventana hija y su vista hasta retirarlas explícitamente.
                 let child = unsafe {
                     NSWindow::initWithContentRect_styleMask_backing_defer(
-                        NSWindow::alloc(marker),
+                        objc2::msg_send![native_surface_window_class(), alloc],
                         frame,
                         NSWindowStyleMask::Borderless,
                         NSBackingStoreType::Buffered,
@@ -376,74 +437,132 @@ impl NativeFaceGlass {
                 container.setFrame(NSRect {
                     origin: NSPoint { x: 0.0, y: 0.0 },
                     size: NSSize {
-                        width: FACE_GLASS_CANVAS,
-                        height: FACE_GLASS_CANVAS,
+                        width: FACE_SURFACE_CANVAS,
+                        height: FACE_SURFACE_CANVAS,
                     },
                 });
-                let glass = NSGlassEffectView::new(marker);
-                glass.setFrame(face_glass_view_frame(diameter));
-                glass.setStyle(objc2_app_kit::NSGlassEffectViewStyle::Regular);
-                set_glass_radius(&glass, diameter);
-                container.addSubview(&glass);
+                let circle = NSBox::new(marker);
+                circle.setBoxType(NSBoxType::Custom);
+                circle.setTitlePosition(NSTitlePosition::NoTitle);
+                circle.setBorderWidth(0.0);
+                circle.setCornerRadius(f64::from(diameter) / 2.0);
+                let glass = if AnyClass::get(c"NSGlassEffectView").is_some() {
+                    let glass = NSGlassEffectView::new(marker);
+                    glass.setFrame(face_surface_view_frame(diameter));
+                    glass.setStyle(NSGlassEffectViewStyle::Regular);
+                    glass.setAlphaValue(1.0);
+                    glass.setTintColor(None);
+                    let _: () = unsafe {
+                        objc2::msg_send![&glass, setCornerRadius: f64::from(diameter) / 2.0]
+                    };
+                    circle.setFrame(face_glass_content_frame(diameter));
+                    circle.setFillColor(&NSColor::colorWithSRGBRed_green_blue_alpha(
+                        0.10, 0.11, 0.12, 0.24,
+                    ));
+                    glass.setContentView(Some(&circle));
+                    container.addSubview(&glass);
+                    Some(glass)
+                } else {
+                    circle.setFrame(face_surface_view_frame(diameter));
+                    circle.setFillColor(&NSColor::colorWithSRGBRed_green_blue_alpha(
+                        0.0, 0.0, 0.0, 0.18,
+                    ));
+                    container.addSubview(&circle);
+                    None
+                };
                 child.setContentView(Some(&container));
+                let wallpaper = glass.as_ref().map_or(std::ptr::null_mut(), |glass| {
+                    // SAFETY: ambas NSView viven mientras exista la ventana hija.
+                    unsafe {
+                        soc_face_wallpaper_create(
+                            (&*container as *const NSView).cast_mut().cast(),
+                            (&**glass as *const NSGlassEffectView).cast_mut().cast(),
+                        )
+                    }
+                });
                 // SAFETY: parent y child son ventanas vivas del mismo hilo principal.
                 unsafe { parent.addChildWindow_ordered(&child, NSWindowOrderingMode::Below) };
                 child.orderFront(None);
                 Ok(Self {
                     window: child,
                     glass,
+                    circle,
+                    wallpaper,
+                    style: std::cell::Cell::new(None),
                 })
             })
             .ok_or("Ventana Winit de presencia no disponible")??;
         Ok(Some(native))
     }
 
+    pub fn configure(&self, style: NativeFaceStyle) {
+        if self.style.get() == Some(style) {
+            return;
+        }
+        self.circle
+            .setFillColor(&objc2_app_kit::NSColor::colorWithSRGBRed_green_blue_alpha(
+                0.10, 0.11, 0.12, style.tint,
+            ));
+        // SAFETY: el helper pertenece a esta superficie y solo se usa en main.
+        unsafe {
+            soc_face_wallpaper_configure(
+                self.wallpaper,
+                style.blur,
+                style.saturation,
+                style.brightness,
+                style.border_width,
+                style.border_opacity,
+                style.transition,
+            );
+        }
+        self.style.set(Some(style));
+    }
+
     pub fn update(&self, diameter: f32) {
         if let Some(parent) = self.window.parentWindow() {
-            let frame = face_glass_frame(parent.frame());
+            let frame = face_surface_frame(parent.frame());
             if self.window.frame() != frame {
                 self.window.setFrame_display(frame, true);
             }
-            let glass_frame = face_glass_view_frame(diameter);
-            if self.glass.frame() != glass_frame {
-                self.glass.setFrame(glass_frame);
-                set_glass_radius(&self.glass, diameter);
+            let surface_frame = face_surface_view_frame(diameter);
+            if let Some(glass) = &self.glass {
+                if glass.frame() != surface_frame {
+                    glass.setFrame(surface_frame);
+                    let _: () = unsafe {
+                        objc2::msg_send![glass, setCornerRadius: f64::from(diameter) / 2.0]
+                    };
+                    self.circle.setFrame(face_glass_content_frame(diameter));
+                    self.circle.setCornerRadius(f64::from(diameter) / 2.0);
+                }
+            } else if self.circle.frame() != surface_frame {
+                self.circle.setFrame(surface_frame);
+                self.circle.setCornerRadius(f64::from(diameter) / 2.0);
             }
-        }
-    }
-
-    pub fn configure(&self, style: i32, tint: i32, strength: f32) {
-        use objc2_app_kit::{NSColor, NSGlassEffectViewStyle};
-        self.glass.setStyle(if style == 1 {
-            NSGlassEffectViewStyle::Clear
-        } else {
-            NSGlassEffectViewStyle::Regular
-        });
-        let rgb = match tint {
-            1 => Some((0.14, 0.16, 0.18)),
-            2 => Some((0.67, 0.69, 0.72)),
-            3 => Some((0.28, 0.48, 0.70)),
-            _ => None,
-        };
-        if let Some((red, green, blue)) = rgb
-            && strength > 0.0
-        {
-            let color = NSColor::colorWithSRGBRed_green_blue_alpha(
-                red,
-                green,
-                blue,
-                f64::from(strength.clamp(0.0, 70.0)) / 100.0,
-            );
-            self.glass.setTintColor(Some(&color));
-        } else {
-            self.glass.setTintColor(None);
+            if !self.wallpaper.is_null() {
+                // SAFETY: el material y la ventana hija siguen vivos en el hilo principal.
+                unsafe {
+                    soc_face_wallpaper_update(
+                        self.wallpaper,
+                        (&*self.window as *const objc2_app_kit::NSWindow)
+                            .cast_mut()
+                            .cast(),
+                        surface_frame.origin.x,
+                        surface_frame.origin.y,
+                        f64::from(diameter),
+                    );
+                }
+            }
         }
     }
 }
 
 #[cfg(target_os = "macos")]
-impl Drop for NativeFaceGlass {
+impl Drop for NativeFaceSurface {
     fn drop(&mut self) {
+        if !self.wallpaper.is_null() {
+            // SAFETY: es el puntero retenido por soc_face_wallpaper_create.
+            unsafe { soc_face_wallpaper_destroy(self.wallpaper) };
+        }
         if let Some(parent) = self.window.parentWindow() {
             parent.removeChildWindow(&self.window);
         }
@@ -452,27 +571,27 @@ impl Drop for NativeFaceGlass {
 }
 
 #[cfg(target_os = "macos")]
-fn face_glass_frame(parent: objc2_foundation::NSRect) -> objc2_foundation::NSRect {
+fn face_surface_frame(parent: objc2_foundation::NSRect) -> objc2_foundation::NSRect {
     use objc2_foundation::{NSPoint, NSRect, NSSize};
     NSRect {
         origin: NSPoint {
-            x: parent.origin.x + parent.size.width - FACE_GLASS_CANVAS - 24.0,
+            x: parent.origin.x + parent.size.width - FACE_SURFACE_CANVAS - 24.0,
             y: parent.origin.y + 32.0,
         },
         size: NSSize {
-            width: FACE_GLASS_CANVAS,
-            height: FACE_GLASS_CANVAS,
+            width: FACE_SURFACE_CANVAS,
+            height: FACE_SURFACE_CANVAS,
         },
     }
 }
 
 #[cfg(target_os = "macos")]
-fn face_glass_view_frame(diameter: f32) -> objc2_foundation::NSRect {
+fn face_surface_view_frame(diameter: f32) -> objc2_foundation::NSRect {
     use objc2_foundation::{NSPoint, NSRect, NSSize};
     let diameter = f64::from(diameter);
     NSRect {
         origin: NSPoint {
-            x: FACE_GLASS_CANVAS - diameter,
+            x: FACE_SURFACE_CANVAS - diameter,
             y: 0.0,
         },
         size: NSSize {
@@ -483,10 +602,26 @@ fn face_glass_view_frame(diameter: f32) -> objc2_foundation::NSRect {
 }
 
 #[cfg(target_os = "macos")]
-fn set_glass_radius(glass: &objc2_app_kit::NSGlassEffectView, diameter: f32) {
-    // objc2-app-kit expone este setter solo con CoreFoundation; el selector
-    // forma parte de NSGlassEffectView desde macOS 26.
-    let _: () = unsafe { objc2::msg_send![glass, setCornerRadius: f64::from(diameter) / 2.0] };
+fn face_glass_content_frame(diameter: f32) -> objc2_foundation::NSRect {
+    use objc2_foundation::{NSPoint, NSRect, NSSize};
+    let diameter = f64::from(diameter);
+    NSRect {
+        origin: NSPoint { x: 0.0, y: 0.0 },
+        size: NSSize {
+            width: diameter,
+            height: diameter,
+        },
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn set_backdrop_corner_radius(backdrop: &objc2_app_kit::NSVisualEffectView, radius: f64) {
+    use objc2::runtime::AnyObject;
+    let layer: Option<&AnyObject> = unsafe { objc2::msg_send![backdrop, layer] };
+    if let Some(layer) = layer {
+        let _: () = unsafe { objc2::msg_send![layer, setCornerRadius: radius] };
+        let _: () = unsafe { objc2::msg_send![layer, setMasksToBounds: true] };
+    }
 }
 
 // Una sola ventana hija recorta las vistas de vidrio al viewport de los globos.
@@ -495,14 +630,20 @@ fn set_glass_radius(glass: &objc2_app_kit::NSGlassEffectView, diameter: f32) {
 pub struct NativeBubbleGlass {
     window: objc2::rc::Retained<objc2_app_kit::NSWindow>,
     container: objc2::rc::Retained<objc2_app_kit::NSView>,
-    glasses: Vec<objc2::rc::Retained<objc2_app_kit::NSGlassEffectView>>,
+    surfaces: Vec<NativeBubbleSurface>,
+}
+
+#[cfg(target_os = "macos")]
+struct NativeBubbleSurface {
+    backdrop: objc2::rc::Retained<objc2_app_kit::NSVisualEffectView>,
+    glass: objc2::rc::Retained<objc2_app_kit::NSGlassEffectView>,
 }
 
 // La ventana principal puede quedar parcialmente fuera de pantalla. AppKit
 // limita por defecto la ventana hija al borde superior y separa el vidrio
-// de los textos de Slint; esta clase nueva conserva el marco solicitado.
+// de los rasgos y textos de Slint; cara y globos conservan el marco solicitado.
 #[cfg(target_os = "macos")]
-fn bubble_glass_window_class() -> &'static objc2::runtime::AnyClass {
+fn native_surface_window_class() -> &'static objc2::runtime::AnyClass {
     use objc2::{
         ClassType,
         runtime::{AnyClass, AnyObject, ClassBuilder, Imp, Sel},
@@ -521,8 +662,8 @@ fn bubble_glass_window_class() -> &'static objc2::runtime::AnyClass {
     }
 
     CLASS.get_or_init(|| {
-        let builder = ClassBuilder::new(c"SOCBubbleGlassWindow", NSWindow::class())
-            .expect("Clase nativa de globos disponible");
+        let builder = ClassBuilder::new(c"SOCNativeSurfaceWindow", NSWindow::class())
+            .expect("Clase nativa de superficies disponible");
         let class = builder.register();
         let selector = objc2::sel!(constrainFrameRect:toScreen:);
         let inherited = NSWindow::class()
@@ -542,7 +683,10 @@ fn bubble_glass_window_class() -> &'static objc2::runtime::AnyClass {
                 objc2::ffi::method_getTypeEncoding(inherited),
             )
         };
-        assert!(added.as_bool(), "No se pudo liberar el marco de los globos");
+        assert!(
+            added.as_bool(),
+            "No se pudo liberar el marco de la superficie"
+        );
         class
     })
 }
@@ -572,7 +716,7 @@ impl NativeBubbleGlass {
                 // SAFETY: creación y vínculo de ventanas vivas en el hilo principal.
                 let child = unsafe {
                     NSWindow::initWithContentRect_styleMask_backing_defer(
-                        objc2::msg_send![bubble_glass_window_class(), alloc],
+                        objc2::msg_send![native_surface_window_class(), alloc],
                         bubble_glass_window_frame(parent.frame(), &viewport),
                         NSWindowStyleMask::Borderless,
                         NSBackingStoreType::Buffered,
@@ -592,7 +736,7 @@ impl NativeBubbleGlass {
                 Ok(Self {
                     window: child,
                     container,
-                    glasses: Vec::new(),
+                    surfaces: Vec::new(),
                 })
             })
             .ok_or("Ventana Winit de presencia no disponible")??;
@@ -606,20 +750,25 @@ impl NativeBubbleGlass {
         count: usize,
         hidden: bool,
     ) {
-        use objc2_app_kit::{NSColor, NSGlassEffectView, NSGlassEffectViewStyle};
+        use objc2_app_kit::{
+            NSGlassEffectView, NSGlassEffectViewStyle, NSVisualEffectBlendingMode,
+            NSVisualEffectMaterial, NSVisualEffectState, NSVisualEffectView,
+        };
 
         let Some(parent) = self.window.parentWindow() else {
             return;
         };
-        while self.glasses.len() > count {
-            if let Some(glass) = self.glasses.pop() {
-                glass.removeFromSuperview();
+        while self.surfaces.len() > count {
+            if let Some(surface) = self.surfaces.pop() {
+                surface.glass.removeFromSuperview();
+                surface.backdrop.removeFromSuperview();
             }
         }
         let should_show = !hidden && count > 0 && viewport.height > 0.0;
         if !should_show {
-            for glass in &self.glasses {
-                glass.setHidden(true);
+            for surface in &self.surfaces {
+                surface.glass.setHidden(true);
+                surface.backdrop.setHidden(true);
             }
             return;
         }
@@ -631,34 +780,45 @@ impl NativeBubbleGlass {
         if self.container.frame() != content_frame {
             self.container.setFrame(content_frame);
         }
-        while self.glasses.len() < count {
+        while self.surfaces.len() < count {
             let Some(marker) = objc2::MainThreadMarker::new() else {
                 return;
             };
-            let index = self.glasses.len();
+            let index = self.surfaces.len();
+            let backdrop = NSVisualEffectView::new(marker);
+            backdrop.setMaterial(NSVisualEffectMaterial::Popover);
+            backdrop.setBlendingMode(NSVisualEffectBlendingMode::BehindWindow);
+            backdrop.setState(NSVisualEffectState::Active);
+            backdrop.setWantsLayer(true);
+            set_backdrop_corner_radius(&backdrop, 18.0);
             let glass = NSGlassEffectView::new(marker);
             glass.setStyle(NSGlassEffectViewStyle::Regular);
-            glass.setTintColor(Some(&NSColor::colorWithSRGBRed_green_blue_alpha(
-                0.12, 0.12, 0.13, 0.28,
-            )));
+            glass.setTintColor(None);
             let _: () = unsafe { objc2::msg_send![&glass, setCornerRadius: 18.0_f64] };
             if let Some((_, bubble)) = bounds.iter().find(|(candidate, _)| *candidate == index) {
-                glass.setFrame(bubble_glass_view_frame(&viewport, bubble));
+                let rect = bubble_glass_view_frame(&viewport, bubble);
+                backdrop.setFrame(rect);
+                glass.setFrame(rect);
             } else {
                 glass.setHidden(true);
+                backdrop.setHidden(true);
             }
+            self.container.addSubview(&backdrop);
             self.container.addSubview(&glass);
-            self.glasses.push(glass);
+            self.surfaces.push(NativeBubbleSurface { backdrop, glass });
         }
-        for (index, glass) in self.glasses.iter().enumerate() {
+        for (index, surface) in self.surfaces.iter().enumerate() {
             if let Some((_, bubble)) = bounds.iter().find(|(candidate, _)| *candidate == index) {
                 let rect = bubble_glass_view_frame(&viewport, bubble);
-                if glass.frame() != rect {
-                    glass.setFrame(rect);
+                if surface.glass.frame() != rect {
+                    surface.glass.setFrame(rect);
+                    surface.backdrop.setFrame(rect);
                 }
-                glass.setHidden(false);
+                surface.glass.setHidden(false);
+                surface.backdrop.setHidden(false);
             } else {
-                glass.setHidden(true);
+                surface.glass.setHidden(true);
+                surface.backdrop.setHidden(true);
             }
         }
     }
@@ -1004,11 +1164,11 @@ mod tests {
                 height: 980.0,
             },
         };
-        let resting = face_glass_frame(parent);
+        let resting = face_surface_frame(parent);
         for diameter in [63.2, 63.6, 64.2, 64.8] {
-            assert_eq!(face_glass_frame(parent), resting);
-            let view = face_glass_view_frame(diameter);
-            assert!((view.origin.x + view.size.width - FACE_GLASS_CANVAS).abs() < 0.001);
+            assert_eq!(face_surface_frame(parent), resting);
+            let view = face_surface_view_frame(diameter);
+            assert!((view.origin.x + view.size.width - FACE_SURFACE_CANVAS).abs() < 0.001);
             assert_eq!(view.size.height, f64::from(diameter));
             assert!(
                 (resting.origin.x + view.origin.x

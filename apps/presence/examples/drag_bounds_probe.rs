@@ -102,6 +102,41 @@ fn main() -> soc_core::Result<()> {
                 "positioned_face_top={positioned_top} expected=0 window_top={}",
                 actual.y
             );
+            // La posición de Slint puede ser correcta mientras AppKit limita
+            // solo su hija de vidrio. Comprobar ambas superficies reales.
+            let surface = desktop::NativeFaceSurface::new(ui.window(), 128.0)
+                .unwrap()
+                .unwrap();
+            let children = window.childWindows().expect("Ventana hija de la cara");
+            assert_eq!(children.len(), 1);
+            let child = children.objectAtIndex(0);
+            let mut surface_passed = true;
+            wait_for_appkit().await;
+            for diameter in [64.0_f32, 128.0] {
+                let transparent_top = window.frame().size.height - 32.0 - f64::from(diameter);
+                for face_top in [200.0, 120.0, 80.0, 40.0, 0.0, 40.0, 120.0, 200.0] {
+                    native.set_outer_position(LogicalPosition::new(
+                        400.0,
+                        screen_top + face_top - transparent_top,
+                    ));
+                    surface.update(diameter);
+                    // AppKit puede reajustar la hija al procesar el movimiento.
+                    wait_for_appkit().await;
+                    surface.update(diameter);
+                    wait_for_appkit().await;
+                    let parent = window.frame();
+                    let actual = child.frame();
+                    let offset_x = actual.origin.x + actual.size.width
+                        - (parent.origin.x + parent.size.width - 24.0);
+                    let offset_y = actual.origin.y - (parent.origin.y + 32.0);
+                    println!(
+                        "native_face_diameter={diameter} top={face_top} offset=({offset_x},{offset_y}) expected=(0,0)"
+                    );
+                    surface_passed &= offset_x.abs() < 1.0 && offset_y.abs() < 1.0;
+                }
+            }
+            drop(surface);
+            wait_for_appkit().await;
             let other = weak_other.upgrade().unwrap();
             let other_native = other.window().winit_window().await.unwrap();
             let other_handle = other_native.window_handle().unwrap();
@@ -129,6 +164,7 @@ fn main() -> soc_core::Result<()> {
                 face_top.abs() < 1.0
                     && positioned_top.abs() < 1.0
                     && gesture_passed
+                    && surface_passed
                     && other_top > 1.0
                     && restored_top > 1.0,
             );
@@ -145,6 +181,28 @@ fn main() -> soc_core::Result<()> {
         std::process::exit(1);
     }
     Ok(())
+}
+
+#[cfg(target_os = "macos")]
+async fn wait_for_appkit() {
+    let ready = std::rc::Rc::new(std::cell::Cell::new(false));
+    let mut scheduled = false;
+    std::future::poll_fn(|context| {
+        if ready.get() {
+            return std::task::Poll::Ready(());
+        }
+        if !scheduled {
+            scheduled = true;
+            let ready = ready.clone();
+            let waker = context.waker().clone();
+            slint::Timer::single_shot(std::time::Duration::from_millis(50), move || {
+                ready.set(true);
+                waker.wake();
+            });
+        }
+        std::task::Poll::Pending
+    })
+    .await
 }
 
 #[cfg(target_os = "macos")]

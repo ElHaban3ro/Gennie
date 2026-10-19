@@ -18,6 +18,7 @@ pub struct StatusMenu {
     rest: MenuItem,
     about: MenuItem,
     transcription: MenuItem,
+    appearance: MenuItem,
     exit: MenuItem,
 }
 
@@ -30,6 +31,7 @@ impl StatusMenu {
         assistant.append_items(&[&wake, &rest])?;
         let about = MenuItem::new("Acerca de soc", true, None);
         let transcription = MenuItem::new("Voz y asistente…", true, None);
+        let appearance = MenuItem::new("Apariencia…", true, None);
         let exit = MenuItem::new(
             "Salir de soc",
             true,
@@ -38,6 +40,7 @@ impl StatusMenu {
         menu.append_items(&[
             &assistant,
             &transcription,
+            &appearance,
             &about,
             &PredefinedMenuItem::separator(),
             &exit,
@@ -61,6 +64,7 @@ impl StatusMenu {
         app.append_items(&[
             &about,
             &transcription,
+            &appearance,
             &PredefinedMenuItem::separator(),
             &PredefinedMenuItem::hide(Some("Ocultar soc")),
             &PredefinedMenuItem::hide_others(Some("Ocultar otros")),
@@ -77,6 +81,7 @@ impl StatusMenu {
             rest,
             about,
             transcription,
+            appearance,
             exit,
         })
     }
@@ -91,6 +96,8 @@ impl StatusMenu {
                 ui.invoke_about();
             } else if event.id == *self.transcription.id() {
                 ui.invoke_transcription_settings();
+            } else if event.id == *self.appearance.id() {
+                ui.invoke_appearance_settings();
             } else if event.id == *self.exit.id() {
                 ui.invoke_exit();
                 return;

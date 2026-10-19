@@ -51,7 +51,7 @@ fn main() -> soc_core::Result<()> {
         );
     });
     let bubble = Rc::new(RefCell::new(None::<desktop::NativeBubbleGlass>));
-    let face = Rc::new(RefCell::new(None::<desktop::NativeFaceGlass>));
+    let face = Rc::new(RefCell::new(None::<desktop::NativeFaceSurface>));
     let weak = ui.as_weak();
     let startup_bubble = bubble.clone();
     let startup_face = face.clone();
@@ -61,8 +61,8 @@ fn main() -> soc_core::Result<()> {
             let _ = ui.window().winit_window().await;
             desktop::position(ui.window()).expect("Posición de sonda");
             if let Some(glass) =
-                desktop::NativeFaceGlass::new(ui.window(), ui.get_actual_diameter())
-                    .expect("Vidrio de cara")
+                desktop::NativeFaceSurface::new(ui.window(), ui.get_actual_diameter())
+                    .expect("Superficie de cara")
             {
                 *startup_face.borrow_mut() = Some(glass);
                 ui.set_native_face_glass(true);

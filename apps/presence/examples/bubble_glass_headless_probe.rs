@@ -60,6 +60,7 @@ fn main() -> soc_core::Result<()> {
     let ui = PresenceWindow::new()?;
     ui.set_reduced_motion(true);
     ui.set_active(true);
+    ui.set_native_face_glass(true);
     ui.set_native_bubble_glass(true);
     let reported = Rc::new(RefCell::new(BTreeMap::new()));
     let result = reported.clone();
@@ -99,9 +100,29 @@ fn main() -> soc_core::Result<()> {
     let y = (first.1 + first.3 / 2.0) as usize;
     let inside = pixels[y * 568 + first.0 as usize + 6];
     let outside = pixels[y * 568 + first.0 as usize - 6];
+    assert_eq!(
+        inside.blends, outside.blends,
+        "Slint aún dibuja un fondo sobre la burbuja nativa: inside={inside:?} outside={outside:?}"
+    );
+    let face_clear = pixels[884 * 568 + 426];
+    let face_outside = pixels[884 * 568 + 406];
+    let eye = pixels[873 * 568 + 457];
+    assert_eq!(
+        face_clear.blends, face_outside.blends,
+        "Slint aún dibuja un fondo sobre la cara nativa"
+    );
     assert!(
-        inside.blends > outside.blends,
-        "la burbuja nativa no tiene respaldo visible en Slint: inside={inside:?} outside={outside:?}"
+        eye.blends > face_clear.blends,
+        "la cara nativa perdió los ojos dibujados por Slint"
+    );
+    let pixel_values = &pixels;
+    let mouth = (896..914)
+        .flat_map(|y| (467..495).map(move |x| pixel_values[y * 568 + x].blends))
+        .max()
+        .unwrap_or_default();
+    assert!(
+        mouth > face_clear.blends,
+        "la cara nativa perdió la boca dibujada por Slint"
     );
     println!("bubble_geometry=ok viewport={viewport:?} first={first:?} second={second:?}");
     drop(rects);

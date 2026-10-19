@@ -1,4 +1,5 @@
 mod answer;
+mod appearance;
 mod chat;
 mod desktop;
 mod history;
@@ -28,9 +29,18 @@ pub struct PresenceModule {
     worker: Mutex<Option<Worker>>,
 }
 struct Worker {
-    sender: SyncSender<bool>,
-    replies: Option<Receiver<std::result::Result<bool, String>>>,
+    sender: SyncSender<PreferenceUpdate>,
+    replies: Option<Receiver<PreferenceReply>>,
     handle: JoinHandle<()>,
+}
+#[derive(Clone, Copy)]
+enum PreferenceUpdate {
+    Motion(bool),
+    Appearance(appearance::Settings),
+}
+struct PreferenceReply {
+    update: PreferenceUpdate,
+    result: std::result::Result<(), String>,
 }
 impl Default for PresenceModule {
     fn default() -> Self {
@@ -60,6 +70,18 @@ impl AppModule for PresenceModule {
                 version: 3,
                 sql: include_str!("../migrations/0003_remove_memory_activity.sql"),
             },
+            Migration {
+                version: 4,
+                sql: include_str!("../migrations/0004_appearance.sql"),
+            },
+            Migration {
+                version: 5,
+                sql: include_str!("../migrations/0005_appearance_defaults.sql"),
+            },
+            Migration {
+                version: 6,
+                sql: include_str!("../migrations/0006_appearance_defaults.sql"),
+            },
         ]
     }
     fn start(&self, state: &AppState) -> Result<()> {
@@ -76,15 +98,18 @@ impl AppModule for PresenceModule {
         let handle = std::thread::Builder::new()
             .name("presence-preferences".into())
             .spawn(move || {
-                for reduced in receiver {
-                    let result =
-                        repository::save(&db, reduced)
-                            .map(|()| reduced)
-                            .map_err(|error| {
-                                eprintln!("event=preference_save_failed error={error}");
-                                error.to_string()
-                            });
-                    let _ = reply_sender.send(result);
+                for update in receiver {
+                    let result: Result<()> = match update {
+                        PreferenceUpdate::Motion(reduced) => repository::save(&db, reduced),
+                        PreferenceUpdate::Appearance(value) => {
+                            repository::save_appearance(&db, value)
+                        }
+                    };
+                    let result = result.map_err(|error| {
+                        eprintln!("event=preference_save_failed error={error}");
+                        error.to_string()
+                    });
+                    let _ = reply_sender.send(PreferenceReply { update, result });
                 }
             })?;
         *worker = Some(Worker {
@@ -392,22 +417,34 @@ impl PresenceModule {
                 worker.replies.take().ok_or("La interfaz ya se ejecutó")?,
             )
         };
+        let appearance_ui =
+            appearance::Ui::new(&ui, repository::load_appearance(&state.db)?, sender.clone())?;
+        let appearance_replies = appearance_ui.clone();
         let reply_timer = slint::Timer::default();
         let weak = ui.as_weak();
         reply_timer.start(
             slint::TimerMode::Repeated,
             std::time::Duration::from_millis(25),
             move || {
-                if let Ok(result) = replies.try_recv()
+                while let Ok(reply) = replies.try_recv()
                     && let Some(ui) = weak.upgrade()
                 {
-                    ui.set_persist_pending(false);
-                    match result {
-                        Ok(reduced) => {
-                            ui.set_reduced_motion(reduced);
-                            ui.set_status_text("Guardado".into());
+                    match reply.update {
+                        PreferenceUpdate::Appearance(value) => {
+                            appearance_replies.saved(value, reply.result)
                         }
-                        Err(_) => ui.set_status_text("Error al guardar · ver registro".into()),
+                        PreferenceUpdate::Motion(reduced) => {
+                            ui.set_persist_pending(false);
+                            match reply.result {
+                                Ok(()) => {
+                                    ui.set_reduced_motion(reduced);
+                                    ui.set_status_text("Guardado".into());
+                                }
+                                Err(_) => {
+                                    ui.set_status_text("Error al guardar · ver registro".into())
+                                }
+                            }
+                        }
                     }
                 }
             },
@@ -420,7 +457,7 @@ impl PresenceModule {
                     return;
                 }
                 let next = !ui.get_reduced_motion();
-                match sender.try_send(next) {
+                match sender.try_send(PreferenceUpdate::Motion(next)) {
                     Ok(()) => {
                         ui.set_persist_pending(true);
                         ui.set_status_text("Guardando preferencia…".into());
@@ -455,7 +492,7 @@ impl PresenceModule {
         let menu_events = status_menu.clone();
         #[cfg(target_os = "macos")]
         let face_glass =
-            std::rc::Rc::new(std::cell::RefCell::new(None::<desktop::NativeFaceGlass>));
+            std::rc::Rc::new(std::cell::RefCell::new(None::<desktop::NativeFaceSurface>));
         #[cfg(target_os = "macos")]
         let face_glass_events = face_glass.clone();
         #[cfg(target_os = "macos")]
@@ -491,6 +528,8 @@ impl PresenceModule {
         let weak = ui.as_weak();
         let mut hit_error_logged = false;
         #[cfg(target_os = "macos")]
+        let appearance_events = appearance_ui.clone();
+        #[cfg(target_os = "macos")]
         let drag_events = drag.clone();
         hit_timer.start(
             slint::TimerMode::Repeated,
@@ -507,8 +546,26 @@ impl PresenceModule {
                 }
                 if let Some(ui) = weak.upgrade() {
                     #[cfg(target_os = "macos")]
+                    let Some(captured) = desktop::with_drag(&drag_events, |gesture| {
+                        if let Err(error) = gesture.update(ui.window())
+                            && !hit_error_logged
+                        {
+                            eprintln!("event=drag_failed error={error}");
+                            hit_error_logged = true;
+                        }
+                        gesture.captured()
+                    }) else {
+                        return;
+                    };
+                    #[cfg(not(target_os = "macos"))]
+                    let captured = false;
+                    #[cfg(target_os = "macos")]
                     if let Some(glass) = face_glass_events.borrow().as_ref() {
+                        glass.configure(appearance_events.current());
                         glass.update(ui.get_actual_diameter());
+                        appearance_events
+                            .window
+                            .set_native_blur_available(glass.native_blur_supported());
                     }
                     #[cfg(target_os = "macos")]
                     if let Some(glass) = bubble_glass_events.borrow_mut().as_mut() {
@@ -529,20 +586,6 @@ impl PresenceModule {
                             ui.get_history_open(),
                         );
                     }
-                    #[cfg(target_os = "macos")]
-                    let Some(captured) = desktop::with_drag(&drag_events, |gesture| {
-                        if let Err(error) = gesture.update(ui.window())
-                            && !hit_error_logged
-                        {
-                            eprintln!("event=drag_failed error={error}");
-                            hit_error_logged = true;
-                        }
-                        gesture.captured()
-                    }) else {
-                        return;
-                    };
-                    #[cfg(not(target_os = "macos"))]
-                    let captured = false;
                     match desktop::update_pointer_state(
                         ui.window(),
                         ui.get_actual_diameter(),
@@ -587,11 +630,10 @@ impl PresenceModule {
                         let prepare = || -> Result<()> {
                             desktop::position(ui.window())?;
                             #[cfg(target_os = "macos")]
-                            if let Some(glass) = desktop::NativeFaceGlass::new(
+                            if let Some(glass) = desktop::NativeFaceSurface::new(
                                 ui.window(),
                                 ui.get_actual_diameter(),
                             )? {
-                                glass.configure(0, 2, 29.0);
                                 *startup_face_glass.borrow_mut() = Some(glass);
                                 ui.set_native_face_glass(true);
                             }
@@ -689,20 +731,39 @@ mod worker_tests {
             let worker = worker.as_mut().unwrap();
             (worker.sender.clone(), worker.replies.take().unwrap())
         };
-        sender.send(true).unwrap();
+        sender.send(PreferenceUpdate::Motion(true)).unwrap();
         assert!(
             replies
                 .recv_timeout(std::time::Duration::from_secs(2))
                 .unwrap()
-                .unwrap()
+                .result
+                .is_ok()
         );
         assert!(repository::load(&state.db).unwrap());
-        state.db.close().unwrap();
-        sender.send(false).unwrap();
+        let appearance = appearance::Settings {
+            blur_radius: 2,
+            ..Default::default()
+        };
+        sender
+            .send(PreferenceUpdate::Appearance(appearance))
+            .unwrap();
         assert!(
             replies
                 .recv_timeout(std::time::Duration::from_secs(2))
                 .unwrap()
+                .result
+                .is_ok()
+        );
+        assert_eq!(repository::load_appearance(&state.db).unwrap(), appearance);
+        state.db.close().unwrap();
+        sender
+            .send(PreferenceUpdate::Appearance(Default::default()))
+            .unwrap();
+        assert!(
+            replies
+                .recv_timeout(std::time::Duration::from_secs(2))
+                .unwrap()
+                .result
                 .is_err()
         );
         drop(sender);
