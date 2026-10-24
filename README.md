@@ -2,12 +2,6 @@
 
 Primera base del asistente personal: presencia nativa flotante con cara siempre visible, kernel y SQLite. Rust + Slint, sin WebView. Primer hito macOS; otros sistemas aún no verificados. El flujo de voz usa Nemotron para transcribir y Codex CLI con la cuenta de ChatGPT para conversar. El módulo local de Laya permanece separado de ese flujo. No pega texto en otras apps. La presencia está configurada para acompañarte entre escritorios macOS; al actualizar debes cerrar y volver a abrir tu instancia para activar cambios de ventana. Pantalla completa tiene elegibilidad auxiliar, sin garantía para todas las apps.
 
-## Cambio de nombre
-
-El producto es **Gennie**, el binario y los crates usan `gennie`/`gennie-*`, y las variables usan `GENNIE_`. Remoto: `git@github.com:ElHaban3ro/Gennie.git`. El checkout conserva su carpeta actual.
-
-Por compatibilidad se mantienen `Library/Application Support/soc` (entornos y sesión locales), `_soc_migrations_*` (historial y checksums de SQLite) y la ruta de DB ya configurada en `.env`. No se mueven datos, no se modifican migraciones SQL ni se reinicia la app. Las rutas históricas del checkout y los artefactos de verificaciones anteriores no son nuevas pruebas de ejecución. Los nombres de producto en la documentación histórica se han normalizado; sus resultados siguen correspondiendo a las fechas originales.
-
 ## Ejecutar
 
 Desde la raíz con Rust 1.92 o superior:
