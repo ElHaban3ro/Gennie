@@ -15,7 +15,7 @@ pub fn normalize_shortcut(value: &str) -> Option<String> {
         .ok()
         .map(|key| key.to_string())
 }
-use soc_core::{AppModule, AppState, Migration, Result};
+use gennie_core::{AppModule, AppState, Migration, Result};
 use std::sync::{
     Mutex,
     mpsc::{self, Receiver, SyncSender},

@@ -5,15 +5,15 @@
 mod desktop;
 
 #[cfg(target_os = "macos")]
-use soc_presence::{IndicatorBounds, PresenceWindow, TranscriptionSettings};
+use gennie_presence::{IndicatorBounds, PresenceWindow, TranscriptionSettings};
 
 #[cfg(target_os = "macos")]
 slint::slint! { export component Probe inherits Window { width: 400px; height: 460px; no-frame: true; background: transparent; } }
 
 #[cfg(target_os = "macos")]
-fn main() -> soc_core::Result<()> {
+fn main() -> gennie_core::Result<()> {
     if std::env::args().any(|arg| arg == "--interactive")
-        || std::env::var("SOC_TEST_DRAG_INTERACTIVE").as_deref() == Ok("1")
+        || std::env::var("GENNIE_TEST_DRAG_INTERACTIVE").as_deref() == Ok("1")
     {
         return interactive();
     }
@@ -206,23 +206,23 @@ async fn wait_for_appkit() {
 }
 
 #[cfg(target_os = "macos")]
-fn interactive() -> soc_core::Result<()> {
-    use soc_core::{AppModule, AppState, Database, Shutdown};
+fn interactive() -> gennie_core::Result<()> {
+    use gennie_core::{AppModule, AppState, Database, Shutdown};
     let state = AppState {
-        config: std::sync::Arc::new(soc_config::Config {
+        config: std::sync::Arc::new(gennie_config::Config {
             database_path: "unused".into(),
             db_busy_timeout_ms: 50,
         }),
         db: Database::memory()?,
         shutdown: Shutdown::default(),
     };
-    let presence = soc_presence::PresenceModule::default();
+    let presence = gennie_presence::PresenceModule::default();
     state.db.migrate(presence.name(), presence.migrations())?;
     presence.start(&state)?;
-    // Observación de ventanas propias; no datos, permisos ni instrumentación en soc.
+    // Observación de ventanas propias; no datos, permisos ni instrumentación en gennie.
     let observer = slint::Timer::default();
     let mut last = None;
-    let log_path = std::env::var_os("SOC_TEST_DRAG_LOG").map(std::path::PathBuf::from);
+    let log_path = std::env::var_os("GENNIE_TEST_DRAG_LOG").map(std::path::PathBuf::from);
     observer.start(
         slint::TimerMode::Repeated,
         std::time::Duration::from_millis(100),
@@ -230,7 +230,7 @@ fn interactive() -> soc_core::Result<()> {
             let mtm = objc2::MainThreadMarker::new().unwrap();
             let app = objc2_app_kit::NSApplication::sharedApplication(mtm);
             for window in app.windows().iter() {
-                if window.title().to_string() == "soc"
+                if window.title().to_string() == "gennie"
                     && let Some(screen) = window.screen()
                 {
                     let frame = window.frame();

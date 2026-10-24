@@ -1,5 +1,5 @@
-use soc_core::Result;
-use soc_db::Database;
+use gennie_core::Result;
+use gennie_db::Database;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Settings {
@@ -74,7 +74,7 @@ pub(crate) fn save(db: &Database, settings: &Settings) -> Result<()> {
         let tx = connection.transaction()?;
         let changed = tx.execute(
             "UPDATE llm_preferences SET read_files=?1,write_files=?2,run_commands=?3,local_actions=?4,model=?5,effort=?6,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=1",
-            soc_db::params![settings.read_files, settings.write_files, settings.run_commands, settings.local_actions, settings.model, settings.effort],
+            gennie_db::params![settings.read_files, settings.write_files, settings.run_commands, settings.local_actions, settings.model, settings.effort],
         )?;
         if changed != 1 {
             return Err("No existe la fila de ajustes de conversación".into());

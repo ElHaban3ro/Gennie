@@ -4,7 +4,7 @@
 
 // NSGlassEffectView no publica el radio. Esta ruta interna se detecta en
 // ejecución y solo modifica el filtro de nuestra propia vista de vidrio.
-static CALayer *SOCGlassBlurLayer(CALayer *layer, NSUInteger depth) {
+static CALayer *GennieGlassBlurLayer(CALayer *layer, NSUInteger depth) {
     if (!layer || depth > 24) return nil;
     @try {
         for (id filter in layer.filters) {
@@ -13,13 +13,13 @@ static CALayer *SOCGlassBlurLayer(CALayer *layer, NSUInteger depth) {
         }
     } @catch (NSException *exception) { (void)exception; }
     for (CALayer *child in layer.sublayers) {
-        CALayer *result = SOCGlassBlurLayer(child, depth + 1);
+        CALayer *result = GennieGlassBlurLayer(child, depth + 1);
         if (result) return result;
     }
     return nil;
 }
 
-static BOOL SOCLayerBelongsTo(CALayer *layer, CALayer *root) {
+static BOOL GennieLayerBelongsTo(CALayer *layer, CALayer *root) {
     for (NSUInteger depth = 0; layer && depth < 32; depth++, layer = layer.superlayer) {
         if (layer == root) return YES;
     }
@@ -28,7 +28,7 @@ static BOOL SOCLayerBelongsTo(CALayer *layer, CALayer *root) {
 
 // Un solo vidrio nativo: nunca se selecciona otro material según el fondo.
 // Los nombres C históricos se conservan para no cambiar el puente Rust.
-@interface SOCWallpaperFace : NSObject
+@interface GennieWallpaperFace : NSObject
 @property (nonatomic, strong) NSView *view;
 @property (nonatomic, strong) NSView *glass;
 @property CGFloat blurRadius;
@@ -39,7 +39,7 @@ static BOOL SOCLayerBelongsTo(CALayer *layer, CALayer *root) {
 @property BOOL nativeBlurSupported;
 @end
 
-@implementation SOCWallpaperFace
+@implementation GennieWallpaperFace
 - (instancetype)initWithContainer:(NSView *)container glass:(NSView *)glass {
     self = [super init];
     if (!self) return nil;
@@ -63,7 +63,7 @@ static BOOL SOCLayerBelongsTo(CALayer *layer, CALayer *root) {
     NSString *key = [@"filters.glassBackground." stringByAppendingString:parameter];
     NSNumber *current = [_nativeBlurLayer valueForKeyPath:key];
     if (![current isKindOfClass:NSNumber.class]) return NO;
-    NSString *name = [@"SOCMaterial." stringByAppendingString:parameter];
+    NSString *name = [@"GennieMaterial." stringByAppendingString:parameter];
     CABasicAnimation *held = (CABasicAnimation *)[_nativeBlurLayer animationForKey:name];
     if (![held isKindOfClass:CABasicAnimation.class] || fabs([held.toValue doubleValue] - value) > 0.001) {
         NSNumber *presented = [_nativeBlurLayer.presentationLayer valueForKeyPath:key] ?: current;
@@ -87,7 +87,7 @@ static BOOL SOCLayerBelongsTo(CALayer *layer, CALayer *root) {
 - (void)updateForWindow:(NSWindow *)window localFace:(NSRect)localFace {
     (void)window;
     CALayer *root = _glass.layer;
-    if (!SOCLayerBelongsTo(_nativeBlurLayer, root)) _nativeBlurLayer = SOCGlassBlurLayer(root, 0);
+    if (!GennieLayerBelongsTo(_nativeBlurLayer, root)) _nativeBlurLayer = GennieGlassBlurLayer(root, 0);
     _nativeBlurSupported = NO;
     if (_nativeBlurLayer) {
         @try {
@@ -109,31 +109,31 @@ static BOOL SOCLayerBelongsTo(CALayer *layer, CALayer *root) {
 }
 @end
 
-void *soc_face_wallpaper_create(NSView *container, NSView *glass) {
+void *gennie_face_wallpaper_create(NSView *container, NSView *glass) {
     if (!container || !glass) return NULL;
-    return (__bridge_retained void *)[[SOCWallpaperFace alloc] initWithContainer:container glass:glass];
+    return (__bridge_retained void *)[[GennieWallpaperFace alloc] initWithContainer:container glass:glass];
 }
 
-void soc_face_wallpaper_update(void *pointer, NSWindow *window,
+void gennie_face_wallpaper_update(void *pointer, NSWindow *window,
                                 double x, double y, double diameter) {
     if (!pointer || !window || diameter <= 0) return;
-    SOCWallpaperFace *material = (__bridge SOCWallpaperFace *)pointer;
+    GennieWallpaperFace *material = (__bridge GennieWallpaperFace *)pointer;
     [material updateForWindow:window localFace:NSMakeRect(x, y, diameter, diameter)];
 }
 
-void soc_face_wallpaper_destroy(void *pointer) {
+void gennie_face_wallpaper_destroy(void *pointer) {
     if (pointer) CFBridgingRelease(pointer);
 }
 
-int soc_face_wallpaper_native_blur_supported(void *pointer) {
-    return pointer && ((__bridge SOCWallpaperFace *)pointer).nativeBlurSupported;
+int gennie_face_wallpaper_native_blur_supported(void *pointer) {
+    return pointer && ((__bridge GennieWallpaperFace *)pointer).nativeBlurSupported;
 }
 
-void soc_face_wallpaper_configure(void *pointer, double blur, double saturation,
+void gennie_face_wallpaper_configure(void *pointer, double blur, double saturation,
                                   double brightness, double borderWidth,
                                   double borderOpacity, double transition) {
     if (!pointer) return;
-    SOCWallpaperFace *material = (__bridge SOCWallpaperFace *)pointer;
+    GennieWallpaperFace *material = (__bridge GennieWallpaperFace *)pointer;
     material.blurRadius = blur;
     material.saturation = saturation;
     material.brightness = brightness;

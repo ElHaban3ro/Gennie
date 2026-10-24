@@ -126,9 +126,9 @@ mod tests {
     #[test]
     fn keeps_inline_link_label_but_moves_trailing_citations() {
         let answer = prepare(
-            "[SOC](https://example.com/soc) responde. [Fuente](https://example.com/source)",
+            "[Gennie](https://example.com/gennie) responde. [Fuente](https://example.com/source)",
         );
-        assert_eq!(answer.text, "SOC responde.");
+        assert_eq!(answer.text, "Gennie responde.");
         assert_eq!(answer.sources.len(), 2);
     }
     #[test]

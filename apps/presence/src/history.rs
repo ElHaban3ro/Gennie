@@ -1,4 +1,4 @@
-use soc_db::{Database, params};
+use gennie_db::{Database, params};
 use std::{
     sync::mpsc::{self, Receiver, SyncSender},
     thread::JoinHandle,
@@ -47,7 +47,7 @@ pub struct Store {
 }
 
 impl Store {
-    pub fn start(db: Database) -> soc_db::Result<Self> {
+    pub fn start(db: Database) -> gennie_db::Result<Self> {
         let (sender, commands) = mpsc::sync_channel(64);
         let (events_sender, events) = mpsc::channel();
         let handle = std::thread::Builder::new()
@@ -104,7 +104,7 @@ impl Drop for Store {
     }
 }
 
-fn save(db: &Database, speaker: &str, text: &str) -> soc_db::Result<()> {
+fn save(db: &Database, speaker: &str, text: &str) -> gennie_db::Result<()> {
     db.with_connection(|connection| {
         connection.execute(
             "INSERT INTO presence_history(speaker,text) VALUES(?1,?2)",
@@ -114,7 +114,7 @@ fn save(db: &Database, speaker: &str, text: &str) -> soc_db::Result<()> {
     })
 }
 
-fn load(db: &Database) -> soc_db::Result<Snapshot> {
+fn load(db: &Database) -> gennie_db::Result<Snapshot> {
     db.with_connection(|connection| {
         let mut statement = connection
             .prepare("SELECT speaker,text,created_at FROM presence_history ORDER BY id")?;
@@ -137,7 +137,7 @@ fn load(db: &Database) -> soc_db::Result<Snapshot> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soc_core::AppModule;
+    use gennie_core::AppModule;
 
     #[test]
     fn old_memory_notices_are_removed_without_erasing_chat_messages() {
@@ -162,7 +162,7 @@ mod tests {
     #[test]
     fn finalized_messages_survive_reopen_and_keep_order() {
         let path = std::env::temp_dir().join(format!(
-            "soc-history-{}-{}.sqlite3",
+            "gennie-history-{}-{}.sqlite3",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

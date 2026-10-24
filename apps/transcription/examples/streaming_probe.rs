@@ -1,5 +1,5 @@
 // Sonda explícita: audio sintético f32 LE mono 16 kHz, nunca micrófono.
-use soc_core::Result;
+use gennie_core::Result;
 use std::{
     io::Read,
     time::{Duration, Instant},

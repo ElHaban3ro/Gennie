@@ -1,5 +1,5 @@
+use gennie_core::Result;
 use slint::winit_030::{WinitWindowAccessor, winit};
-use soc_core::Result;
 
 pub fn copy_text(text: &str) -> Result<()> {
     #[cfg(target_os = "macos")]
@@ -222,7 +222,7 @@ impl ShortcutRecorder {
             };
             parts.push(name);
         }
-        soc_transcription::normalize_shortcut(&parts.join("+"))
+        gennie_transcription::normalize_shortcut(&parts.join("+"))
     }
     fn modifiers_changed(&mut self, modifiers: winit::keyboard::ModifiersState) -> Option<String> {
         self.modifiers = modifiers;
@@ -360,20 +360,20 @@ pub struct NativeFaceStyle {
 
 #[cfg(target_os = "macos")]
 unsafe extern "C" {
-    fn soc_face_wallpaper_create(
+    fn gennie_face_wallpaper_create(
         container: *mut std::ffi::c_void,
         glass: *mut std::ffi::c_void,
     ) -> *mut std::ffi::c_void;
-    fn soc_face_wallpaper_update(
+    fn gennie_face_wallpaper_update(
         material: *mut std::ffi::c_void,
         window: *mut std::ffi::c_void,
         x: f64,
         y: f64,
         diameter: f64,
     );
-    fn soc_face_wallpaper_destroy(material: *mut std::ffi::c_void);
-    fn soc_face_wallpaper_native_blur_supported(material: *mut std::ffi::c_void) -> i32;
-    fn soc_face_wallpaper_configure(
+    fn gennie_face_wallpaper_destroy(material: *mut std::ffi::c_void);
+    fn gennie_face_wallpaper_native_blur_supported(material: *mut std::ffi::c_void) -> i32;
+    fn gennie_face_wallpaper_configure(
         material: *mut std::ffi::c_void,
         blur: f64,
         saturation: f64,
@@ -392,7 +392,7 @@ const FACE_SURFACE_CANVAS: f64 = 226.0;
 impl NativeFaceSurface {
     pub fn native_blur_supported(&self) -> bool {
         // SAFETY: el helper pertenece a esta superficie y solo se consulta en main.
-        unsafe { soc_face_wallpaper_native_blur_supported(self.wallpaper) != 0 }
+        unsafe { gennie_face_wallpaper_native_blur_supported(self.wallpaper) != 0 }
     }
 
     pub fn new(window: &slint::Window, diameter: f32) -> Result<Option<Self>> {
@@ -474,7 +474,7 @@ impl NativeFaceSurface {
                 let wallpaper = glass.as_ref().map_or(std::ptr::null_mut(), |glass| {
                     // SAFETY: ambas NSView viven mientras exista la ventana hija.
                     unsafe {
-                        soc_face_wallpaper_create(
+                        gennie_face_wallpaper_create(
                             (&*container as *const NSView).cast_mut().cast(),
                             (&**glass as *const NSGlassEffectView).cast_mut().cast(),
                         )
@@ -505,7 +505,7 @@ impl NativeFaceSurface {
             ));
         // SAFETY: el helper pertenece a esta superficie y solo se usa en main.
         unsafe {
-            soc_face_wallpaper_configure(
+            gennie_face_wallpaper_configure(
                 self.wallpaper,
                 style.blur,
                 style.saturation,
@@ -541,7 +541,7 @@ impl NativeFaceSurface {
             if !self.wallpaper.is_null() {
                 // SAFETY: el material y la ventana hija siguen vivos en el hilo principal.
                 unsafe {
-                    soc_face_wallpaper_update(
+                    gennie_face_wallpaper_update(
                         self.wallpaper,
                         (&*self.window as *const objc2_app_kit::NSWindow)
                             .cast_mut()
@@ -560,8 +560,8 @@ impl NativeFaceSurface {
 impl Drop for NativeFaceSurface {
     fn drop(&mut self) {
         if !self.wallpaper.is_null() {
-            // SAFETY: es el puntero retenido por soc_face_wallpaper_create.
-            unsafe { soc_face_wallpaper_destroy(self.wallpaper) };
+            // SAFETY: es el puntero retenido por gennie_face_wallpaper_create.
+            unsafe { gennie_face_wallpaper_destroy(self.wallpaper) };
         }
         if let Some(parent) = self.window.parentWindow() {
             parent.removeChildWindow(&self.window);
@@ -662,7 +662,7 @@ fn native_surface_window_class() -> &'static objc2::runtime::AnyClass {
     }
 
     CLASS.get_or_init(|| {
-        let builder = ClassBuilder::new(c"SOCNativeSurfaceWindow", NSWindow::class())
+        let builder = ClassBuilder::new(c"GennieNativeSurfaceWindow", NSWindow::class())
             .expect("Clase nativa de superficies disponible");
         let class = builder.register();
         let selector = objc2::sel!(constrainFrameRect:toScreen:);

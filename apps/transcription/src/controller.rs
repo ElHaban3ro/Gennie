@@ -1,6 +1,6 @@
 use crate::{Event, Mode, Settings, model, process::Process};
+use gennie_core::Result;
 use handy_keys::{HotkeyManager, HotkeyState};
-use soc_core::Result;
 use std::{
     path::PathBuf,
     sync::mpsc::{Receiver, SyncSender},
@@ -94,7 +94,7 @@ impl Controller {
         if !handy_keys::check_accessibility() {
             self.awaiting_permission = Some(Instant::now());
             self.settings_status =
-                "El atajo necesita Accesibilidad. Pulsa Activar atajo para autorizar soc".into();
+                "El atajo necesita Accesibilidad. Pulsa Activar atajo para autorizar gennie".into();
             return;
         }
         let result = (|| -> Result<HotkeyManager> {
@@ -142,7 +142,7 @@ impl Controller {
         if self.awaiting_permission.is_some() {
             self.settings_status = match crate::permissions::request_accessibility() {
                 Ok(()) => {
-                    "Autoriza soc en el panel abierto. El atajo se activará al conceder el permiso"
+                    "Autoriza gennie en el panel abierto. El atajo se activará al conceder el permiso"
                         .into()
                 }
                 Err(error) => format!("No se pudo solicitar Accesibilidad: {error}"),

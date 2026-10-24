@@ -1,15 +1,15 @@
 [package]
-name = "soc-decisions"
+name = "gennie-decisions"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
-soc-core.workspace = true
-soc-db.workspace = true
+gennie-core.workspace = true
+gennie-db.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
-soc-config.workspace = true
+gennie-config.workspace = true

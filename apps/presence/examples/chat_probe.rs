@@ -5,14 +5,14 @@ mod answer;
 #[path = "../src/chat.rs"]
 #[allow(dead_code)]
 mod chat;
+use gennie_presence::{ChatBubble, ChatSource, PresenceWindow};
 use slint::{ComponentHandle, Model};
-use soc_presence::{ChatBubble, ChatSource, PresenceWindow};
 use std::{
     cell::RefCell,
     rc::Rc,
     time::{Duration, Instant},
 };
-fn main() -> soc_core::Result<()> {
+fn main() -> gennie_core::Result<()> {
     let output = std::path::PathBuf::from(
         std::env::args_os()
             .nth(1)

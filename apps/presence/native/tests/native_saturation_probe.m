@@ -1,8 +1,8 @@
 // Compara píxeles de capturas regionales: saturación 200/0/200/0/200.
 // Las propiedades de la capa por sí solas no prueban el resultado visible.
 #import "../face_wallpaper.m"
-@interface SOCBlurProbePattern : NSView @end
-@implementation SOCBlurProbePattern
+@interface GennieBlurProbePattern : NSView @end
+@implementation GennieBlurProbePattern
 - (void)drawRect:(NSRect)dirtyRect {
     (void)dirtyRect;
     for (int x = 0; x < 600; x += 12) {
@@ -11,8 +11,8 @@
     }
 }
 @end
-@interface SOCNativeBlurProbe : SOCWallpaperFace @end
-@implementation SOCNativeBlurProbe
+@interface GennieNativeBlurProbe : GennieWallpaperFace @end
+@implementation GennieNativeBlurProbe
 - (CGFloat)windowCoverageAt:(NSRect)face { (void)face; return 1; }
 @end
 
@@ -42,7 +42,7 @@ int main(int argc, const char *argv[]) {
         NSWindow *background = [[NSWindow alloc] initWithContentRect:NSMakeRect(700, 300, 600, 400)
             styleMask:NSWindowStyleMaskBorderless backing:NSBackingStoreBuffered defer:NO];
         background.releasedWhenClosed = NO;
-        background.contentView = [SOCBlurProbePattern new];
+        background.contentView = [GennieBlurProbePattern new];
         [background orderFrontRegardless];
         NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(800, 400, 128, 128)
             styleMask:NSWindowStyleMaskBorderless backing:NSBackingStoreBuffered defer:NO];
@@ -62,7 +62,7 @@ int main(int argc, const char *argv[]) {
         [glass setValue:content forKey:@"contentView"];
         [container addSubview:glass];
         window.contentView = container;
-        SOCNativeBlurProbe *face = [[SOCNativeBlurProbe alloc] initWithContainer:container glass:glass];
+        GennieNativeBlurProbe *face = [[GennieNativeBlurProbe alloc] initWithContainer:container glass:glass];
         [window orderFrontRegardless];
         __block NSUInteger stage = 0;
         __block BOOL passed = YES;
@@ -79,7 +79,7 @@ int main(int argc, const char *argv[]) {
         }];
         [NSTimer scheduledTimerWithTimeInterval:0.25 repeats:YES block:^(NSTimer *timer) {
             if (stage > 0) {
-                CALayer *layer = SOCGlassBlurLayer(glass.layer, 0);
+                CALayer *layer = GennieGlassBlurLayer(glass.layer, 0);
                 CALayer *presented = layer.presentationLayer ?: layer;
                 NSNumber *actual = [presented valueForKeyPath:@"filters.glassBackground.inputBlurRadius"];
                 int expected = radii[stage - 1];
@@ -104,7 +104,7 @@ int main(int argc, const char *argv[]) {
                 [background orderOut:nil];
                 exit(passed ? 0 : 1);
             }
-            soc_face_wallpaper_configure((__bridge void *)face, radii[stage], stage % 2 ? 0 : 2, 0, 0.75, 0.33, 0.12);
+            gennie_face_wallpaper_configure((__bridge void *)face, radii[stage], stage % 2 ? 0 : 2, 0, 0.75, 0.33, 0.12);
             // Reproducir cambio de geometría como en la respiración de la cara.
             [glass setValue:@(64.0 + (stage % 2) * 0.5) forKey:@"cornerRadius"];
             [face updateForWindow:window localFace:NSMakeRect(0, 0, 128, 128)];

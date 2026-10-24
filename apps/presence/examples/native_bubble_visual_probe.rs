@@ -1,6 +1,6 @@
 //! Sonda aislada de vidrio nativo con tres globos, sin DB, audio ni red.
 #[cfg(target_os = "macos")]
-use soc_presence::{ChatBubble, IndicatorBounds, PresenceWindow, TranscriptionSettings};
+use gennie_presence::{ChatBubble, IndicatorBounds, PresenceWindow, TranscriptionSettings};
 
 #[cfg(target_os = "macos")]
 #[allow(dead_code)]
@@ -8,7 +8,7 @@ use soc_presence::{ChatBubble, IndicatorBounds, PresenceWindow, TranscriptionSet
 mod desktop;
 
 #[cfg(target_os = "macos")]
-fn main() -> soc_core::Result<()> {
+fn main() -> gennie_core::Result<()> {
     use slint::{
         ComponentHandle, Model, ModelRc, VecModel,
         winit_030::{WinitWindowAccessor, winit::dpi::LogicalPosition},
@@ -26,7 +26,7 @@ fn main() -> soc_core::Result<()> {
             from_user: true,
         },
         ChatBubble {
-            title: "SOC".into(),
+            title: "Gennie".into(),
             text: "Pensando…".into(),
             from_user: false,
         },

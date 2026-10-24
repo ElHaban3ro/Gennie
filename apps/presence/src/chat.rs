@@ -91,8 +91,8 @@ impl Chat {
         let answer = answer::prepare(text);
         let id = self
             .decision
-            .unwrap_or_else(|| self.push("SOC", &answer.text));
-        self.update(id, "SOC", &answer.text, finished.then_some(now + ttl));
+            .unwrap_or_else(|| self.push("Gennie", &answer.text));
+        self.update(id, "Gennie", &answer.text, finished.then_some(now + ttl));
         if let Some(entry) = self.entries.iter_mut().find(|entry| entry.id == id) {
             if entry.pending_audio > 0 {
                 entry.expires = None;
@@ -138,7 +138,7 @@ impl Chat {
     pub fn loaded(&mut self, ttl: Duration, now: Instant) {
         // Una carga fría durante dictado no añade otro globo encima del usuario.
         if self.speech.is_none() || self.status.is_some() {
-            self.status("SOC", "Reconocimiento de voz listo", true, ttl, now);
+            self.status("Gennie", "Reconocimiento de voz listo", true, ttl, now);
         }
     }
     pub fn begin(&mut self, ttl: Duration, now: Instant) {
@@ -164,9 +164,9 @@ impl Chat {
     }
     pub fn progress(&mut self, text: &str, ttl: Duration, now: Instant) {
         if self.speech.is_some() {
-            self.speech("SOC", text, false, ttl, now);
+            self.speech("Gennie", text, false, ttl, now);
         } else {
-            self.status("SOC", text, false, ttl, now);
+            self.status("Gennie", text, false, ttl, now);
         }
     }
     pub fn error(&mut self, text: &str, ttl: Duration, now: Instant) {

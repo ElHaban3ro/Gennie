@@ -1,4 +1,4 @@
-use soc_core::Result;
+use gennie_core::Result;
 use std::ffi::c_void;
 
 #[link(name = "ApplicationServices", kind = "framework")]

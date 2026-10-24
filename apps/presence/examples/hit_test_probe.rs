@@ -1,11 +1,11 @@
-//! Superficie aislada de verificación manual, nunca parte del binario soc.
+//! Superficie aislada de verificación manual, nunca parte del binario gennie.
 use slint::{
     ComponentHandle,
     winit_030::{WinitWindowAccessor, winit},
 };
 slint::slint! {
     export component Probe inherits Window {
-        title: "soc · click-through probe"; no-frame: true;
+        title: "gennie · click-through probe"; no-frame: true;
         width: 224px; height: 256px;
         in-out property <int> clicks: 0;
         background: #dedede;

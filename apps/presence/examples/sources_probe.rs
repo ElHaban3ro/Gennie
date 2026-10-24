@@ -1,10 +1,10 @@
 //! Captura aislada del globo con fuentes, sin ventana del sistema ni DB.
+use gennie_presence::{ChatBubble, ChatSource, PresenceWindow};
 use slint::platform::software_renderer::{
     MinimalSoftwareWindow, PremultipliedRgbaColor, RepaintBufferType, TargetPixel,
 };
 use slint::platform::{Platform, PlatformError, PointerEventButton, WindowAdapter, WindowEvent};
 use slint::{ComponentHandle, LogicalPosition, ModelRc, PhysicalSize, VecModel};
-use soc_presence::{ChatBubble, ChatSource, PresenceWindow};
 use std::{cell::RefCell, io::Write, rc::Rc};
 
 const WIDTH: u32 = 568;
@@ -46,7 +46,7 @@ impl TargetPixel for Pixel {
     }
 }
 
-fn main() -> soc_core::Result<()> {
+fn main() -> gennie_core::Result<()> {
     let path = std::env::args_os()
         .nth(1)
         .ok_or("Falta ruta PPM de salida")?;
@@ -57,7 +57,7 @@ fn main() -> soc_core::Result<()> {
     ui.set_active(true);
     ui.set_reduced_motion(true);
     ui.set_chat_bubbles(ModelRc::from(Rc::new(VecModel::from(vec![ChatBubble {
-        title: "SOC".into(),
+        title: "Gennie".into(),
         text: "La serpiente más larga medida fue una pitón reticulada de 7,22 metros. La anaconda verde suele ser más pesada.".into(),
         from_user: false,
     }]))));

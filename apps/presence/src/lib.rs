@@ -8,8 +8,8 @@ mod repository;
 #[cfg(target_os = "macos")]
 mod status_menu;
 mod transcription;
+use gennie_core::{AppModule, AppState, Migration, Result};
 use slint::{ComponentHandle, Model};
-use soc_core::{AppModule, AppState, Migration, Result};
 use std::sync::{
     Mutex,
     mpsc::{self, Receiver, SyncSender},
@@ -144,24 +144,24 @@ impl PresenceModule {
     pub fn run_with_transcription(
         &self,
         state: &AppState,
-        module: Option<&soc_transcription::TranscriptionModule>,
+        module: Option<&gennie_transcription::TranscriptionModule>,
     ) -> Result<()> {
         self.run_with_llm(state, module, None)
     }
     pub fn run_with_llm(
         &self,
         state: &AppState,
-        module: Option<&soc_transcription::TranscriptionModule>,
-        llm: Option<&soc_llm::LlmModule>,
+        module: Option<&gennie_transcription::TranscriptionModule>,
+        llm: Option<&gennie_llm::LlmModule>,
     ) -> Result<()> {
         self.run_with_tts(state, module, llm, None)
     }
     pub fn run_with_tts(
         &self,
         state: &AppState,
-        module: Option<&soc_transcription::TranscriptionModule>,
-        llm: Option<&soc_llm::LlmModule>,
-        tts: Option<&soc_tts::TtsModule>,
+        module: Option<&gennie_transcription::TranscriptionModule>,
+        llm: Option<&gennie_llm::LlmModule>,
+        tts: Option<&gennie_tts::TtsModule>,
     ) -> Result<()> {
         desktop::initialize()?;
         let reduced = repository::load(&state.db)?;
@@ -225,7 +225,7 @@ impl PresenceModule {
                                                 let (title, from_user, system) =
                                                     match message.speaker.as_str() {
                                                         "user" => ("Tú", true, false),
-                                                        "assistant" => ("SOC", false, false),
+                                                        "assistant" => ("Gennie", false, false),
                                                         _ => ("Actividad", false, true),
                                                     };
                                                 let prepared = if from_user || system {
@@ -392,7 +392,7 @@ impl PresenceModule {
                 {
                     match desktop::with_drag(&click_gesture, |gesture| {
                         gesture.update(ui.window())?;
-                        Ok::<_, soc_core::Error>(gesture.was_moved())
+                        Ok::<_, gennie_core::Error>(gesture.was_moved())
                     }) {
                         Some(Ok(false)) => {}
                         Some(Err(error)) => {
@@ -701,18 +701,18 @@ impl PresenceModule {
 #[cfg(test)]
 mod worker_tests {
     use super::*;
-    use soc_core::AppState;
-    use soc_core::{Database, Shutdown};
+    use gennie_core::AppState;
+    use gennie_core::{Database, Shutdown};
     use std::sync::Arc;
     fn state() -> AppState {
         AppState {
-            config: Arc::new(soc_core_config()),
+            config: Arc::new(gennie_core_config()),
             db: Database::memory().unwrap(),
             shutdown: Shutdown::default(),
         }
     }
-    fn soc_core_config() -> soc_config::Config {
-        soc_config::Config {
+    fn gennie_core_config() -> gennie_config::Config {
+        gennie_config::Config {
             database_path: "unused".into(),
             db_busy_timeout_ms: 50,
         }

@@ -4,10 +4,10 @@
 #[path = "../src/desktop.rs"]
 mod desktop;
 #[cfg(target_os = "macos")]
-use soc_presence::{IndicatorBounds, PresenceWindow, TranscriptionSettings};
+use gennie_presence::{IndicatorBounds, PresenceWindow, TranscriptionSettings};
 
 #[cfg(target_os = "macos")]
-fn main() -> soc_core::Result<()> {
+fn main() -> gennie_core::Result<()> {
     use slint::{
         ComponentHandle,
         winit_030::{WinitWindowAccessor, winit::event::WindowEvent},

@@ -24,7 +24,7 @@ Audio sintético: siete frases generadas con Monica, convertidas a mono 16 kHz y
 
 Las seis transcripciones no vacías se entregaron al perfil tipado en preview: una de las siete salidas completas coincidió con la ruta/acción esperada y cero acciones para ejemplos no ejecutables. Las tres órdenes positivas quedaron en aclaración. Evidencia: [audio → decisión](semantic-synthetic-voice.json), [frases difíciles](semantic-challenge.json). La transcripción vacía se conserva como no_speech y no se envía a Laya.
 
-La revisión física se ejecuta después con `cargo run --locked -p soc -- --voice-review`: SQLite en memoria, Ctrl+Option+Shift+R, solo preview, tres minutos y cierre propio. La entrada es la predeterminada y los permisos pertenecen al ejecutable realmente iniciado. No garantiza un atajo/dispositivo/permisos que aún no se han observado.
+La revisión física se ejecuta después con `cargo run --locked -p gennie -- --voice-review`: SQLite en memoria, Ctrl+Option+Shift+R, solo preview, tres minutos y cierre propio. La entrada es la predeterminada y los permisos pertenecen al ejecutable realmente iniciado. No garantiza un atajo/dispositivo/permisos que aún no se han observado.
 
 Reproducir:
 
@@ -32,14 +32,14 @@ Reproducir:
 python3 -m unittest discover -s apps/decisions/python -p 'test_*.py'
 python3 scripts/check_decision_library.py --jsonl /ruta/library_all.jsonl --csv /ruta/library_all.csv --split .verification/decision-domain-typed/split.json
 /ruta/.venv/bin/python scripts/train_decisions.py --model /ruta/multilingual --library /ruta/library_all.jsonl --output .verification/decision-domain-typed --finetune --typed --epochs 3
-/ruta/.venv/bin/python scripts/evaluate_decisions.py --model /ruta/multilingual --adapter /ruta/adaptacion --library /ruta/library_all.jsonl --dataset challenge --limit 210 --output /tmp/soc-review.json
+/ruta/.venv/bin/python scripts/evaluate_decisions.py --model /ruta/multilingual --adapter /ruta/adaptacion --library /ruta/library_all.jsonl --dataset challenge --limit 210 --output /tmp/gennie-review.json
 /ruta/.venv/bin/python scripts/evaluate_decision_gate.py --model /ruta/multilingual --library /ruta/library_all.jsonl --output .verification/decision-domain-typed
-python3 scripts/review_voice_pipeline.py --nemotron /ruta/nemotron.gguf --output /tmp/soc-voice-review.json
-/ruta/.venv/bin/python scripts/evaluate_voice_decisions.py --model /ruta/multilingual --adapter /ruta/adaptacion --fixture /tmp/soc-voice-review.json --output /tmp/soc-voice-decisions.json
+python3 scripts/review_voice_pipeline.py --nemotron /ruta/nemotron.gguf --output /tmp/gennie-voice-review.json
+/ruta/.venv/bin/python scripts/evaluate_voice_decisions.py --model /ruta/multilingual --adapter /ruta/adaptacion --fixture /tmp/gennie-voice-review.json --output /tmp/gennie-voice-decisions.json
 ```
 
 No hubo reinicio de la instancia ajena ni cambios en el checkpoint original. Compilación, inferencia de texto, inferencia de audio sintético y prueba física de voz son evidencias distintas.
 
 Verificación final del código: 41 pruebas Rust y 15 Python; cargo fmt, test, clippy con warnings como errores y build --locked completados. Comprobador documental y correspondencia CSV/JSONL con grupos disjuntos correctos. La evidencia de ejecución nativa de D-016 pertenece al controlador anterior; esta campaña no prueba efectos del nuevo intérprete semántico en apps reales.
 
-Sonda final Rust → helper real → Laya base: `target/debug/soc --decide "abre Finder"` devolvió ambiguous (0,3221), verified=false. SQLite en memoria, sin ejecución ni micrófono; el helper terminó. Confirma el recorrido IPC y también la falta de cobertura en una orden sencilla. La instancia existente PID 63965 continuó activa.
+Sonda final Rust → helper real → Laya base: `target/debug/gennie --decide "abre Finder"` devolvió ambiguous (0,3221), verified=false. SQLite en memoria, sin ejecución ni micrófono; el helper terminó. Confirma el recorrido IPC y también la falta de cobertura en una orden sencilla. La instancia existente PID 63965 continuó activa.

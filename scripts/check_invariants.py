@@ -14,7 +14,7 @@ for member in workspace['workspace']['members']:
     for dependency, specification in manifest.get('dependencies', {}).items():
         assert specification.get('workspace') is True, f'Dependencia no centralizada: {member}/{dependency}'
         if member.startswith('kernel/'):
-            assert dependency not in ('soc-presence', 'soc'), f'Kernel depende de app: {member}'
+            assert dependency not in ('gennie-presence', 'gennie'), f'Kernel depende de app: {member}'
 for document in [ROOT/'AGENTS.md', ROOT/'README.md', *ROOT.glob('docs/**/*.md')]:
     for link in re.findall(r'\]\(([^)]+)\)', document.read_text()):
         if '://' in link or link.startswith('#'):

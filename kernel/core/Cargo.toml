@@ -1,10 +1,10 @@
 [package]
-name = "soc-core"
+name = "gennie-core"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
-soc-config.workspace = true
-soc-db.workspace = true
+gennie-config.workspace = true
+gennie-db.workspace = true

@@ -15,8 +15,8 @@ pub struct Config {
 pub struct Secrets;
 
 pub const VARIABLES: &[(&str, Option<&str>)] = &[
-    ("SOC_DATABASE_PATH", None),
-    ("SOC_DB_BUSY_TIMEOUT_MS", Some("500")),
+    ("GENNIE_DATABASE_PATH", None),
+    ("GENNIE_DB_BUSY_TIMEOUT_MS", Some("500")),
 ];
 
 impl Config {
@@ -50,20 +50,20 @@ impl Config {
 
     pub fn from_values(values: &BTreeMap<String, String>) -> Result<Self> {
         let path = values
-            .get("SOC_DATABASE_PATH")
+            .get("GENNIE_DATABASE_PATH")
             .filter(|s| !s.trim().is_empty())
-            .ok_or("SOC_DATABASE_PATH es obligatoria y no puede estar vacía")?;
+            .ok_or("GENNIE_DATABASE_PATH es obligatoria y no puede estar vacía")?;
         if path == ":memory:" {
-            return Err("SOC_DATABASE_PATH debe ser un archivo persistente".into());
+            return Err("GENNIE_DATABASE_PATH debe ser un archivo persistente".into());
         }
         let timeout = values
-            .get("SOC_DB_BUSY_TIMEOUT_MS")
+            .get("GENNIE_DB_BUSY_TIMEOUT_MS")
             .map(String::as_str)
             .unwrap_or("500")
             .parse::<u64>()
-            .map_err(|_| "SOC_DB_BUSY_TIMEOUT_MS debe ser un entero")?;
+            .map_err(|_| "GENNIE_DB_BUSY_TIMEOUT_MS debe ser un entero")?;
         if !(1..=5000).contains(&timeout) {
-            return Err("SOC_DB_BUSY_TIMEOUT_MS debe estar entre 1 y 5000".into());
+            return Err("GENNIE_DB_BUSY_TIMEOUT_MS debe estar entre 1 y 5000".into());
         }
         Ok(Self {
             database_path: path.into(),
@@ -79,12 +79,12 @@ mod tests {
     fn validates_required_path_and_timeout() {
         let mut values = BTreeMap::new();
         assert!(Config::from_values(&values).is_err());
-        values.insert("SOC_DATABASE_PATH".into(), "test.sqlite3".into());
+        values.insert("GENNIE_DATABASE_PATH".into(), "test.sqlite3".into());
         assert_eq!(
             Config::from_values(&values).unwrap().db_busy_timeout_ms,
             500
         );
-        values.insert("SOC_DB_BUSY_TIMEOUT_MS".into(), "0".into());
+        values.insert("GENNIE_DB_BUSY_TIMEOUT_MS".into(), "0".into());
         assert!(Config::from_values(&values).is_err());
     }
     #[test]
@@ -105,14 +105,14 @@ mod tests {
     }
     #[test]
     fn environment_overrides_file_without_global_mutation() {
-        let path = std::env::temp_dir().join(format!("soc-env-{}", std::process::id()));
+        let path = std::env::temp_dir().join(format!("gennie-env-{}", std::process::id()));
         std::fs::write(
             &path,
-            "SOC_DATABASE_PATH=file.sqlite3\nSOC_DB_BUSY_TIMEOUT_MS=100\n",
+            "GENNIE_DATABASE_PATH=file.sqlite3\nGENNIE_DB_BUSY_TIMEOUT_MS=100\n",
         )
         .unwrap();
         let (config, _) = Config::load_with(&path, |key| {
-            if key == "SOC_DATABASE_PATH" {
+            if key == "GENNIE_DATABASE_PATH" {
                 Some("export.sqlite3".into())
             } else {
                 None

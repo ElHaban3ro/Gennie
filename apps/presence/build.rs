@@ -4,7 +4,7 @@ fn main() {
         let out = std::path::PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR ausente"));
         let source = "native/face_wallpaper.m";
         let object = out.join("face_wallpaper.o");
-        let archive = out.join("libsoc_face_wallpaper.a");
+        let archive = out.join("libgennie_face_wallpaper.a");
         let compile = std::process::Command::new("xcrun")
             .args([
                 "--sdk",
@@ -29,7 +29,7 @@ fn main() {
         assert!(link.success(), "No se pudo enlazar face_wallpaper.m");
         println!("cargo:rerun-if-changed={source}");
         println!("cargo:rustc-link-search=native={}", out.display());
-        println!("cargo:rustc-link-lib=static=soc_face_wallpaper");
+        println!("cargo:rustc-link-lib=static=gennie_face_wallpaper");
         for framework in [
             "AppKit",
             "QuartzCore",

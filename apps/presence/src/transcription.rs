@@ -1,7 +1,7 @@
 use crate::{PresenceWindow, TranscriptionSettings};
+use gennie_core::{AppState, Result};
+use gennie_transcription::{Controller, Event, Mode, Settings, TranscriptionModule};
 use slint::{ComponentHandle, Model};
-use soc_core::{AppState, Result};
-use soc_transcription::{Controller, Event, Mode, Settings, TranscriptionModule};
 use std::{
     cell::{Cell, RefCell},
     collections::{HashMap, VecDeque},
@@ -12,7 +12,7 @@ use std::{
 fn queue_narration(
     messages: &mut crate::chat::Chat,
     queue: &mut VecDeque<(u64, String)>,
-    tts: Option<&soc_tts::Controller>,
+    tts: Option<&gennie_tts::Controller>,
     bubble_id: u64,
     text: &str,
 ) {
@@ -31,8 +31,8 @@ pub struct TranscriptionUi {
     timer: slint::Timer,
     controller: Rc<RefCell<Controller>>,
 }
-fn voice_model_indicator(status: soc_transcription::ModelStatus) -> (bool, &'static str) {
-    use soc_transcription::ModelStatus;
+fn voice_model_indicator(status: gennie_transcription::ModelStatus) -> (bool, &'static str) {
+    use gennie_transcription::ModelStatus;
     let text = match status {
         ModelStatus::Disabled => "Nemotron · reconocimiento de voz\nDesactivado",
         ModelStatus::Unloaded => "Nemotron · reconocimiento de voz\nDescargado de memoria",
@@ -43,8 +43,8 @@ fn voice_model_indicator(status: soc_transcription::ModelStatus) -> (bool, &'sta
     };
     (status == ModelStatus::Ready, text)
 }
-fn tts_model_indicator(status: soc_tts::ModelStatus) -> (bool, &'static str) {
-    use soc_tts::ModelStatus;
+fn tts_model_indicator(status: gennie_tts::ModelStatus) -> (bool, &'static str) {
+    use gennie_tts::ModelStatus;
     let text = match status {
         ModelStatus::Disabled => "Kokoro · síntesis de voz\nDesactivado",
         ModelStatus::Unloaded => "Kokoro · síntesis de voz\nDescargado de memoria",
@@ -54,12 +54,12 @@ fn tts_model_indicator(status: soc_tts::ModelStatus) -> (bool, &'static str) {
     };
     (status == ModelStatus::Ready, text)
 }
-fn update_voice_indicator(ui: &PresenceWindow, status: soc_transcription::ModelStatus) {
+fn update_voice_indicator(ui: &PresenceWindow, status: gennie_transcription::ModelStatus) {
     let (loaded, tooltip) = voice_model_indicator(status);
     ui.set_voice_model_loaded(loaded);
     ui.set_voice_model_tooltip(tooltip.into());
 }
-fn update_tts_indicator(ui: &PresenceWindow, status: soc_tts::ModelStatus) {
+fn update_tts_indicator(ui: &PresenceWindow, status: gennie_tts::ModelStatus) {
     let (loaded, tooltip) = tts_model_indicator(status);
     ui.set_tts_model_loaded(loaded);
     ui.set_tts_model_tooltip(tooltip.into());
@@ -72,7 +72,7 @@ fn populate(window: &TranscriptionSettings, controller: &Controller) {
     window.set_bubble_seconds(s.bubble_seconds as i32);
     window.set_unload_minutes(s.unload_seconds.div_ceil(60) as i32);
 }
-fn populate_llm(window: &TranscriptionSettings, settings: &soc_llm::Settings) {
+fn populate_llm(window: &TranscriptionSettings, settings: &gennie_llm::Settings) {
     window.set_llm_read_files(settings.read_files);
     window.set_llm_write_files(settings.write_files);
     window.set_llm_run_commands(settings.run_commands);
@@ -89,7 +89,7 @@ fn populate_llm(window: &TranscriptionSettings, settings: &soc_llm::Settings) {
 }
 fn refresh_microphones(window: &TranscriptionSettings, selected: Option<&str>) -> Result<()> {
     let mut names = vec!["Predeterminado del sistema".to_string()];
-    let devices = soc_transcription::input_devices();
+    let devices = gennie_transcription::input_devices();
     if let Ok(devices) = &devices {
         names.extend(devices.iter().cloned());
     }
@@ -132,8 +132,8 @@ impl TranscriptionUi {
         ui: &PresenceWindow,
         module: &TranscriptionModule,
         state: &AppState,
-        llm: Option<&soc_llm::LlmModule>,
-        tts: Option<&soc_tts::TtsModule>,
+        llm: Option<&gennie_llm::LlmModule>,
+        tts: Option<&gennie_tts::TtsModule>,
         history: crate::history::Writer,
     ) -> Result<Self> {
         let controller = Rc::new(RefCell::new(module.controller(state)?));
@@ -170,7 +170,7 @@ impl TranscriptionUi {
             if let (Some(window), Some(controller)) =
                 (weak_tts_settings.upgrade(), tts_save.as_ref())
             {
-                let next = soc_tts::Settings {
+                let next = gennie_tts::Settings {
                     enabled: window.get_tts_enabled(),
                     voice: match window.get_tts_voice_index() {
                         1 => "em_alex",
@@ -201,7 +201,7 @@ impl TranscriptionUi {
             if let (Some(window), Some(controller)) =
                 (weak_tts_settings.upgrade(), tts_preview.as_ref())
             {
-                let draft = soc_tts::Settings {
+                let draft = gennie_tts::Settings {
                     enabled: window.get_tts_enabled(),
                     voice: match window.get_tts_voice_index() {
                         1 => "em_alex",
@@ -260,7 +260,7 @@ impl TranscriptionUi {
         let weak = settings.as_weak();
         settings.on_save_llm(move || {
             if let (Some(window), Some(control)) = (weak.upgrade(), llm_control.as_ref()) {
-                let next = soc_llm::Settings {
+                let next = gennie_llm::Settings {
                     read_files: window.get_llm_read_files(),
                     write_files: window.get_llm_write_files(),
                     run_commands: window.get_llm_run_commands(),
@@ -361,7 +361,7 @@ impl TranscriptionUi {
         });
         populate(&settings, &controller.borrow());
         settings.set_status(controller.borrow().settings_status.clone().into());
-        settings.set_model_status("El modelo se carga al abrir soc".into());
+        settings.set_model_status("El modelo se carga al abrir gennie".into());
         let weak = settings.as_weak();
         let c = controller.clone();
         ui.on_transcription_settings(move || {
@@ -479,15 +479,15 @@ impl TranscriptionUi {
                     update_tts_indicator(&ui, controller.model_status());
                     for event in controller.poll() {
                         match event {
-                            soc_tts::Event::Started(id) => {
+                            gennie_tts::Event::Started(id) => {
                                 if pending_for_timer_audio.borrow().contains_key(&id) {
                                     ui.set_active(true);
                                     if let Some(window) = weak_settings.upgrade() {
-                                        window.set_tts_status("SOC está hablando…".into());
+                                        window.set_tts_status("Gennie está hablando…".into());
                                     }
                                 }
                             }
-                            soc_tts::Event::Finished(id) => {
+                            gennie_tts::Event::Finished(id) => {
                                 if let Some(bubble_id) =
                                     pending_for_timer_audio.borrow_mut().remove(&id)
                                 {
@@ -497,7 +497,7 @@ impl TranscriptionUi {
                                     }
                                 }
                             }
-                            soc_tts::Event::Failed(id, error) => {
+                            gennie_tts::Event::Failed(id, error) => {
                                 if let Some(bubble_id) =
                                     pending_for_timer_audio.borrow_mut().remove(&id)
                                 {
@@ -516,7 +516,7 @@ impl TranscriptionUi {
                                     now,
                                 );
                             }
-                            soc_tts::Event::Interrupted(id) => {
+                            gennie_tts::Event::Interrupted(id) => {
                                 if let Some(bubble_id) =
                                     pending_for_timer_audio.borrow_mut().remove(&id)
                                 {
@@ -526,7 +526,7 @@ impl TranscriptionUi {
                                     window.set_tts_status("Voz interrumpida".into());
                                 }
                             }
-                            soc_tts::Event::Saved(saved) => {
+                            gennie_tts::Event::Saved(saved) => {
                                 if let Some(window) = weak_settings.upgrade() {
                                     window.set_tts_saving(false);
                                     window.set_tts_enabled(saved.enabled);
@@ -540,10 +540,10 @@ impl TranscriptionUi {
                                     window.set_tts_unload_minutes(
                                         saved.unload_seconds.unwrap_or(600).div_ceil(60) as i32,
                                     );
-                                    window.set_tts_status("Voz de SOC guardada".into());
+                                    window.set_tts_status("Voz de Gennie guardada".into());
                                 }
                             }
-                            soc_tts::Event::SaveFailed(error) => {
+                            gennie_tts::Event::SaveFailed(error) => {
                                 if let Some(window) = weak_settings.upgrade() {
                                     window.set_tts_saving(false);
                                     window.set_tts_status(
@@ -551,7 +551,7 @@ impl TranscriptionUi {
                                     );
                                 }
                             }
-                            soc_tts::Event::PreloadFailed(error) => {
+                            gennie_tts::Event::PreloadFailed(error) => {
                                 if let Some(window) = weak_settings.upgrade() {
                                     window.set_tts_status(
                                         format!("Voz no disponible: {error}").into(),
@@ -572,25 +572,25 @@ impl TranscriptionUi {
                 if let Some(controller) = &llm_controller {
                     for event in controller.poll() {
                         match event {
-                            soc_llm::Event::Connecting => {
+                            gennie_llm::Event::Connecting => {
                                 if let Some(window) = weak_settings.upgrade() {
                                     window.set_llm_busy(true);
                                     window.set_llm_status("Conectando…".into());
                                 }
                             }
-                            soc_llm::Event::Connected => {
+                            gennie_llm::Event::Connected => {
                                 if let Some(window) = weak_settings.upgrade() {
                                     window.set_llm_connected(true);
                                     window.set_llm_status("Conversación disponible".into());
                                 }
                             }
-                            soc_llm::Event::Disconnected(error) => {
+                            gennie_llm::Event::Disconnected(error) => {
                                 if let Some(window) = weak_settings.upgrade() {
                                     window.set_llm_connected(false);
                                     window.set_llm_status(error.into());
                                 }
                             }
-                            soc_llm::Event::ReplyDelta(delta) => {
+                            gennie_llm::Event::ReplyDelta(delta) => {
                                 partial_reply.push_str(&delta);
                                 if !partial_reply.trim().is_empty() {
                                     let bubble_id =
@@ -608,7 +608,7 @@ impl TranscriptionUi {
                                     }
                                 }
                             }
-                            soc_llm::Event::Reply(reply) => {
+                            gennie_llm::Event::Reply(reply) => {
                                 let bubble_id = messages.decision(&reply, true, ttl, now);
                                 if !narration_suppressed.get() {
                                     let remaining =
@@ -636,7 +636,7 @@ impl TranscriptionUi {
                                     window.set_llm_status("Conversación disponible".into());
                                 }
                             }
-                            soc_llm::Event::NewChatReady => {
+                            gennie_llm::Event::NewChatReady => {
                                 messages.decision("Nuevo chat iniciado", true, ttl, now);
                                 if let Err(error) =
                                     history_for_timer.save("system", "Nuevo chat iniciado")
@@ -647,7 +647,7 @@ impl TranscriptionUi {
                                     window.set_llm_status("Nuevo chat iniciado".into());
                                 }
                             }
-                            soc_llm::Event::Failed(error) => {
+                            gennie_llm::Event::Failed(error) => {
                                 if !partial_reply.is_empty() {
                                     messages.decision(&partial_reply, true, ttl, now);
                                     partial_reply.clear();
@@ -659,7 +659,7 @@ impl TranscriptionUi {
                                     messages.status("Chat", save_error, true, ttl, now);
                                 }
                             }
-                            soc_llm::Event::SettingsSaved(saved) => {
+                            gennie_llm::Event::SettingsSaved(saved) => {
                                 if let Some(window) = weak_settings.upgrade() {
                                     window.set_llm_saving(false);
                                     populate_llm(&window, &saved);
@@ -668,7 +668,7 @@ impl TranscriptionUi {
                                     );
                                 }
                             }
-                            soc_llm::Event::SettingsSaveFailed(error) => {
+                            gennie_llm::Event::SettingsSaveFailed(error) => {
                                 if let Some(window) = weak_settings.upgrade() {
                                     window.set_llm_saving(false);
                                     window.set_llm_settings_status(
@@ -897,7 +897,7 @@ mod tests {
 
     #[test]
     fn only_loaded_models_fill_the_indicators() {
-        use soc_transcription::ModelStatus as VoiceStatus;
+        use gennie_transcription::ModelStatus as VoiceStatus;
         for status in [
             VoiceStatus::Disabled,
             VoiceStatus::Unloaded,
@@ -908,7 +908,7 @@ mod tests {
             assert!(!voice_model_indicator(status).0, "{status:?}");
         }
         assert!(voice_model_indicator(VoiceStatus::Ready).0);
-        use soc_tts::ModelStatus as TtsStatus;
+        use gennie_tts::ModelStatus as TtsStatus;
         for status in [
             TtsStatus::Disabled,
             TtsStatus::Unloaded,

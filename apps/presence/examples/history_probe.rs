@@ -1,10 +1,10 @@
 //! Captura del panel real de Slint, sin ventana del sistema ni datos personales.
+use gennie_presence::{ChatSource, HistoryMessage, PresenceWindow};
 use slint::platform::software_renderer::{
     MinimalSoftwareWindow, PremultipliedRgbaColor, RepaintBufferType, TargetPixel,
 };
 use slint::platform::{Platform, PlatformError, PointerEventButton, WindowAdapter, WindowEvent};
 use slint::{ComponentHandle, LogicalPosition, ModelRc, PhysicalSize, VecModel};
-use soc_presence::{ChatSource, HistoryMessage, PresenceWindow};
 use std::{cell::Cell, io::Write, rc::Rc};
 
 const WIDTH: u32 = 568;
@@ -60,7 +60,7 @@ fn click(ui: &PresenceWindow, x: f32, y: f32) {
     });
 }
 
-fn main() -> soc_core::Result<()> {
+fn main() -> gennie_core::Result<()> {
     let path = std::env::args_os()
         .nth(1)
         .ok_or("Falta ruta PPM de salida")?;
@@ -97,10 +97,10 @@ fn main() -> soc_core::Result<()> {
     // La lectura de SQLite llega después de abrir el cajón; reproducir esa actualización.
     let sample_messages = vec![
         HistoryMessage { title: "Tú".into(), time: "13/10 · 10:24 UTC".into(), text: "¿Cuál es el ave más grande del mundo?".into(), from_user: true, system: false, sources: ModelRc::default() },
-        HistoryMessage { title: "SOC".into(), time: "13/10 · 10:24 UTC".into(), text: "Por masa y altura, es el avestruz. Puede alcanzar unos 2,8 metros y pesar más de 150 kg.".into(), from_user: false, system: false, sources: ModelRc::default() },
+        HistoryMessage { title: "Gennie".into(), time: "13/10 · 10:24 UTC".into(), text: "Por masa y altura, es el avestruz. Puede alcanzar unos 2,8 metros y pesar más de 150 kg.".into(), from_user: false, system: false, sources: ModelRc::default() },
         HistoryMessage { title: "Actividad".into(), time: "".into(), text: "Nuevo chat iniciado".into(), from_user: false, system: true, sources: ModelRc::default() },
         HistoryMessage { title: "Tú".into(), time: "13/10 · 10:26 UTC".into(), text: "¿Y cuál tiene mayor envergadura?".into(), from_user: true, system: false, sources: ModelRc::default() },
-        HistoryMessage { title: "SOC".into(), time: "13/10 · 10:26 UTC".into(), text: "El albatros viajero tiene la mayor envergadura entre las aves vivas, con registros de más de 3,5 metros.".into(), from_user: false, system: false, sources: ModelRc::new(VecModel::from(vec![ChatSource { label: "Aves del mundo".into(), url: "https://example.com/aves".into() }])) },
+        HistoryMessage { title: "Gennie".into(), time: "13/10 · 10:26 UTC".into(), text: "El albatros viajero tiene la mayor envergadura entre las aves vivas, con registros de más de 3,5 metros.".into(), from_user: false, system: false, sources: ModelRc::new(VecModel::from(vec![ChatSource { label: "Aves del mundo".into(), url: "https://example.com/aves".into() }])) },
     ];
     ui.set_history_messages(ModelRc::new(VecModel::from(sample_messages.clone())));
     // Slint calcula la altura final durante el siguiente render, como en la app.

@@ -3,7 +3,7 @@ mod settings;
 
 pub use settings::Settings;
 
-use soc_core::{AppModule, AppState, Migration, Result};
+use gennie_core::{AppModule, AppState, Migration, Result};
 use std::{
     sync::{
         Arc, Mutex,
@@ -244,7 +244,7 @@ impl LlmModule {
 impl Controller {
     fn submit(&self, command: Command) -> Result<()> {
         if self.pending.swap(true, Ordering::SeqCst) {
-            return Err("SOC aún está respondiendo".into());
+            return Err("Gennie aún está respondiendo".into());
         }
         if self.sender.try_send(command).is_err() {
             self.pending.store(false, Ordering::SeqCst);
@@ -292,9 +292,9 @@ impl Controller {
 mod tests {
     use super::*;
     use codex::{load_thread, save_thread};
-    use soc_config::Config;
-    use soc_core::Shutdown;
-    use soc_db::Database;
+    use gennie_config::Config;
+    use gennie_core::Shutdown;
+    use gennie_db::Database;
     use std::{path::PathBuf, sync::Arc};
 
     #[test]
@@ -321,7 +321,7 @@ mod tests {
     #[test]
     fn conversation_id_is_reused_after_reopening_database_handle() {
         let path = std::env::temp_dir().join(format!(
-            "soc-llm-{}-{}.sqlite3",
+            "gennie-llm-{}-{}.sqlite3",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -370,7 +370,7 @@ mod tests {
     #[test]
     fn legacy_memories_are_removed_without_losing_the_conversation() {
         let path = std::env::temp_dir().join(format!(
-            "soc-llm-remove-memory-{}-{}.sqlite3",
+            "gennie-llm-remove-memory-{}-{}.sqlite3",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -442,7 +442,7 @@ mod tests {
         let db = Database::memory().unwrap();
         let module = LlmModule::default();
         db.migrate(module.name(), module.migrations()).unwrap();
-        let cwd = std::env::temp_dir().join(format!("soc-llm-probe-{}", std::process::id()));
+        let cwd = std::env::temp_dir().join(format!("gennie-llm-probe-{}", std::process::id()));
         std::fs::create_dir_all(&cwd).unwrap();
         let mut session = codex::Session::connect_in(
             &db,
@@ -485,7 +485,7 @@ mod tests {
         let module = LlmModule::default();
         db.migrate(module.name(), module.migrations()).unwrap();
         let base = std::env::temp_dir().join(format!(
-            "soc-llm-web-probe-{}-{}",
+            "gennie-llm-web-probe-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -515,7 +515,7 @@ mod tests {
         db.migrate(module.name(), module.migrations()).unwrap();
         save_thread(&db, "missing-legacy-thread").unwrap();
         let base = std::env::temp_dir().join(format!(
-            "soc-llm-new-chat-probe-{}-{}",
+            "gennie-llm-new-chat-probe-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

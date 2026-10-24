@@ -1,7 +1,7 @@
 use crate::Settings;
+use gennie_core::Result;
+use gennie_db::Database;
 use serde_json::{Value, json};
-use soc_core::Result;
-use soc_db::Database;
 use std::{
     io::{BufRead, BufReader, Write},
     path::{Path, PathBuf},
@@ -17,8 +17,8 @@ use std::{
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(30);
 const TURN_TIMEOUT: Duration = Duration::from_secs(180);
 const MAX_REPLY_BYTES: usize = 32_000;
-const VOICE_PROFILE: &str = "soc_voice";
-const VOICE_INSTRUCTIONS: &str = "Eres SOC, un asistente conversacional en español. Recibes transcripciones de voz que pueden contener errores: si el tema no está claro, pide una aclaración breve antes de asumirlo. Responde directamente y con brevedad para un globo de voz. Usa la búsqueda web cuando el usuario pida buscar o cuando necesites información actual; cita las fuentes al final con títulos cortos y enlaces Markdown. No afirmes que Internet no está disponible sin intentar la búsqueda web. Respeta los permisos configurados por el usuario en SOC. Los plugins y apps conectadas no están disponibles en esta conversación.";
+const VOICE_PROFILE: &str = "gennie_voice";
+const VOICE_INSTRUCTIONS: &str = "Eres Gennie, un asistente conversacional en español. Recibes transcripciones de voz que pueden contener errores: si el tema no está claro, pide una aclaración breve antes de asumirlo. Responde directamente y con brevedad para un globo de voz. Usa la búsqueda web cuando el usuario pida buscar o cuando necesites información actual; cita las fuentes al final con títulos cortos y enlaces Markdown. No afirmes que Internet no está disponible sin intentar la búsqueda web. Respeta los permisos configurados por el usuario en Gennie. Los plugins y apps conectadas no están disponibles en esta conversación.";
 
 fn turn_start_request(thread_id: &str, cwd: &Path, model: &str, effort: &str, text: &str) -> Value {
     json!({"jsonrpc":"2.0","id":4,"method":"turn/start","params":{
@@ -150,10 +150,10 @@ pub struct Session {
 
 impl Session {
     pub fn connect(db: &Database, process: ProcessHandle, settings: &Settings) -> Result<Self> {
-        Self::connect_in(db, process, soc_directory()?, settings)
+        Self::connect_in(db, process, gennie_directory()?, settings)
     }
     pub fn connect_new(db: &Database, process: ProcessHandle, settings: &Settings) -> Result<Self> {
-        Self::connect_in_with_mode(db, process, soc_directory()?, true, settings)
+        Self::connect_in_with_mode(db, process, gennie_directory()?, true, settings)
     }
     #[cfg(test)]
     pub(crate) fn connect_new_in(
@@ -193,9 +193,9 @@ impl Session {
             "-c",
             &filesystem,
             "-c",
-            "default_permissions=\"soc_voice\"",
+            "default_permissions=\"gennie_voice\"",
             "-c",
-            "permissions.soc_voice.network.enabled=false",
+            "permissions.gennie_voice.network.enabled=false",
             "-c",
             "features.plugins=false",
             "-c",
@@ -252,7 +252,7 @@ impl Session {
             effort: settings.effort.clone(),
             settings: settings.clone(),
         };
-        session.send(json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"soc","title":"soc","version":env!("CARGO_PKG_VERSION")},"capabilities":{"experimentalApi":true}}}))?;
+        session.send(json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"gennie","title":"Gennie","version":env!("CARGO_PKG_VERSION")},"capabilities":{"experimentalApi":true}}}))?;
         session.response(1, HANDSHAKE_TIMEOUT)?;
         session.send(json!({"jsonrpc":"2.0","method":"initialized","params":{}}))?;
         session.send(
@@ -466,7 +466,7 @@ fn filesystem_config(settings: &Settings, binary_rule: &str) -> String {
         "deny"
     };
     format!(
-        "permissions.soc_voice.filesystem={{\":root\"=\"{root}\",\":minimal\"=\"read\",{binary_rule}=\"read\"}}"
+        "permissions.gennie_voice.filesystem={{\":root\"=\"{root}\",\":minimal\"=\"read\",{binary_rule}=\"read\"}}"
     )
 }
 fn instructions(settings: &Settings) -> String {
@@ -497,7 +497,7 @@ impl Drop for Session {
         }
     }
 }
-fn soc_directory() -> Result<PathBuf> {
+fn gennie_directory() -> Result<PathBuf> {
     let home = std::env::var_os("HOME").ok_or("No se encuentra HOME para Codex")?;
     let path = Path::new(&home).join("Library/Application Support/soc/codex");
     std::fs::create_dir_all(&path)?;
@@ -600,7 +600,7 @@ mod tests {
         ] {
             let request = turn_start_request(
                 "thread-1",
-                std::path::Path::new("/tmp/soc-test"),
+                std::path::Path::new("/tmp/gennie-test"),
                 "gpt-6-luna",
                 "low",
                 text,

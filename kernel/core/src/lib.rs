@@ -1,6 +1,6 @@
-use soc_config::Config;
-pub use soc_config::{Error, Result};
-pub use soc_db::{Database, Migration};
+use gennie_config::Config;
+pub use gennie_config::{Error, Result};
+pub use gennie_db::{Database, Migration};
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},

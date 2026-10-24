@@ -1,4 +1,4 @@
-use soc_db::{Database, Result, params};
+use gennie_db::{Database, Result, params};
 pub fn load(db: &Database) -> Result<bool> {
     db.with_connection(|c| {
         Ok(c.query_row(
@@ -11,7 +11,7 @@ pub fn load(db: &Database) -> Result<bool> {
 pub fn save(db: &Database, reduced: bool) -> Result<()> {
     db.with_connection(|c|{c.execute("UPDATE presence_preferences SET reduced_motion=?1, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=1",params![reduced])?;Ok(())})
 }
-pub(crate) fn load_appearance(db: &Database) -> soc_core::Result<crate::appearance::Settings> {
+pub(crate) fn load_appearance(db: &Database) -> gennie_core::Result<crate::appearance::Settings> {
     let value = db.with_connection(|c| {
         Ok(c.query_row(
             "SELECT blur_radius, saturation_percent, brightness_percent, tint_percent, border_percent, border_width_hundredths, transition_ms FROM presence_appearance WHERE id=1",
@@ -29,7 +29,7 @@ pub(crate) fn load_appearance(db: &Database) -> soc_core::Result<crate::appearan
 pub(crate) fn save_appearance(
     db: &Database,
     value: crate::appearance::Settings,
-) -> soc_core::Result<()> {
+) -> gennie_core::Result<()> {
     value.validate()?;
     db.with_connection(|c| {
         c.execute(
@@ -43,13 +43,13 @@ pub(crate) fn save_appearance(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soc_core::AppModule;
+    use gennie_core::AppModule;
     #[test]
     fn appearance_default_upgrade_preserves_custom_profile() {
         let migrations = crate::PresenceModule::default().migrations();
         for (version, custom) in [(4, false), (4, true), (5, false), (5, true)] {
             let path = std::env::temp_dir().join(format!(
-                "soc-appearance-upgrade-{}-{version}-{custom}.sqlite3",
+                "gennie-appearance-upgrade-{}-{version}-{custom}.sqlite3",
                 std::process::id()
             ));
             let db = Database::open(&path, 50).unwrap();
@@ -77,7 +77,7 @@ mod tests {
     #[test]
     fn preference_survives_reopening() {
         let path = std::env::temp_dir().join(format!(
-            "soc-preferences-{}-{:?}.sqlite3",
+            "gennie-preferences-{}-{:?}.sqlite3",
             std::process::id(),
             std::thread::current().id()
         ));

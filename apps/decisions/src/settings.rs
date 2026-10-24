@@ -1,5 +1,5 @@
-use soc_core::Result;
-use soc_db::{Database, params};
+use gennie_core::Result;
+use gennie_db::{Database, params};
 use std::{
     cell::{Cell, RefCell},
     sync::mpsc::{self, Receiver, Sender, SyncSender},
@@ -118,12 +118,14 @@ impl Client {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soc_core::AppModule;
+    use gennie_core::AppModule;
 
     #[test]
     fn settings_reopen_without_changing_attempts_and_reject_invalid_values() {
-        let path =
-            std::env::temp_dir().join(format!("soc-laya-settings-{}.sqlite3", std::process::id()));
+        let path = std::env::temp_dir().join(format!(
+            "gennie-laya-settings-{}.sqlite3",
+            std::process::id()
+        ));
         let db = Database::open(&path, 50).unwrap();
         let module = crate::DecisionsModule::default();
         db.migrate("decisions", &module.migrations()[..1]).unwrap();

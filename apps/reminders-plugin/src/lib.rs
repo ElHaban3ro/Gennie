@@ -1,8 +1,8 @@
-//! Integración local de SOC con Recordatorios mediante EventKit.
+//! Integración local de Gennie con Recordatorios mediante EventKit.
 //! Las operaciones son bloqueantes: los consumidores deben llamarlas fuera del hilo de Slint.
 
+use gennie_core::{AppModule, AppState, Result};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use soc_core::{AppModule, AppState, Result};
 use std::{
     io::{BufRead, BufReader, Write},
     path::PathBuf,
@@ -286,17 +286,17 @@ fn bridge_path() -> Result<PathBuf> {
     #[cfg(target_os = "macos")]
     {
         use std::{fs, os::unix::fs::PermissionsExt};
-        let bytes = include_bytes!(env!("SOC_REMINDERS_BRIDGE"));
+        let bytes = include_bytes!(env!("GENNIE_REMINDERS_BRIDGE"));
         let home = std::env::var_os("HOME").ok_or("Falta HOME para el puente EventKit")?;
         let directory =
             PathBuf::from(home).join("Library/Application Support/soc/reminders-plugin");
         fs::create_dir_all(&directory)?;
-        let path = directory.join("soc-reminders-bridge");
+        let path = directory.join("gennie-reminders-bridge");
         if fs::read(&path).is_ok_and(|existing| existing == bytes) {
             return Ok(path);
         }
         let temporary = directory.join(format!(
-            ".soc-reminders-bridge-{}-{}",
+            ".gennie-reminders-bridge-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)?
@@ -364,7 +364,7 @@ mod tests {
             events: Arc::default(),
         };
         let title = format!(
-            "SOC prueba temporal {}",
+            "Gennie prueba temporal {}",
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
@@ -408,12 +408,12 @@ mod tests {
     #[ignore = "requiere acceso real a Recordatorios en macOS"]
     fn native_watcher_lifecycle() {
         let state = AppState {
-            config: Arc::new(soc_config::Config {
+            config: Arc::new(gennie_config::Config {
                 database_path: "unused".into(),
                 db_busy_timeout_ms: 50,
             }),
-            db: soc_core::Database::memory().unwrap(),
-            shutdown: soc_core::Shutdown::default(),
+            db: gennie_core::Database::memory().unwrap(),
+            shutdown: gennie_core::Shutdown::default(),
         };
         let module = RemindersPluginModule::default();
         module.start(&state).unwrap();

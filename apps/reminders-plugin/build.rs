@@ -7,7 +7,7 @@ fn main() {
         return;
     }
     let output =
-        PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR")).join("soc-reminders-bridge");
+        PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR")).join("gennie-reminders-bridge");
     let status = Command::new("swiftc")
         .args([
             "-O",
@@ -30,5 +30,8 @@ fn main() {
         .status()
         .expect("No se pudo ejecutar swiftc para Recordatorios");
     assert!(status.success(), "No se pudo compilar el puente EventKit");
-    println!("cargo:rustc-env=SOC_REMINDERS_BRIDGE={}", output.display());
+    println!(
+        "cargo:rustc-env=GENNIE_REMINDERS_BRIDGE={}",
+        output.display()
+    );
 }

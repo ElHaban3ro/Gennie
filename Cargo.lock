@@ -4748,38 +4748,38 @@ dependencies = [
 ]
 
 [[package]]
-name = "soc"
+name = "gennie"
 version = "0.1.0"
 dependencies = [
  "serde_json",
- "soc-config",
- "soc-core",
- "soc-db",
- "soc-decisions",
- "soc-llm",
- "soc-presence",
- "soc-reminders-plugin",
- "soc-transcription",
- "soc-tts",
+ "gennie-config",
+ "gennie-core",
+ "gennie-db",
+ "gennie-decisions",
+ "gennie-llm",
+ "gennie-presence",
+ "gennie-reminders-plugin",
+ "gennie-transcription",
+ "gennie-tts",
 ]
 
 [[package]]
-name = "soc-config"
+name = "gennie-config"
 version = "0.1.0"
 dependencies = [
  "dotenvy",
 ]
 
 [[package]]
-name = "soc-core"
+name = "gennie-core"
 version = "0.1.0"
 dependencies = [
- "soc-config",
- "soc-db",
+ "gennie-config",
+ "gennie-db",
 ]
 
 [[package]]
-name = "soc-db"
+name = "gennie-db"
 version = "0.1.0"
 dependencies = [
  "rusqlite",
@@ -4787,28 +4787,28 @@ dependencies = [
 ]
 
 [[package]]
-name = "soc-decisions"
+name = "gennie-decisions"
 version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
- "soc-config",
- "soc-core",
- "soc-db",
+ "gennie-config",
+ "gennie-core",
+ "gennie-db",
 ]
 
 [[package]]
-name = "soc-llm"
+name = "gennie-llm"
 version = "0.1.0"
 dependencies = [
  "serde_json",
- "soc-config",
- "soc-core",
- "soc-db",
+ "gennie-config",
+ "gennie-core",
+ "gennie-db",
 ]
 
 [[package]]
-name = "soc-presence"
+name = "gennie-presence"
 version = "0.1.0"
 dependencies = [
  "i-slint-backend-winit",
@@ -4818,27 +4818,27 @@ dependencies = [
  "pulldown-cmark",
  "slint",
  "slint-build",
- "soc-config",
- "soc-core",
- "soc-db",
- "soc-llm",
- "soc-transcription",
- "soc-tts",
+ "gennie-config",
+ "gennie-core",
+ "gennie-db",
+ "gennie-llm",
+ "gennie-transcription",
+ "gennie-tts",
  "tray-icon",
 ]
 
 [[package]]
-name = "soc-reminders-plugin"
+name = "gennie-reminders-plugin"
 version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
- "soc-config",
- "soc-core",
+ "gennie-config",
+ "gennie-core",
 ]
 
 [[package]]
-name = "soc-transcription"
+name = "gennie-transcription"
 version = "0.1.0"
 dependencies = [
  "cpal",
@@ -4847,21 +4847,21 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "soc-config",
- "soc-core",
- "soc-db",
+ "gennie-config",
+ "gennie-core",
+ "gennie-db",
  "transcribe-cpp",
 ]
 
 [[package]]
-name = "soc-tts"
+name = "gennie-tts"
 version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
- "soc-config",
- "soc-core",
- "soc-db",
+ "gennie-config",
+ "gennie-core",
+ "gennie-db",
 ]
 
 [[package]]

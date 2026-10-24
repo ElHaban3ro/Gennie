@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-  <key>CFBundleIdentifier</key><string>com.fer.soc.reminders-bridge</string>
-  <key>CFBundleName</key><string>SOC Reminders Bridge</string>
-  <key>NSRemindersFullAccessUsageDescription</key><string>SOC necesita leer y escribir los recordatorios que autorices.</string>
-  <key>NSRemindersUsageDescription</key><string>SOC necesita leer y escribir los recordatorios que autorices.</string>
+  <key>CFBundleIdentifier</key><string>com.fer.gennie.reminders-bridge</string>
+  <key>CFBundleName</key><string>Gennie Reminders Bridge</string>
+  <key>NSRemindersFullAccessUsageDescription</key><string>Gennie necesita leer y escribir los recordatorios que autorices.</string>
+  <key>NSRemindersUsageDescription</key><string>Gennie necesita leer y escribir los recordatorios que autorices.</string>
 </dict></plist>

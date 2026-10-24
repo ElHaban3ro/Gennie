@@ -1,7 +1,7 @@
-use soc_config::Config;
-use soc_core::{AppModule, AppState, Migration, Result, Shutdown};
-use soc_db::Database;
-use soc_presence::PresenceModule;
+use gennie_config::Config;
+use gennie_core::{AppModule, AppState, Migration, Result, Shutdown};
+use gennie_db::Database;
+use gennie_presence::PresenceModule;
 use std::{collections::BTreeSet, path::Path, sync::Arc};
 
 pub fn voice_review() -> Result<()> {
@@ -12,8 +12,8 @@ pub fn voice_review() -> Result<()> {
         db: db.clone(),
         shutdown: Shutdown::default(),
     };
-    let transcription = soc_transcription::TranscriptionModule::default();
-    let decisions = soc_decisions::DecisionsModule::default();
+    let transcription = gennie_transcription::TranscriptionModule::default();
+    let decisions = gennie_decisions::DecisionsModule::default();
     let result = (|| {
         for module in [
             &transcription as &dyn AppModule,
@@ -33,20 +33,20 @@ pub fn voice_review() -> Result<()> {
         while std::time::Instant::now() < deadline {
             for event in voice.tick() {
                 match event {
-                    soc_transcription::Event::Listening => println!("Habla ahora"),
-                    soc_transcription::Event::ModelLoaded => println!("Nemotron listo"),
-                    soc_transcription::Event::Text {
+                    gennie_transcription::Event::Listening => println!("Habla ahora"),
+                    gennie_transcription::Event::ModelLoaded => println!("Nemotron listo"),
+                    gennie_transcription::Event::Text {
                         text,
                         finalized: true,
                     } if !pending => {
                         control.submit(&text, false)?;
                         pending = true;
                     }
-                    soc_transcription::Event::Text {
+                    gennie_transcription::Event::Text {
                         finalized: true, ..
                     } => println!("Espera al resultado anterior antes de otra frase"),
-                    soc_transcription::Event::Error(message)
-                    | soc_transcription::Event::NoSpeech(message) => println!("{message}"),
+                    gennie_transcription::Event::Error(message)
+                    | gennie_transcription::Event::NoSpeech(message) => println!("{message}"),
                     _ => {}
                 }
             }
@@ -77,7 +77,7 @@ pub fn command(text: &str, execute: bool) -> Result<()> {
         db: db.clone(),
         shutdown: Shutdown::default(),
     };
-    let module = soc_decisions::DecisionsModule::default();
+    let module = gennie_decisions::DecisionsModule::default();
     let result = (|| {
         db.migrate(module.name(), module.migrations())?;
         module.start(&state)?;
@@ -125,7 +125,7 @@ pub fn register(db: &Database, modules: &[Arc<dyn AppModule>]) -> Result<BTreeSe
         for module in modules {
             tx.execute(
                 "INSERT INTO modules(name,active) VALUES(?1,?2) ON CONFLICT(name) DO NOTHING",
-                soc_db::params![module.name(), module.active_by_default()],
+                gennie_db::params![module.name(), module.active_by_default()],
             )?;
             let enabled: bool = tx.query_row(
                 "SELECT active FROM modules WHERE name=?1",
@@ -198,11 +198,11 @@ pub fn run() -> Result<()> {
     };
     let result = (|| {
         let presence = Arc::new(PresenceModule::default());
-        let transcription = Arc::new(soc_transcription::TranscriptionModule::default());
-        let decisions = Arc::new(soc_decisions::DecisionsModule::default());
-        let llm = Arc::new(soc_llm::LlmModule::default());
-        let tts = Arc::new(soc_tts::TtsModule::default());
-        let reminders = Arc::new(soc_reminders_plugin::RemindersPluginModule::default());
+        let transcription = Arc::new(gennie_transcription::TranscriptionModule::default());
+        let decisions = Arc::new(gennie_decisions::DecisionsModule::default());
+        let llm = Arc::new(gennie_llm::LlmModule::default());
+        let tts = Arc::new(gennie_tts::TtsModule::default());
+        let reminders = Arc::new(gennie_reminders_plugin::RemindersPluginModule::default());
         let modules = crate::registry::build(
             presence.clone(),
             transcription.clone(),
@@ -306,11 +306,11 @@ mod tests {
         let state = state();
         let modules = crate::registry::build(
             Arc::new(PresenceModule::default()),
-            Arc::new(soc_transcription::TranscriptionModule::default()),
-            Arc::new(soc_decisions::DecisionsModule::default()),
-            Arc::new(soc_llm::LlmModule::default()),
-            Arc::new(soc_tts::TtsModule::default()),
-            Arc::new(soc_reminders_plugin::RemindersPluginModule::default()),
+            Arc::new(gennie_transcription::TranscriptionModule::default()),
+            Arc::new(gennie_decisions::DecisionsModule::default()),
+            Arc::new(gennie_llm::LlmModule::default()),
+            Arc::new(gennie_tts::TtsModule::default()),
+            Arc::new(gennie_reminders_plugin::RemindersPluginModule::default()),
         );
         assert!(register(&state.db, &modules).unwrap().contains("presence"));
         state
@@ -346,11 +346,11 @@ mod tests {
             .unwrap();
         let modules = crate::registry::build(
             Arc::new(PresenceModule::default()),
-            Arc::new(soc_transcription::TranscriptionModule::default()),
-            Arc::new(soc_decisions::DecisionsModule::default()),
-            Arc::new(soc_llm::LlmModule::default()),
-            Arc::new(soc_tts::TtsModule::default()),
-            Arc::new(soc_reminders_plugin::RemindersPluginModule::default()),
+            Arc::new(gennie_transcription::TranscriptionModule::default()),
+            Arc::new(gennie_decisions::DecisionsModule::default()),
+            Arc::new(gennie_llm::LlmModule::default()),
+            Arc::new(gennie_tts::TtsModule::default()),
+            Arc::new(gennie_reminders_plugin::RemindersPluginModule::default()),
         );
         assert!(!register(&state.db, &modules).unwrap().contains("llm"));
     }

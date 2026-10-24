@@ -1,10 +1,10 @@
 //! Verifica geometría y relleno de los dos indicadores sin ventana nativa ni modelos.
+use gennie_presence::PresenceWindow;
 use slint::platform::software_renderer::{
     MinimalSoftwareWindow, PremultipliedRgbaColor, RepaintBufferType, TargetPixel,
 };
 use slint::platform::{Platform, PlatformError, WindowAdapter};
 use slint::{ComponentHandle, PhysicalSize};
-use soc_presence::PresenceWindow;
 use std::{io::Write, rc::Rc};
 
 const WIDTH: u32 = 568;
@@ -44,7 +44,7 @@ fn render(window: &MinimalSoftwareWindow) -> Vec<Pixel> {
     });
     pixels
 }
-fn main() -> soc_core::Result<()> {
+fn main() -> gennie_core::Result<()> {
     let path = std::env::args_os()
         .nth(1)
         .ok_or("Falta ruta PPM de salida")?;

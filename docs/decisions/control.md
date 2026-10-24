@@ -52,6 +52,6 @@ Configuración explícita del runtime instalado:
 python3 scripts/configure_laya.py --python /ruta/absoluta/.venv/bin/python --model /ruta/absoluta/multilingual
 ```
 
-Prueba de decisión sin efectos ni escritura en la DB personal: `cargo run --locked -p soc -- --decide 'abre Safari'`. Una orden explícita con efecto usa `--command` y SOC_DATABASE_PATH; no usarlo simultáneamente con el control activo. `cargo run --locked -p soc` inicia la presencia y usa el atajo configurado. El binario/paquete en ejecución debe actualizarse por separado; no se reinician instancias ajenas.
+Prueba de decisión sin efectos ni escritura en la DB personal: `cargo run --locked -p gennie -- --decide 'abre Safari'`. Una orden explícita con efecto usa `--command` y GENNIE_DATABASE_PATH; no usarlo simultáneamente con el control activo. `cargo run --locked -p gennie` inicia la presencia y usa el atajo configurado. El binario/paquete en ejecución debe actualizarse por separado; no se reinician instancias ajenas.
 
 Evidencia y límites: [verificación](../verification/decisions.md).

@@ -10,7 +10,7 @@ import unittest
 class RuntimeConfigTests(unittest.TestCase):
     def test_configuration_preserves_python_symlink_path(self):
         root = Path(__file__).resolve().parents[3]
-        with tempfile.TemporaryDirectory(prefix='soc-runtime-config-') as directory:
+        with tempfile.TemporaryDirectory(prefix='gennie-runtime-config-') as directory:
             path = Path(directory)
             python = path/'venv-python'
             python.symlink_to(Path(sys.executable).resolve())

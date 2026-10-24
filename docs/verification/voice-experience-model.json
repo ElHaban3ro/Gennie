@@ -2936,7 +2936,7 @@
       "group": "spoken_disfluencies",
       "split": "holdout",
       "request": {
-        "text": "SOC, abre Discord."
+        "text": "Gennie, abre Discord."
       },
       "expected": {
         "executable": true,
@@ -2969,7 +2969,7 @@
               "pending_action": null,
               "pending_utterance": null
             },
-            "utterance": "SOC, abre Discord."
+            "utterance": "Gennie, abre Discord."
           },
           "choice": "open_app",
           "probability": 0.9973
@@ -2977,7 +2977,7 @@
         {
           "question": "speech_act",
           "state": {
-            "utterance": "SOC, abre Discord."
+            "utterance": "Gennie, abre Discord."
           },
           "choice": "command",
           "probability": 0.9931

@@ -11,7 +11,7 @@ import tempfile
 
 root = Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument('--binary', type=Path, default=root/'target/debug/soc')
+parser.add_argument('--binary', type=Path, default=root/'target/debug/gennie')
 parser.add_argument('--output', type=Path, default=root/'docs/verification/decisions-native.json')
 parser.add_argument('--command', default='Abre Finder.')
 parser.add_argument('--bundle', default='com.apple.finder')
@@ -21,10 +21,10 @@ worker = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(worker)
 before_context = worker.workspace()
 report = {'input': args.command, 'expected_bundle': args.bundle, 'context': 'native', 'database': 'temporary'}
-with tempfile.TemporaryDirectory(prefix='soc-command-smoke-') as directory:
+with tempfile.TemporaryDirectory(prefix='gennie-command-smoke-') as directory:
     try:
         database = Path(directory)/'review.sqlite3'
-        result = subprocess.run([str(args.binary.resolve()), '--command', args.command], env={**os.environ, 'SOC_DATABASE_PATH': str(database)}, capture_output=True, text=True, timeout=140)
+        result = subprocess.run([str(args.binary.resolve()), '--command', args.command], env={**os.environ, 'GENNIE_DATABASE_PATH': str(database)}, capture_output=True, text=True, timeout=140)
         report.update(exit_code=result.returncode, stdout=result.stdout.strip(), stderr=result.stderr.strip())
         if result.stdout.strip():
             report['outcome'] = json.loads(result.stdout)

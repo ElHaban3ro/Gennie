@@ -8,7 +8,7 @@ mod appearance;
 #[path = "../src/desktop.rs"]
 mod desktop;
 #[cfg(target_os = "macos")]
-use soc_presence::{AppearanceSettings, IndicatorBounds, PresenceWindow, TranscriptionSettings};
+use gennie_presence::{AppearanceSettings, IndicatorBounds, PresenceWindow, TranscriptionSettings};
 #[cfg(target_os = "macos")]
 #[derive(Clone, Copy)]
 enum PreferenceUpdate {
@@ -53,7 +53,7 @@ async fn settle() {
 }
 
 #[cfg(target_os = "macos")]
-fn main() -> soc_core::Result<()> {
+fn main() -> gennie_core::Result<()> {
     use slint::{ComponentHandle, winit_030::WinitWindowAccessor};
     desktop::initialize()?;
     let host = PresenceWindow::new()?;
@@ -70,9 +70,9 @@ fn main() -> soc_core::Result<()> {
         settle().await;
         if std::env::args().any(|arg| arg == "--inspect") {
             let pixels = tested.window.window().take_snapshot().unwrap();
-            std::fs::write("/private/tmp/soc-controls-ui.rgba", pixels.as_bytes()).unwrap();
+            std::fs::write("/private/tmp/gennie-controls-ui.rgba", pixels.as_bytes()).unwrap();
             std::fs::write(
-                "/private/tmp/soc-controls-ui.size",
+                "/private/tmp/gennie-controls-ui.size",
                 format!("{} {}", pixels.width(), pixels.height()),
             )
             .unwrap();

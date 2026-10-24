@@ -146,7 +146,7 @@ private struct FaceFeatures: View {
                 )
         }
         .frame(width: 128, height: 128)
-        .accessibilityLabel("Cara de prueba de SOC")
+        .accessibilityLabel("Cara de prueba de Gennie")
     }
 }
 

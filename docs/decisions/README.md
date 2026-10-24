@@ -4,10 +4,10 @@
 
 - [Reminders plugin](reminders-plugin.md): integración local EventKit y eventos de cambios.
 
-- [Voz de salida de SOC D-022](tts.md): Kokoro MLX local, preferencias y reproducción de respuestas.
+- [Voz de salida de Gennie D-022](tts.md): Kokoro MLX local, preferencias y reproducción de respuestas.
 - [Almacén compartido de modelos](model-storage.md): rutas globales por usuario y migración conservadora.
 
-- [Conversación de SOC D-021](llm-conversation.md): destino predeterminado de la voz, hilo único y estado de conexión.
+- [Conversación de Gennie D-021](llm-conversation.md): destino predeterminado de la voz, hilo único y estado de conexión.
 
 - [Operación musical D-020](music-routing.md): separación de operación y aplicación, música genérica, veto de efectos y límites comprobados.
 

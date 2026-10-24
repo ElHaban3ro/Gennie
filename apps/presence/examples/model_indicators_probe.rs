@@ -4,8 +4,8 @@
 #[path = "../src/desktop.rs"]
 mod desktop;
 
+use gennie_presence::{IndicatorBounds, PresenceWindow, TranscriptionSettings};
 use slint::{ComponentHandle, winit_030::WinitWindowAccessor};
-use soc_presence::{IndicatorBounds, PresenceWindow, TranscriptionSettings};
 use std::{cell::RefCell, collections::BTreeMap, path::Path, rc::Rc, time::Duration};
 
 fn set_models(ui: &PresenceWindow, voice: bool, tts: bool) {
@@ -47,7 +47,7 @@ fn snapshot(ui: &PresenceWindow, output: &Path, label: &str) -> Vec<u8> {
     pixels.as_bytes().to_vec()
 }
 
-fn verify_frames(frames: &BTreeMap<&str, Vec<u8>>) -> soc_core::Result<()> {
+fn verify_frames(frames: &BTreeMap<&str, Vec<u8>>) -> gennie_core::Result<()> {
     for (before, after, minimum, maximum) in [
         ("sleep_unloaded", "sleep_voice_loaded", 10, usize::MAX),
         (
@@ -104,7 +104,7 @@ fn synthetic_hover(ui: &PresenceWindow, model: Option<u8>) {
     println!("pointer_input=synthetic hover_model={model:?}");
 }
 
-fn main() -> soc_core::Result<()> {
+fn main() -> gennie_core::Result<()> {
     let output = std::path::PathBuf::from(
         std::env::args_os()
             .nth(1)
@@ -184,7 +184,7 @@ fn main() -> soc_core::Result<()> {
                 .set_cursor_hittest(false)
                 .expect("Desactivar entrada OS en sonda automática");
         }
-        native.set_title("soc · model indicators probe");
+        native.set_title("gennie · model indicators probe");
         println!(
             "probe_ready=true interactive={interactive} native_origin={:?} scale={} pointer_input={}",
             native.inner_position(),

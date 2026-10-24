@@ -1,5 +1,5 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use soc_core::Result;
+use gennie_core::Result;
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, Ordering},

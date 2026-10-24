@@ -1,5 +1,5 @@
-use soc_core::{AppModule, Result};
-use soc_presence::PresenceModule;
+use gennie_core::{AppModule, Result};
+use gennie_presence::PresenceModule;
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
@@ -7,11 +7,11 @@ use std::{
 
 pub fn build(
     presence: Arc<PresenceModule>,
-    transcription: Arc<soc_transcription::TranscriptionModule>,
-    decisions: Arc<soc_decisions::DecisionsModule>,
-    llm: Arc<soc_llm::LlmModule>,
-    tts: Arc<soc_tts::TtsModule>,
-    reminders: Arc<soc_reminders_plugin::RemindersPluginModule>,
+    transcription: Arc<gennie_transcription::TranscriptionModule>,
+    decisions: Arc<gennie_decisions::DecisionsModule>,
+    llm: Arc<gennie_llm::LlmModule>,
+    tts: Arc<gennie_tts::TtsModule>,
+    reminders: Arc<gennie_reminders_plugin::RemindersPluginModule>,
 ) -> Vec<Arc<dyn AppModule>> {
     vec![transcription, decisions, llm, tts, reminders, presence]
 }
@@ -88,7 +88,7 @@ pub fn validate_active(modules: &[Arc<dyn AppModule>], active: &BTreeSet<String>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soc_core::AppState;
+    use gennie_core::AppState;
     struct Module(
         &'static str,
         &'static [&'static str],

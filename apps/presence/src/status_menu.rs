@@ -1,4 +1,4 @@
-use soc_core::Result;
+use gennie_core::Result;
 use tray_icon::{
     Icon, TrayIcon, TrayIconBuilder,
     menu::{
@@ -29,11 +29,11 @@ impl StatusMenu {
         let wake = MenuItem::new("Despertar", true, None);
         let rest = MenuItem::new("Descansar", false, None);
         assistant.append_items(&[&wake, &rest])?;
-        let about = MenuItem::new("Acerca de soc", true, None);
+        let about = MenuItem::new("Acerca de Gennie", true, None);
         let transcription = MenuItem::new("Voz y asistente…", true, None);
         let appearance = MenuItem::new("Apariencia…", true, None);
         let exit = MenuItem::new(
-            "Salir de soc",
+            "Salir de Gennie",
             true,
             Some(Accelerator::new(Modifiers::META, Code::KeyQ)),
         );
@@ -49,24 +49,24 @@ impl StatusMenu {
         let image = slint::Image::load_from_svg_data(include_bytes!("../ui/status-icon.svg"))?;
         let pixels = image
             .to_rgba8()
-            .ok_or("No se pudo dibujar el icono de soc")?;
+            .ok_or("No se pudo dibujar el icono de Gennie")?;
         let icon = Icon::from_rgba(pixels.as_bytes().to_vec(), pixels.width(), pixels.height())?;
         let icon = TrayIconBuilder::new()
-            .with_id("soc-presence")
-            .with_tooltip("soc")
+            .with_id("gennie-presence")
+            .with_tooltip("Gennie")
             .with_icon_templated(icon)
             .with_menu(Box::new(menu))
             .build()?;
         // Slint ofrece un menú genérico en macOS. Instalar los mismos comandos
         // reales para que Transcripción y el cierre normal sean accesibles.
         let app_menu = Menu::new();
-        let app = Submenu::new("soc", true);
+        let app = Submenu::new("Gennie", true);
         app.append_items(&[
             &about,
             &transcription,
             &appearance,
             &PredefinedMenuItem::separator(),
-            &PredefinedMenuItem::hide(Some("Ocultar soc")),
+            &PredefinedMenuItem::hide(Some("Ocultar Gennie")),
             &PredefinedMenuItem::hide_others(Some("Ocultar otros")),
             &PredefinedMenuItem::show_all(Some("Mostrar todo")),
             &PredefinedMenuItem::separator(),

@@ -8,20 +8,20 @@ import subprocess
 
 root = Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser()
-parser.add_argument('--binary', type=Path, default=root/'target/debug/soc')
-parser.add_argument('--output', type=Path, default=root/'target/debug/soc.app')
-parser.add_argument('--identifier', default='dev.fer.soc')
+parser.add_argument('--binary', type=Path, default=root/'target/debug/gennie')
+parser.add_argument('--output', type=Path, default=root/'target/debug/gennie.app')
+parser.add_argument('--identifier', default='dev.fer.gennie')
 args = parser.parse_args()
 contents = args.output.resolve()/'Contents'
 (contents/'MacOS').mkdir(parents=True, exist_ok=True)
-shutil.copy2(args.binary, contents/'MacOS/soc')
+shutil.copy2(args.binary, contents/'MacOS/gennie')
 info = {
-    'CFBundleExecutable': 'soc', 'CFBundleIdentifier': args.identifier,
-    'CFBundleName': 'soc', 'CFBundlePackageType': 'APPL',
+    'CFBundleExecutable': 'gennie', 'CFBundleIdentifier': args.identifier,
+    'CFBundleName': 'Gennie', 'CFBundlePackageType': 'APPL',
     'CFBundleVersion': '1', 'CFBundleShortVersionString': '0.1.0',
     'LSUIElement': True, 'NSHighResolutionCapable': True,
-    'NSMicrophoneUsageDescription': 'soc transcribe tu voz localmente mientras activas el atajo. No guarda audio.',
-    'NSAppleEventsUsageDescription': 'soc comprueba y controla Música o Spotify cuando activas el control por voz.',
+    'NSMicrophoneUsageDescription': 'Gennie transcribe tu voz localmente mientras activas el atajo. No guarda audio.',
+    'NSAppleEventsUsageDescription': 'Gennie comprueba y controla Música o Spotify cuando activas el control por voz.',
 }
 with (contents/'Info.plist').open('wb') as output:
     plistlib.dump(info, output)

@@ -1,6 +1,6 @@
 use crate::{audio::Capture, model};
+use gennie_core::Result;
 use serde::{Deserialize, Serialize};
-use soc_core::Result;
 use std::{
     io::{self, BufRead, Write},
     path::Path,

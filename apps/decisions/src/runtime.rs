@@ -1,5 +1,5 @@
+use gennie_core::Result;
 use serde::Deserialize;
-use soc_core::Result;
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
 use std::{

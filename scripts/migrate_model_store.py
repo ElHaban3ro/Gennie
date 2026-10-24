@@ -10,7 +10,7 @@ import subprocess
 
 HOME = Path.home()
 SHARED = HOME / "Library/Application Support/AIModels"
-SOC = HOME / "Library/Application Support/soc"
+GENNIE = HOME / "Library/Application Support/soc"
 NEMOTRON = "nemotron-3.5-asr-streaming-0.6b-Q8_0.gguf"
 NEMOTRON_SHA256 = "b94545b313b3223fda7b2857a52681da813935c2127643d1e9ff0c23d988089c"
 
@@ -57,7 +57,7 @@ def source_hf_home(model: Path) -> Path:
 
 
 def main() -> None:
-    old_gguf = SOC / "models" / NEMOTRON
+    old_gguf = GENNIE / "models" / NEMOTRON
     new_gguf = SHARED / "gguf" / NEMOTRON
     if old_gguf.is_file():
         if sha256(old_gguf) != NEMOTRON_SHA256:
@@ -70,11 +70,11 @@ def main() -> None:
             clone_missing(old_marker, new_gguf.with_suffix(".sha256"))
         print(f"Nemotron: {new_gguf}")
 
-    tts_cache = SOC / "tts/hf"
+    tts_cache = GENNIE / "tts/hf"
     if tts_cache.is_dir():
         clone_missing(tts_cache, SHARED / "huggingface")
 
-    decisions = SOC / "decisions"
+    decisions = GENNIE / "decisions"
     runtime = decisions / "runtime-v2.json"
     if not runtime.is_file():
         runtime = decisions / "runtime.json"

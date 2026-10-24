@@ -1,10 +1,10 @@
 mod runtime;
 mod settings;
+use gennie_core::{AppModule, AppState, Migration, Result};
+use gennie_db::{Database, params};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 pub use settings::{SaveResult, Settings};
-use soc_core::{AppModule, AppState, Migration, Result};
-use soc_db::{Database, params};
 use std::{
     cell::Cell,
     sync::{
@@ -226,7 +226,7 @@ impl Controller {
             outcomes.push(Outcome {
                 prediction: None,
                 verified: false,
-                message: "El control local se ha detenido; no pude confirmar el resultado. Reinicia soc antes de dar otra orden.".into(),
+                message: "El control local se ha detenido; no pude confirmar el resultado. Reinicia Gennie antes de dar otra orden.".into(),
             });
         }
         outcomes
@@ -788,12 +788,12 @@ mod tests {
         };
         settings::save(&db, &initial).unwrap();
         let state = AppState {
-            config: Arc::new(soc_config::Config {
-                database_path: "/tmp/soc-unused-laya-settings.sqlite3".into(),
+            config: Arc::new(gennie_config::Config {
+                database_path: "/tmp/gennie-unused-laya-settings.sqlite3".into(),
                 db_busy_timeout_ms: 50,
             }),
             db: db.clone(),
-            shutdown: soc_core::Shutdown::default(),
+            shutdown: gennie_core::Shutdown::default(),
         };
         module.start(&state).unwrap();
         let controller = module.controller().unwrap();
@@ -1338,7 +1338,7 @@ for line in sys.stdin:
     #[test]
     fn restart_marks_pending_uncertain_without_replaying_and_preserves_verified() {
         let path =
-            std::env::temp_dir().join(format!("soc-decisions-{}.sqlite3", std::process::id()));
+            std::env::temp_dir().join(format!("gennie-decisions-{}.sqlite3", std::process::id()));
         let db = Database::open(&path, 50).unwrap();
         let module = DecisionsModule::default();
         db.migrate(module.name(), module.migrations()).unwrap();
@@ -1348,12 +1348,12 @@ for line in sys.stdin:
         db.close().unwrap();
         let db = Database::open(&path, 50).unwrap();
         let state = AppState {
-            config: Arc::new(soc_config::Config {
+            config: Arc::new(gennie_config::Config {
                 database_path: path.clone(),
                 db_busy_timeout_ms: 50,
             }),
             db: db.clone(),
-            shutdown: soc_core::Shutdown::default(),
+            shutdown: gennie_core::Shutdown::default(),
         };
         module.start(&state).unwrap();
         module.start(&state).unwrap();

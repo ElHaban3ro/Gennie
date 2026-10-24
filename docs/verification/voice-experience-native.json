@@ -5,7 +5,7 @@
   "database": "temporary",
   "exit_code": 0,
   "stdout": "{\"prediction\":{\"route\":\"complete\",\"action\":\"open_app\",\"target\":\"com.apple.finder\",\"probability\":0.9706,\"requested_action\":\"open_app\",\"availability\":{\"status\":\"available\",\"reason\":null}},\"verified\":true,\"message\":\"La aplicación solicitada está en primer plano.\"}",
-  "stderr": "event=config_shadowed key=SOC_DATABASE_PATH\nevent=migration_applied module=decisions version=1",
+  "stderr": "event=config_shadowed key=GENNIE_DATABASE_PATH\nevent=migration_applied module=decisions version=1",
   "outcome": {
     "prediction": {
       "route": "complete",

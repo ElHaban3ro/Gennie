@@ -1,6 +1,6 @@
 use crate::{AppearanceSettings, PreferenceUpdate, PresenceWindow};
+use gennie_core::Result;
 use slint::ComponentHandle;
-use soc_core::Result;
 use std::{cell::Cell, rc::Rc, sync::mpsc::SyncSender};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

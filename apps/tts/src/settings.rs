@@ -1,5 +1,5 @@
-use soc_core::Result;
-use soc_db::{Database, params};
+use gennie_core::Result;
+use gennie_db::{Database, params};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Settings {
@@ -58,7 +58,7 @@ pub(crate) fn save(db: &Database, settings: &Settings) -> Result<()> {
     db.with_connection(|c| {
         let tx = c.transaction()?;
         if tx.execute("UPDATE tts_preferences SET enabled=?1,voice=?2,speed_percent=?3,unload_seconds=?4,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=1", params![settings.enabled, settings.voice, settings.speed_percent, settings.unload_seconds.map(|seconds| seconds as i64)])? != 1 {
-            return Err("No se encontraron los ajustes de voz de SOC".into());
+            return Err("No se encontraron los ajustes de voz de Gennie".into());
         }
         tx.commit()?;
         Ok(())

@@ -54,7 +54,7 @@
     },
     "preload_ms": 3353
   },
-  "limits": "Measurements vary with host load; no microphone test or restart of the existing soc instance.",
+  "limits": "Measurements vary with host load; no microphone test or restart of the existing gennie instance.",
   "installed_app_regressions": {
     "passed": 15,
     "count": 15,

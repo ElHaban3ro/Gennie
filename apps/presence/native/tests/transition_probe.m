@@ -1,6 +1,6 @@
 // Sonda del cambio real de opacidad; sin DB, audio, red ni captura de pantalla.
 #import "../face_wallpaper.m"
-@interface TransitionFace : SOCWallpaperFace
+@interface TransitionFace : GennieWallpaperFace
 @property NSUInteger coverageQueries;
 @end
 @implementation TransitionFace

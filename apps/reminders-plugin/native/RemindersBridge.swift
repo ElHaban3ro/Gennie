@@ -183,7 +183,7 @@ func process(_ request: Request) throws {
         emit("deleted")
     case "watch":
         var previous = Dictionary(uniqueKeysWithValues: try allReminders().map { ($0.calendarItemIdentifier, fingerprint($0)) })
-        let queue = DispatchQueue(label: "soc.reminders.changes")
+        let queue = DispatchQueue(label: "gennie.reminders.changes")
         emit(ChangeView(kind: "ready", id: ""))
         let observer = NotificationCenter.default.addObserver(forName: .EKEventStoreChanged, object: store, queue: nil) { _ in
             queue.async {

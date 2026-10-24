@@ -5,7 +5,7 @@
   "database": "temporary",
   "exit_code": 0,
   "stdout": "{\"prediction\":{\"route\":\"complete\",\"action\":\"open_app\",\"target\":\"com.spotify.client\",\"probability\":0.9997,\"requested_action\":\"open_app\",\"availability\":{\"status\":\"available\",\"reason\":null}},\"verified\":false,\"message\":\"La orden se envió, pero no pude comprobar el resultado. No la repetiré automáticamente.\"}",
-  "stderr": "event=config_shadowed key=SOC_DATABASE_PATH\nevent=migration_applied module=decisions version=1",
+  "stderr": "event=config_shadowed key=GENNIE_DATABASE_PATH\nevent=migration_applied module=decisions version=1",
   "outcome": {
     "prediction": {
       "route": "complete",

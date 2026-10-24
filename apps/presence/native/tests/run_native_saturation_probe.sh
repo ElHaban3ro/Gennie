@@ -2,7 +2,7 @@
 # Capturas limitadas a las ventanas propias; sin DB, audio ni red.
 set -eu
 base=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-work=$(mktemp -d -t soc-saturation-probe)
+work=$(mktemp -d -t gennie-saturation-probe)
 trap 'rm -rf "$work"' EXIT HUP INT TERM
 xcrun clang -fobjc-arc -O2 "$base/native_saturation_probe.m" \
   -framework AppKit -framework QuartzCore -framework CoreGraphics -o "$work/probe"

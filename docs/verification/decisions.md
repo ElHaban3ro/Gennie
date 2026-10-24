@@ -19,11 +19,11 @@ Reproducción desde raíz, usando el Python que contiene Laya:
 ```sh
 python3 -m unittest discover -s apps/decisions/python -p 'test_*.py'
 python3 scripts/check_decision_library.py --jsonl /ruta/library_all.jsonl --csv /ruta/library_all.csv
-/ruta/.venv/bin/python scripts/evaluate_decisions.py --model /ruta/multilingual --library /ruta/library_all.jsonl --dataset challenge --limit 210 --output /tmp/soc-decisions-review.json
+/ruta/.venv/bin/python scripts/evaluate_decisions.py --model /ruta/multilingual --library /ruta/library_all.jsonl --dataset challenge --limit 210 --output /tmp/gennie-decisions-review.json
 cargo fmt --all -- --check
 cargo test --workspace --locked
 cargo clippy --workspace --all-targets --locked -- -D warnings
-cargo build --locked -p soc
+cargo build --locked -p gennie
 python3 scripts/check_invariants.py
 ```
 

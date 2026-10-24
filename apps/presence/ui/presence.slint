@@ -1,6 +1,6 @@
 import { AboutSlint, VerticalBox, HorizontalBox, LineEdit, ComboBox, SpinBox, Button, CheckBox, TabWidget, Slider } from "std-widgets.slint";
 export component TranscriptionSettings inherits Window {
-    title: "Voz y asistente · soc";
+    title: "Voz y asistente · Gennie";
     width: 440px; height: 690px;
     in-out property <bool> enabled: true;
     in property <bool> llm-available: false;
@@ -90,9 +90,9 @@ export component TranscriptionSettings inherits Window {
             title: "Asistente · IA";
             VerticalBox {
                 padding: 16px; spacing: 7px;
-                Text { text: "Conversación con SOC"; font-size: 21px; font-weight: 600; }
+                Text { text: "Conversación con Gennie"; font-size: 21px; font-weight: 600; }
                 Text { text: "Proveedor actual: Codex"; font-size: 12px; }
-                Text { text: "Las transcripciones finales se envían al mismo hilo de conversación. Se reanuda al abrir soc de nuevo."; wrap: word-wrap; font-size: 12px; }
+                Text { text: "Las transcripciones finales se envían al mismo hilo de conversación. Se reanuda al abrir Gennie de nuevo."; wrap: word-wrap; font-size: 12px; }
                 Text { text: "Modelo de Codex"; font-size: 12px; }
                 LineEdit { text <=> root.llm-model; enabled: root.llm-available && !root.llm-saving; }
                 Text { text: "Esfuerzo de razonamiento"; font-size: 12px; }
@@ -116,7 +116,7 @@ export component TranscriptionSettings inherits Window {
             title: "Salida · Kokoro";
             VerticalBox {
                 padding: 16px; spacing: 12px;
-                Text { text: "Voz de SOC"; font-size: 21px; font-weight: 600; }
+                Text { text: "Voz de Gennie"; font-size: 21px; font-weight: 600; }
                 Text { text: "Kokoro-82M con MLX · procesamiento local"; wrap: word-wrap; font-size: 12px; }
                 if root.tts-available: VerticalBox {
                     spacing: 12px;
@@ -134,15 +134,15 @@ export component TranscriptionSettings inherits Window {
                         SpinBox { value <=> root.tts-unload-minutes; minimum: 1; maximum: 120; enabled: !root.tts-keep-loaded && !root.tts-saving; }
                         Text { text: "min"; vertical-alignment: center; }
                     }
-                    Text { text: root.tts-keep-loaded ? "Kokoro seguirá cargado hasta interrumpir la voz o cerrar SOC." : "Minutos desde que termina la última reproducción. El cambio se aplica al guardar."; wrap: word-wrap; font-size: 12px; }
-                    Text { text: "La primera reproducción descarga el modelo. Requiere Python 3.10–3.12 y kokoro-mlx instalado para SOC."; wrap: word-wrap; font-size: 12px; }
+                    Text { text: root.tts-keep-loaded ? "Kokoro seguirá cargado hasta interrumpir la voz o cerrar Gennie." : "Minutos desde que termina la última reproducción. El cambio se aplica al guardar."; wrap: word-wrap; font-size: 12px; }
+                    Text { text: "La primera reproducción descarga el modelo. Requiere Python 3.10–3.12 y kokoro-mlx instalado para Gennie."; wrap: word-wrap; font-size: 12px; }
                     HorizontalBox {
                         Button { text: "Probar voz"; clicked => { root.preview-tts(); } }
-                        Button { text: root.tts-saving ? "Guardando…" : "Guardar voz de SOC"; enabled: !root.tts-saving; clicked => { root.save-tts(); } }
+                        Button { text: root.tts-saving ? "Guardando…" : "Guardar voz de Gennie"; enabled: !root.tts-saving; clicked => { root.save-tts(); } }
                     }
                     Text { text: root.tts-status; wrap: word-wrap; font-size: 12px; }
                 }
-                if !root.tts-available: Text { text: "La voz de SOC no está disponible en esta instancia."; wrap: word-wrap; font-size: 12px; }
+                if !root.tts-available: Text { text: "La voz de Gennie no está disponible en esta instancia."; wrap: word-wrap; font-size: 12px; }
                 Rectangle { vertical-stretch: 1; }
             }
         }
@@ -171,7 +171,7 @@ component AppearanceSlider inherits VerticalBox {
     }
 }
 export component AppearanceSettings inherits Window {
-    title: "Apariencia · soc";
+    title: "Apariencia · Gennie";
     width: 480px; height: 760px;
     in property <bool> saving: false;
     in property <bool> native-blur-available: false;
@@ -251,11 +251,11 @@ export component AppearanceSettings inherits Window {
     }
 }
 export component AboutWindow inherits Window {
-    title: "Acerca de soc";
+    title: "Acerca de Gennie";
     width: 320px; height: 240px;
     VerticalBox {
-        Text { text: "soc · primera base local"; horizontal-alignment: center; font-size: 20px; }
-        Text { text: "Clic: despertar / descansar\nArrastrar la cara: mover\nMenú soc → Salir: cerrar"; horizontal-alignment: center; }
+        Text { text: "Gennie · primera base local"; horizontal-alignment: center; font-size: 20px; }
+        Text { text: "Clic: despertar / descansar\nArrastrar la cara: mover\nMenú Gennie → Salir: cerrar"; horizontal-alignment: center; }
         AboutSlint { }
     }
 }
@@ -412,7 +412,7 @@ export struct ChatSource { label: string, url: string }
 export struct HistoryMessage { title: string, text: string, time: string, from-user: bool, system: bool, sources: [ChatSource] }
 export struct IndicatorBounds { x: float, y: float, width: float, height: float }
 export component PresenceWindow inherits Window {
-    title: "soc";
+    title: "Gennie";
     width: 568px; height: 980px;
     background: transparent;
     no-frame: true;
@@ -681,7 +681,7 @@ export component PresenceWindow inherits Window {
                 TouchArea {
                     mouse-cursor: grab;
                     accessible-role: button;
-                    accessible-label: root.active ? "soc activo. Clic para descansar. Arrastrar para mover" : "soc dormido. Clic para despertar. Arrastrar para mover";
+                    accessible-label: root.active ? "Gennie activo. Clic para descansar. Arrastrar para mover" : "Gennie dormido. Clic para despertar. Arrastrar para mover";
                     pointer-event(event) => {
                         if (root.manual-drag && event.button == PointerEventButton.left && event.kind == PointerEventKind.up) { root.finish-drag(); }
                         if (root.manual-drag && event.button == PointerEventButton.left && event.kind == PointerEventKind.down &&
@@ -755,7 +755,7 @@ export component PresenceWindow inherits Window {
                 }
                 Text {
                     x: 20px; y: 48px; width: parent.width - 40px; height: 18px;
-                    text: "Mensajes guardados con SOC"; color: #ffffff91;
+                    text: "Mensajes guardados con Gennie"; color: #ffffff91;
                     font-family: "Helvetica Neue"; font-size: 12px;
                 }
                 Rectangle {
@@ -866,7 +866,7 @@ export component PresenceWindow inherits Window {
                     border-width: 1px; border-color: #ffffff30;
                     if root.history-draft == "": Text {
                         x: 12px; y: 8px; width: parent.width - 54px; height: 26px;
-                        text: root.llm-available ? "Escribe a SOC…" : "Conversación no disponible";
+                        text: root.llm-available ? "Escribe a Gennie…" : "Conversación no disponible";
                         color: #ffffff85; font-family: "Helvetica Neue"; font-size: 13px;
                         vertical-alignment: center;
                     }

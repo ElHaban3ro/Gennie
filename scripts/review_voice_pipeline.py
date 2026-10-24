@@ -18,7 +18,7 @@ args = parser.parse_args()
 cases = [('abre Safari', 'open_safari'), ('me abres el Finder un momentico', 'open_files'), ('por favor inicia Discord', 'open_discord'),
          ('no abras Chrome', 'no_order'), ('abre el', 'incomplete'), ('hazlo', 'ambiguous'), ('crea una lista de reproducción', 'god_call')]
 records = []
-with tempfile.TemporaryDirectory(prefix='soc-synthetic-voice-') as directory:
+with tempfile.TemporaryDirectory(prefix='gennie-synthetic-voice-') as directory:
     directory = Path(directory)
     for index,(text,expected) in enumerate(cases):
         audio,raw = directory/f'{index}.aiff', directory/f'{index}.f32'

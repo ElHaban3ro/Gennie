@@ -1,10 +1,10 @@
 //! Comprueba los rectángulos de globos que Slint entrega al vidrio nativo.
+use gennie_presence::{ChatBubble, PresenceWindow};
 use slint::platform::software_renderer::{
     MinimalSoftwareWindow, PremultipliedRgbaColor, RepaintBufferType, TargetPixel,
 };
 use slint::platform::{Platform, PlatformError, WindowAdapter};
 use slint::{ComponentHandle, ModelRc, PhysicalSize, VecModel};
-use soc_presence::{ChatBubble, PresenceWindow};
 use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 
 thread_local! {
@@ -54,7 +54,7 @@ fn render() -> Vec<Pixel> {
     })
 }
 
-fn main() -> soc_core::Result<()> {
+fn main() -> gennie_core::Result<()> {
     slint::platform::set_platform(Box::new(HeadlessPlatform))?;
     WINDOW.with(|window| window.set_size(PhysicalSize::new(568, 980)));
     let ui = PresenceWindow::new()?;
@@ -69,7 +69,7 @@ fn main() -> soc_core::Result<()> {
     });
     let model = Rc::new(VecModel::from(vec![
         ChatBubble {
-            title: "SOC".into(),
+            title: "Gennie".into(),
             text: "Primer mensaje".into(),
             from_user: false,
         },

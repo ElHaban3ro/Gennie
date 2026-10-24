@@ -9,15 +9,15 @@ rust-version = "1.92"
 publish = false
 
 [workspace.dependencies]
-soc-config = { path = "kernel/config" }
-soc-db = { path = "kernel/db" }
-soc-core = { path = "kernel/core" }
-soc-presence = { path = "apps/presence" }
-soc-transcription = { path = "apps/transcription" }
-soc-decisions = { path = "apps/decisions" }
-soc-llm = { path = "apps/llm" }
-soc-tts = { path = "apps/tts" }
-soc-reminders-plugin = { path = "apps/reminders-plugin" }
+gennie-config = { path = "kernel/config" }
+gennie-db = { path = "kernel/db" }
+gennie-core = { path = "kernel/core" }
+gennie-presence = { path = "apps/presence" }
+gennie-transcription = { path = "apps/transcription" }
+gennie-decisions = { path = "apps/decisions" }
+gennie-llm = { path = "apps/llm" }
+gennie-tts = { path = "apps/tts" }
+gennie-reminders-plugin = { path = "apps/reminders-plugin" }
 cpal = { version = "=0.16.0", default-features = false }
 handy-keys = "=0.3.4"
 transcribe-cpp = { version = "=0.3.1", default-features = false, features = ["metal"] }

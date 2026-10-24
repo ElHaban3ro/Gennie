@@ -1,5 +1,5 @@
 use crate::{Event, model};
-use soc_core::Result;
+use gennie_core::Result;
 use std::{
     collections::VecDeque,
     io::{BufRead, BufReader, Read, Write},

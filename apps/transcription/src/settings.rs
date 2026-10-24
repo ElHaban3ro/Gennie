@@ -1,6 +1,6 @@
+use gennie_core::Result;
+use gennie_db::{Database, params};
 use serde::{Deserialize, Serialize};
-use soc_core::Result;
-use soc_db::{Database, params};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Mode {
@@ -62,7 +62,7 @@ pub fn save(db: &Database, settings: &Settings) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soc_core::AppModule;
+    use gennie_core::AppModule;
     #[test]
     fn migration_preserves_user_settings_and_updates_idle_timeout() {
         let db = Database::memory().unwrap();
@@ -121,8 +121,10 @@ mod tests {
     }
     #[test]
     fn settings_reopen_and_reject_invalid_values() {
-        let path =
-            std::env::temp_dir().join(format!("soc-transcription-{}.sqlite3", std::process::id()));
+        let path = std::env::temp_dir().join(format!(
+            "gennie-transcription-{}.sqlite3",
+            std::process::id()
+        ));
         let db = Database::open(&path, 50).unwrap();
         db.migrate(
             "transcription",

@@ -1,5 +1,5 @@
 [package]
-name = "soc-reminders-plugin"
+name = "gennie-reminders-plugin"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -7,9 +7,9 @@ publish.workspace = true
 build = "build.rs"
 
 [dependencies]
-soc-core.workspace = true
+gennie-core.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
-soc-config.workspace = true
+gennie-config.workspace = true

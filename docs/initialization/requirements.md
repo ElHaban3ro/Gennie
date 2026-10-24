@@ -1,6 +1,6 @@
-# Requisitos vigentes — primera base soc
+# Requisitos vigentes — primera base gennie
 
-Estado: primera base implementada y verificada localmente, checkout actual main sin commits, origin git@github.com:ElHaban3ro/soc.git. Repositorio remoto vacío según usuario; no accedido ni verificado. Pendientes históricos de carpeta/Git/macOS/activación manual están resueltos.
+Estado: primera base implementada y verificada localmente, checkout actual main sin commits, origin git@github.com:ElHaban3ro/Gennie.git. Repositorio remoto vacío según usuario; no accedido ni verificado. Pendientes históricos de carpeta/Git/macOS/activación manual están resueltos.
 
 Producto futuro: asistente personal proactivo integrado al OS para productividad/decisiones. Viabilidad de reutilizar cuotas ChatGPT/Grok no verificada; fuera de esta base. Autonomía y tareas reales se definirán después.
 
@@ -25,7 +25,7 @@ Estado: inicialización completada; archivo histórico. Fuente vigente en docs; 
 - Pendiente aclarar si Dev será la raíz final o la carpeta contenedora de una subcarpeta del proyecto.
 
 ## Preguntas pendientes
-- ¿Cuál será el nombre técnico o carpeta final? Nombre de la aplicación confirmado: soc.
+- ¿Cuál será el nombre técnico o carpeta final? Nombre de la aplicación confirmado: gennie.
 - ¿Qué hace, qué necesidad resuelve y quién la utilizará?
 - Alcance inicial, datos, interfaz, entorno, integraciones y criterios de entrega.
 - Git: proyecto nuevo o existente, URL sin credenciales, checkout local, rama y remoto; autorizaciones por definir.
@@ -34,7 +34,7 @@ Estado: inicialización completada; archivo histórico. Fuente vigente en docs; 
 - Conservar el prompt completo y registrar respuestas, decisiones y avance antes de generar la base.
 
 ## Respuesta registrada — 2026-10-11
-- Usuario: la aplicación se llamará «soc».
+- Usuario: la aplicación se llamará «gennie».
 - Pendiente: función, necesidad, público y carpeta final.
 
 ## Propósito descrito por el usuario — 2026-10-11
@@ -71,7 +71,7 @@ Estado: inicialización completada; archivo histórico. Fuente vigente en docs; 
 ## Pendientes estructurales actuales
 - Tipo de interfaz: escritorio nativo sin WebView o escritorio con tecnologías web; stack todavía no elegido.
 - Forma visual inicial, referencias y criterio de aceptación de la base gráfica.
-- Nombre técnico/carpeta final; soc es el nombre confirmado y Dev el directorio indicado.
+- Nombre técnico/carpeta final; gennie es el nombre confirmado y Dev el directorio indicado.
 - Estado de Git y checkout.
 - Modelo mínimo de datos que necesita la base; no inventar entidades de dominio.
 
@@ -103,7 +103,7 @@ Estado: inicialización completada; archivo histórico. Fuente vigente en docs; 
 - No se solicita crear el remoto ni inicializar Git en nombre del usuario.
 
 ## Repositorio recibido — 2026-10-11
-- URL SSH sin credenciales: git@github.com:ElHaban3ro/soc.git.
+- URL SSH sin credenciales: git@github.com:ElHaban3ro/Gennie.git.
 - Estado remoto (vacío o con contenido): no verificado.
 - Checkout existente, ruta local, rama y remoto local: pendientes.
 - Compartir la URL no autoriza por sí solo clonado, commit, push ni publicación.
@@ -114,8 +114,8 @@ Estado: inicialización completada; archivo histórico. Fuente vigente en docs; 
 - Carpeta final: /Users/fer/Documents/Projects/Fer/Dev/soc.
 - Repositorio local inicializado, sin commits.
 - Rama inicial elegida por la configuración de Git: main; no se cambió de rama.
-- Remoto local origin: git@github.com:ElHaban3ro/soc.git.
-- Documentación trasladada de Dev/.creation a soc/.creation; contenido verificado byte por byte antes de actualizar registros.
+- Remoto local origin: git@github.com:ElHaban3ro/Gennie.git.
+- Documentación trasladada de Dev/.creation a gennie/.creation; contenido verificado byte por byte antes de actualizar registros.
 - Sin commit ni push; no se contactó el remoto.
 
 ## Corrección del orden y animaciones — 2026-10-11

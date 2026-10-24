@@ -1,9 +1,9 @@
 // Sonda de presentación con texto de una prueba ASR, sin micrófono ni DB.
+use gennie_presence::{ChatBubble, PresenceWindow};
 use slint::ComponentHandle;
 use slint::Model;
-use soc_presence::{ChatBubble, PresenceWindow};
 use std::{path::PathBuf, time::Duration};
-fn main() -> soc_core::Result<()> {
+fn main() -> gennie_core::Result<()> {
     let mut args = std::env::args_os().skip(1);
     let text = std::fs::read_to_string(args.next().ok_or("Falta texto de prueba")?)?;
     if text.chars().count() > 360 {

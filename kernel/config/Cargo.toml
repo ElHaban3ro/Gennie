@@ -1,5 +1,5 @@
 [package]
-name = "soc-config"
+name = "gennie-config"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

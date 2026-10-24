@@ -8,7 +8,7 @@ Estado: inicialización completada; archivo histórico. Fuente vigente en docs; 
 - Verificar lectura y coincidencia byte por byte del prompt con el adjunto.
 
 ## Siguiente paso pendiente
-- Nombre recibido: soc. Recoger función, necesidad y público de la aplicación.
+- Nombre recibido: gennie. Recoger función, necesidad y público de la aplicación.
 - Resolver la carpeta definitiva dentro de Dev y registrar la respuesta antes de avanzar.
 
 ## Alcance de la base
@@ -24,7 +24,7 @@ Leer initialization-prompt.md, answers.md, decisions.md y plan.md antes de gener
 Pendiente definir producto y decisiones estructurales, escribir propuesta vinculada a requisitos y verificar dependencias antes de incorporarlas. Consolidar los documentos al terminar según el prompt.
 
 ## Síntesis inicial del producto — 2026-10-11
-soc será un asistente personal orientado a productividad y rapidez de decisión, proactivo e integrado con el sistema operativo. El usuario desea aprovechar cuotas de servicios que ya paga.
+gennie será un asistente personal orientado a productividad y rapidez de decisión, proactivo e integrado con el sistema operativo. El usuario desea aprovechar cuotas de servicios que ya paga.
 
 Último paso completado: registrar el propósito y separar objetivos de integración de capacidades todavía no verificadas.
 Siguiente paso: elegir el sistema operativo inicial, concretar los recorridos de la primera versión y definir autonomía. Después investigar las integraciones admitidas por los proveedores elegidos.
@@ -58,8 +58,8 @@ Siguiente pendiente de checkout: recibir dirección sin credenciales, confirmar 
 Trabajo de descubrimiento independiente posible: definir estilo de la cara, color y ubicación inicial; continuar evaluación documental de Slint.
 
 ## Avance — dirección del repositorio, 2026-10-11
-Último paso completado: registrar git@github.com:ElHaban3ro/soc.git sin credenciales.
-Siguiente pendiente: preguntar si ya está clonado o si se autoriza clonarlo en Dev/soc; después verificar checkout y rama, preservar contenido existente y trasladar la documentación inicial verificando integridad. No asumir rama main.
+Último paso completado: registrar git@github.com:ElHaban3ro/Gennie.git sin credenciales.
+Siguiente pendiente: preguntar si ya está clonado o si se autoriza clonarlo en Dev/gennie; después verificar checkout y rama, preservar contenido existente y trasladar la documentación inicial verificando integridad. No asumir rama main.
 
 ## Estado vigente — checkout preparado, 2026-10-11
 Último paso completado: crear /Users/fer/Documents/Projects/Fer/Dev/soc, inicializar Git, configurar origin y trasladar .creation verificando integridad. Rama inicial: main; sin commits ni push.
@@ -73,15 +73,15 @@ Siguiente pendiente inmediato: evaluar soporte de animaciones suaves y rebote/re
 ## Ejecución autorizada — 2026-10-11
 La base conjunta está autorizada. Primer alcance: workspace Rust con kernel de configuración/persistencia y contratos mínimos de módulos, app dedicada de interfaz Slint y bootstrap; SQLite compartido y migraciones necesarias; presencia sin marco siempre encima, cara dormida/activa, clic y transiciones. Sin HTTP, usuarios, sesiones, voz, correo ni conectores de IA en esta fase.
 Antes de incorporar dependencias: verificar versión exacta, compatibilidad, features y avisos en fuentes oficiales. Validar comportamiento real de transparencia, foco, expansión y cierre en macOS y distinguirlo de compilación/pruebas.
-Bloqueo de enrutamiento: soc no figura entre los proyectos disponibles de Codex. La ejecución del repositorio requiere un chat de su proyecto; falta registrar/abrir soc como proyecto en la aplicación. No dirigir trabajo a iClock ni a otros proyectos.
+Bloqueo de enrutamiento: gennie no figura entre los proyectos disponibles de Codex. La ejecución del repositorio requiere un chat de su proyecto; falta registrar/abrir gennie como proyecto en la aplicación. No dirigir trabajo a iClock ni a otros proyectos.
 Último paso completado: registrar autorización y alcance conjunto.
-Siguiente pendiente: disponer del proyecto soc en Codex para enviar la implementación con todo el contexto y supervisar hasta entrega.
+Siguiente pendiente: disponer del proyecto gennie en Codex para enviar la implementación con todo el contexto y supervisar hasta entrega.
 
 ## Propuesta vinculada y construcción — 2026-10-11
-Estado vigente: construcción en el checkout soc; el impedimento de enrutamiento anterior está resuelto por este chat.
+Estado vigente: construcción en el checkout gennie; el impedimento de enrutamiento anterior está resuelto por este chat.
 - R1 nativa/cara: apps/presence posee UI Slint, estados y movimiento; clic alterna, Escape/clic secundario sale. 80 px dormida y 168 px activa, cara siempre visible, azules #b8dcf5/#74b6e8, tinta #20394d, mejillas #f1a9b7 y zetas #86a4bf. Tipografía del sistema para zetas y ayuda; cara dibujada con paths, sin imágenes externas. Esquina inferior derecha y margen 24 px: supuestos delegados revisables.
 - R2 kernel inicial: kernel/config carga Config y Secrets separados; kernel/db posee una conexión SQLite compartida/serializada, busy timeout, foreign keys, WAL y migraciones transaccionales con checksum SHA-256 por módulo. kernel/core define AppModule, AppState y apagado persistente. Sin pool artificial para una app local con escrituras mínimas.
-- R3 persistencia justificada: registro modules conserva activación entre arranques; presence_preferences recuerda reducción de movimiento (tecla M), no el estado activo transitorio. Arranca dormida. SQLite archivo local data/soc.sqlite3 explícito en .env; sin secretos necesarios hoy.
+- R3 persistencia justificada: registro modules conserva activación entre arranques; presence_preferences recuerda reducción de movimiento (tecla M), no el estado activo transitorio. Arranca dormida. SQLite archivo local data/gennie.sqlite3 explícito en .env; sin secretos necesarios hoy.
 - R4 composición: bootstrap registro explícito, validación DAG antes de migrar apps, migración de módulos compilados incluso apagados, start/stop idempotentes y limpieza inversa. El bucle gráfico corre en main y queda fuera de start(); sin HTTP, hot activation ni buses sin consumidores. No contracts/testkit vacíos.
 - R5 evaluación: fmt, pruebas SQLite en memoria/archivo temporal (rollback, checksums, reapertura, registro, dependencias y lifecycle), clippy/build y UI macOS cuando el entorno permita observarla. Transparencia, posición, foco, click fuera y animaciones se reportan según evidencia real.
 - Dependencias propuestas verificadas en crates.io/mantenedores: Slint/slint-build 1.18.1 (MSRV 1.92; Rust local 1.95), rusqlite 0.40.2 bundled/defaults off, dotenvy 0.15.7 y sha2 0.11.0. Winit vía reexport de Slint y feature unstable-winit-030 para política de ventana. Licencia Royalty-free para desktop con atribución AboutSlint accesible (tecla A). Avisos RustSec históricos rusqlite/sha2 corregidos; ausencia de directorio para Slint/dotenvy no certifica seguridad. Revisar lockfile transitivo al resolverlo.

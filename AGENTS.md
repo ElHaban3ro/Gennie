@@ -1,6 +1,6 @@
-# soc — instrucciones del checkout
+# Gennie — instrucciones del checkout
 
-soc es un asistente personal futuro; esta base ofrece presencia nativa local en macOS, configuración y SQLite. Añade dictado local Nemotron con atajo configurable, globo temporal y control de aplicaciones/música mediante Laya local. No hay HTTP entrante, usuarios, correo ni conectores de IA remota adicionales. Antes de modificar código, identifica las áreas afectadas y lee los archivos de reglas correspondientes. Los enlaces de este índice son instrucciones de lectura, no sustituyen su contenido.
+Gennie es un asistente personal futuro; esta base ofrece presencia nativa local en macOS, configuración y SQLite. Añade dictado local Nemotron con atajo configurable, globo temporal y control de aplicaciones/música mediante Laya local. No hay HTTP entrante, usuarios, correo ni conectores de IA remota adicionales. Antes de modificar código, identifica las áreas afectadas y lee los archivos de reglas correspondientes. Los enlaces de este índice son instrucciones de lectura, no sustituyen su contenido.
 
 ## Mapa e invariantes
 - `kernel/config`: carga y valida Config; Secrets separado, sin Debug ni inclusión en AppState.
@@ -37,7 +37,7 @@ soc es un asistente personal futuro; esta base ofrece presencia nativa local en 
 - Commit y push solo con autorización explícita para ese cambio. Convención de commits: mensajes descriptivos en español con formato `tipo: resumen` (docs, feat, fix), elegida para la entrega inicial autorizada. Publicar código y desplegar son acciones distintas; una autorización Git no autoriza despliegue.
 - Distingue revisión estática, compilación, pruebas, ejecución y despliegue. No sustituyas evidencia runtime por una captura o un test unitario.
 - Documenta estado vigente, actualiza documentos afectados y retira afirmaciones obsoletas. Si se autorizan agentes paralelos asigna archivos/responsabilidades y exige verificación propia; no hay obligación de delegar.
-- Un único proceso Cargo por target. Comandos reales: `cargo run --locked -p soc`, `cargo fmt --all -- --check`, `cargo test --workspace --locked`, `cargo clippy --workspace --all-targets --locked -- -D warnings`.
+- Un único proceso Cargo por target. Comandos reales: `cargo run --locked -p gennie`, `cargo fmt --all -- --check`, `cargo test --workspace --locked`, `cargo clippy --workspace --all-targets --locked -- -D warnings`.
 
 ## Mantenimiento
 Cada regla tiene un propietario en docs/rules. Cambia regla, referencias y comprobaciones en el mismo trabajo. Usuario y entorno prevalecen; una memoria histórica no es regla vigente. Resuelve contradicciones antes del cambio dependiente. Si falta una lectura obligatoria, informa y resuelve antes de modificar ese ámbito. `.creation` conserva origen/historial; los documentos consolidados en docs son la fuente vigente tras completar la inicialización.

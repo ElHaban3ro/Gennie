@@ -39,7 +39,7 @@ Se exploraron cuatro preguntas de clasificación y tres comprobaciones semántic
 
 [Voz sintética](voice-experience-synthetic.json): siete audios de `say` con señal comprobada, mono 16 kHz, Nemotron real CPU y Laya en preview. Se transcribieron 6/7 y se obtuvo la salida esperada en 3/7, sin falsos positivos ejecutables. «No abras Chrome» se transcribió «No habrá Scrum»; «abre el» produjo «Abreel»; «hazlo» no produjo texto. No se corrigieron manualmente las transcripciones. Una primera ejecución restringida produjo resultados vacíos y avisos del sandbox; se invalidó y se repitió con acceso local.
 
-[Ejecutor nativo](voice-experience-native.json): «Abre Finder.» desde el binario actualizado, SQLite temporal, aplicación realmente en primer plano, resultado `verified` y foco anterior restaurado. No se reinició la instancia habitual de soc.
+[Ejecutor nativo](voice-experience-native.json): «Abre Finder.» desde el binario actualizado, SQLite temporal, aplicación realmente en primer plano, resultado `verified` y foco anterior restaurado. No se reinició la instancia habitual de gennie.
 
 `chat_probe --decisions` ejecutó una secuencia visual aislada de 6,6 s con diez snapshots: carga/listo/análisis y resultados de Laya mientras Nemotron cambia de estado. [Coexistencia a 1,2 s](voice-experience-chat-1200.png) y [reposo sin globos a 6,3 s](voice-experience-chat-6300.png). La sonda restringida quedó bloqueada por el entorno; se verificó su PID y se cerró exclusivamente ese proceso propio antes de finalizar. La ejecución nativa terminó por sí misma. Los mensajes son simulados: esto no prueba micrófono ni gesto físico del atajo.
 
@@ -52,7 +52,7 @@ Precarga desde Controller con contexto real bajo sandbox: 4595 ms, primera decis
 - `cargo clippy --workspace --all-targets --locked -- -D warnings`
 - Con el Python configurado para Laya: `scripts/evaluate_voice_experience.py --model RUTA --output INFORME --split all`. `--trace` incluye preguntas/puntuaciones de los casos sintéticos. Sale con código 1 mientras haya discrepancias: no es una suite semántica verde.
 - `scripts/review_voice_pipeline.py --nemotron RUTA --output TRANSCRIPCIONES`, seguido de `scripts/evaluate_voice_decisions.py --model RUTA --fixture TRANSCRIPCIONES --output INFORME` con el Python de Laya.
-- `cargo run --locked -p soc-presence --example chat_probe -- CARPETA --decisions` para la secuencia visual propia.
+- `cargo run --locked -p gennie-presence --example chat_probe -- CARPETA --decisions` para la secuencia visual propia.
 - `scripts/probe_decisions_native.py` abre Finder, usa SQLite temporal y restaura foco; es una prueba con efecto explícito, distinta de los evaluadores anteriores.
 
 La voz real del usuario, el atajo físico, permisos de micrófono y todas las apps posibles siguen sin quedar demostrados por estas pruebas. Reabrir el ejecutable compilado es necesario para aplicar los cambios a una instancia existente.

@@ -1,8 +1,8 @@
 mod settings;
 
+use gennie_core::{AppModule, AppState, Migration, Result};
 use serde::{Deserialize, Serialize};
 pub use settings::Settings;
-use soc_core::{AppModule, AppState, Migration, Result};
 use std::{
     io::{BufRead, BufReader, Write},
     process::{Child, ChildStdin, ChildStdout, Command, Stdio},
@@ -269,7 +269,7 @@ impl AppModule for TtsModule {
                                 &worker_model_status,
                                 &worker_generation,
                                 request_generation,
-                                "Hola, soy SOC. Así suena mi voz.",
+                                "Hola, soy Gennie. Así suena mi voz.",
                                 &settings,
                             );
                             if worker_generation.load(Ordering::SeqCst) != request_generation {
@@ -644,9 +644,9 @@ fn close_process(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soc_config::Config;
-    use soc_core::Shutdown;
-    use soc_db::Database;
+    use gennie_config::Config;
+    use gennie_core::Shutdown;
+    use gennie_db::Database;
     use std::{
         path::PathBuf,
         time::{Duration, Instant},

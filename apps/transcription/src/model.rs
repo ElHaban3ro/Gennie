@@ -1,7 +1,7 @@
 use crate::Event;
+use gennie_core::Result;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use soc_core::Result;
 use std::{
     fs::{self, File, OpenOptions},
     io::{Read, Write},

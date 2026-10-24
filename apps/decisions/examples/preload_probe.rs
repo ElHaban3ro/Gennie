@@ -1,16 +1,16 @@
 //! Sonda real de precarga y primera decisión; DB en memoria y ningún efecto.
-use soc_core::{AppModule, AppState, Shutdown};
-use soc_decisions::{DecisionsModule, ModelStatus};
+use gennie_core::{AppModule, AppState, Shutdown};
+use gennie_decisions::{DecisionsModule, ModelStatus};
 use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
 
-fn main() -> soc_core::Result<()> {
-    let db = soc_db::Database::memory()?;
+fn main() -> gennie_core::Result<()> {
+    let db = gennie_db::Database::memory()?;
     let state = AppState {
-        config: Arc::new(soc_config::Config {
-            database_path: "/tmp/soc-preload-unused.sqlite3".into(),
+        config: Arc::new(gennie_config::Config {
+            database_path: "/tmp/gennie-preload-unused.sqlite3".into(),
             db_busy_timeout_ms: 500,
         }),
         db: db.clone(),
@@ -19,7 +19,7 @@ fn main() -> soc_core::Result<()> {
     let module = DecisionsModule::default();
     db.migrate(module.name(), module.migrations())?;
     module.start(&state)?;
-    let result = (|| -> soc_core::Result<()> {
+    let result = (|| -> gennie_core::Result<()> {
         let started = Instant::now();
         let controller = module.controller()?;
         loop {

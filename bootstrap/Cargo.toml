@@ -1,18 +1,18 @@
 [package]
-name = "soc"
+name = "gennie"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
-soc-config.workspace = true
-soc-db.workspace = true
-soc-core.workspace = true
-soc-presence.workspace = true
-soc-transcription.workspace = true
-soc-decisions.workspace = true
-soc-llm.workspace = true
-soc-tts.workspace = true
-soc-reminders-plugin.workspace = true
+gennie-config.workspace = true
+gennie-db.workspace = true
+gennie-core.workspace = true
+gennie-presence.workspace = true
+gennie-transcription.workspace = true
+gennie-decisions.workspace = true
+gennie-llm.workspace = true
+gennie-tts.workspace = true
+gennie-reminders-plugin.workspace = true
 serde_json.workspace = true

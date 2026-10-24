@@ -1,6 +1,6 @@
 # Entrega Git inicial — 2026-10-11
 
-Autorización explícita del usuario: «Commitea y pushea TODO en distintos commits. Sin pruebas avanzadas». Alcance: todos los archivos apropiados del proyecto, sin secretos/datos de uso/artefactos. Checkout y rama main conservados; origin git@github.com:ElHaban3ro/soc.git. No PR, despliegue ni reinicio de procesos.
+Autorización explícita del usuario: «Commitea y pushea TODO en distintos commits. Sin pruebas avanzadas». Alcance: todos los archivos apropiados del proyecto, sin secretos/datos de uso/artefactos. Checkout y rama main conservados; origin git@github.com:ElHaban3ro/Gennie.git. No PR, despliegue ni reinicio de procesos.
 
 Convención elegida dentro de la delegación: mensajes descriptivos en español `tipo: resumen`, sin atribuciones automáticas. Agrupaciones: requisitos originales .creation; base modular completa kernel/config/SQLite, bootstrap y Slint monocromático; corrección de pertenencia a Spaces; documentación/reglas/scripts. La separación del fix de Spaces se realiza en el índice, conservando el archivo final del checkout.
 

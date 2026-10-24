@@ -760,7 +760,7 @@
       "group": "spoken_disfluencies",
       "split": "holdout",
       "request": {
-        "text": "SOC, abre Discord."
+        "text": "Gennie, abre Discord."
       },
       "expected": {
         "executable": true,
