@@ -68,3 +68,7 @@ La sonda visual aislada usa la feature de desarrollo `renderer-software` de Slin
 ## Reminders plugin — 2026-10-14
 
 `gennie-reminders-plugin` es un crate local: reutiliza `gennie-core`, `gennie-config` en pruebas y las versiones ya fijadas de `serde`/`serde_json`. No incorpora versiones nuevas de registro ni paquetes Swift externos. El puente compila con Foundation y EventKit del SDK de macOS instalado; requiere `swiftc` durante el build. Esta incorporación no equivale a una auditoría nueva de las dependencias preexistentes.
+
+## Compilación con Xcode 27 — 24 de octubre de 2026
+
+Con Xcode 27.1, Rust 1.95 y destino macOS 12, la biblioteca de `zerofrom-derive` generada en release no cargó: `mis-aligned LINKEDIT string pool`. La firma era válida; `ctypes.CDLL` reprodujo el rechazo y `cargo build --release --target aarch64-apple-darwin --locked -p zerofrom` falló con E0463. El mismo comando con `CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=none` pasó. Se fija `profile.release.build-override.strip=false` en el workspace para conservar símbolos en proc-macros/build scripts, sin cambiar versiones ni optimización del producto. Coincide con los defectos documentados de [Rust](https://github.com/rust-lang/rust/issues/157750) y [LLVM](https://github.com/llvm/llvm-project/issues/203678); reevaluar el ajuste cuando cambie el toolchain.

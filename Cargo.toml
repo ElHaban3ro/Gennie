@@ -31,3 +31,8 @@ dotenvy = "=0.15.7"
 
 objc2 = { version = "=0.6.5", default-features = false, features = ["std"] }
 flutter_rust_bridge = "=2.13.0"
+
+# Evita dylibs de proc-macros con LINKEDIT desalineado en Rust 1.95/macOS 27.
+# Solo afecta herramientas de compilación, no cambia la optimización del producto.
+[profile.release.build-override]
+strip = false
