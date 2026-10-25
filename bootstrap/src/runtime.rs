@@ -26,6 +26,8 @@ pub(crate) enum Operation {
     Preview(VoiceSettings),
     Dictation(DictationSettings),
     Motion(bool),
+    Model(LocalModel, bool),
+    Memory(LocalModel, Sender<Option<u64>>),
     Prepare,
     Release,
     Authorize,
@@ -72,12 +74,16 @@ pub(crate) fn start(env: String, helper: String) -> std::result::Result<Snapshot
                         let _ = reply.send(result);
                         break;
                     }
+                    Ok((Operation::Memory(model, reply), _)) => {
+                        let _ = reply.send(backend.model_memory(model));
+                    }
                     Ok((operation, reply)) => {
                         backend.snapshot.error = None;
+                        backend.snapshot.error_recorded = false;
                         backend.snapshot.confirmation = None;
                         let result = backend.apply(operation).and_then(|()| backend.refresh());
                         if let Err(e) = &result {
-                            backend.snapshot.error = Some(e.to_string());
+                            backend.record_error(e.to_string(), false, false);
                         }
                         backend.publish();
                         let _ = reply.send(
@@ -121,6 +127,23 @@ pub(crate) fn request(op: Operation) -> std::result::Result<Snapshot, String> {
         .map_err(|_| "El backend está ocupado o se está cerrando")?;
     result.recv().map_err(|_| "El backend dejó de responder")?
 }
+pub(crate) fn model_memory(model: LocalModel) -> std::result::Result<Option<u64>, String> {
+    let sender = HANDLE
+        .lock()
+        .map_err(|_| "Estado inválido")?
+        .as_ref()
+        .ok_or("El backend no está iniciado")?
+        .sender
+        .clone();
+    let (reply, result) = mpsc::channel();
+    let (unused, _) = mpsc::channel();
+    sender
+        .try_send((Operation::Memory(model, reply), unused))
+        .map_err(|_| "El backend está ocupado o se está cerrando")?;
+    result
+        .recv()
+        .map_err(|_| "El backend dejó de responder".into())
+}
 pub(crate) fn watch(sink: StreamSink<Snapshot>) -> std::result::Result<(), String> {
     // El mismo orden de locks que publish evita perder la primera actualización.
     let mut sinks = SINKS.lock().map_err(|_| "Canal inválido")?;
@@ -160,6 +183,7 @@ struct Backend {
     started: Vec<usize>,
     llm: Option<gennie_llm::Controller>,
     voice: Option<gennie_tts::Controller>,
+    decisions: Option<gennie_decisions::Controller>,
     dictation: Option<gennie_transcription::Controller>,
     snapshot: Snapshot,
     narration: gennie_presence::narration::Narration,
@@ -195,7 +219,7 @@ impl Backend {
         let modules = registry::build(
             presence,
             transcription.clone(),
-            decisions,
+            decisions.clone(),
             llm.clone(),
             tts.clone(),
             reminders,
@@ -224,6 +248,7 @@ impl Backend {
             started,
             llm: None,
             voice: None,
+            decisions: None,
             dictation: None,
             snapshot: Snapshot {
                 connection: "Sin conectar".into(),
@@ -246,6 +271,9 @@ impl Backend {
         }
         if active.contains("transcription") {
             backend.dictation = Some(transcription.controller(&backend.state)?);
+        }
+        if active.contains("decisions") {
+            backend.decisions = Some(decisions.manual_controller()?);
         }
         backend.refresh()?;
         Ok(backend)
@@ -285,7 +313,63 @@ impl Backend {
         self.observed = revision;
         Ok(())
     }
+    fn model_memory(&mut self, model: LocalModel) -> Option<u64> {
+        match model {
+            LocalModel::Laya => self.decisions.as_ref()?.resident_bytes(),
+            LocalModel::Voice => self.voice.as_ref()?.resident_bytes(),
+            LocalModel::Dictation => self.dictation.as_mut()?.resident_bytes(),
+        }
+    }
+    fn model_info(&self) -> Vec<ModelInfo> {
+        let laya = self.decisions.as_ref();
+        let voice = self.voice.as_ref();
+        let dictation = self.dictation.as_ref();
+        vec![
+            ModelInfo {
+                model: LocalModel::Laya,
+                state: laya.map_or(ModelState::Unavailable, |c| match c.model_status() {
+                    gennie_decisions::ModelStatus::Unloaded => ModelState::Unloaded,
+                    gennie_decisions::ModelStatus::Loading => ModelState::Loading,
+                    gennie_decisions::ModelStatus::Ready => ModelState::Ready,
+                    gennie_decisions::ModelStatus::Failed(_) => ModelState::Failed,
+                }),
+                unload_minutes: laya
+                    .and_then(|c| c.settings().unload_seconds.map(|n| (n / 60) as u32)),
+                detail: laya.and_then(|c| match c.model_status() {
+                    gennie_decisions::ModelStatus::Failed(e) => Some(e),
+                    _ => None,
+                }),
+            },
+            ModelInfo {
+                model: LocalModel::Voice,
+                state: voice.map_or(ModelState::Unavailable, |c| match c.model_status() {
+                    gennie_tts::ModelStatus::Disabled => ModelState::Disabled,
+                    gennie_tts::ModelStatus::Unloaded => ModelState::Unloaded,
+                    gennie_tts::ModelStatus::Loading => ModelState::Loading,
+                    gennie_tts::ModelStatus::Ready => ModelState::Ready,
+                    gennie_tts::ModelStatus::Failed => ModelState::Failed,
+                }),
+                unload_minutes: voice
+                    .and_then(|c| c.settings().unload_seconds.map(|n| (n / 60) as u32)),
+                detail: None,
+            },
+            ModelInfo {
+                model: LocalModel::Dictation,
+                state: dictation.map_or(ModelState::Unavailable, |c| match c.model_status() {
+                    gennie_transcription::ModelStatus::Disabled => ModelState::Disabled,
+                    gennie_transcription::ModelStatus::Unloaded => ModelState::Unloaded,
+                    gennie_transcription::ModelStatus::Downloading => ModelState::Downloading,
+                    gennie_transcription::ModelStatus::Loading => ModelState::Loading,
+                    gennie_transcription::ModelStatus::Ready => ModelState::Ready,
+                    gennie_transcription::ModelStatus::Failed => ModelState::Failed,
+                }),
+                unload_minutes: dictation.map(|c| (c.settings.unload_seconds / 60) as u32),
+                detail: None,
+            },
+        ]
+    }
     fn refresh_controls(&mut self) {
+        self.snapshot.models = self.model_info();
         self.snapshot.busy = self.llm.as_ref().is_some_and(|c| c.is_pending());
         self.snapshot.assistant = self.llm.as_ref().map(|c| {
             let s = c.settings();
@@ -425,6 +509,40 @@ impl Backend {
                 gennie_presence::save_reduced_motion(&self.state.db, value)?;
                 self.snapshot.confirmation = Some("Preferencia guardada".into());
             }
+            Operation::Model(model, loaded) => match model {
+                LocalModel::Laya => {
+                    let c = self.decisions.as_ref().ok_or("Laya no disponible")?;
+                    if loaded {
+                        c.load_model()?;
+                    } else {
+                        c.unload_model();
+                    }
+                }
+                LocalModel::Voice => {
+                    let c = self.voice.as_ref().ok_or("Voz no disponible")?;
+                    if loaded {
+                        if !c.settings().enabled {
+                            return Err("Activa la voz en Configuración".into());
+                        }
+                        c.preload()?;
+                    } else {
+                        self.speech_queue.clear();
+                        self.narration.clear();
+                        c.interrupt()?;
+                    }
+                }
+                LocalModel::Dictation => {
+                    let c = self.dictation.as_mut().ok_or("Dictado no disponible")?;
+                    if loaded {
+                        if !c.settings.enabled {
+                            return Err("Activa el dictado en Configuración".into());
+                        }
+                        c.prepare();
+                    } else {
+                        c.cancel();
+                    }
+                }
+            },
             Operation::Prepare => self
                 .dictation
                 .as_mut()
@@ -440,13 +558,52 @@ impl Backend {
                 .as_mut()
                 .ok_or("Dictado desactivado")?
                 .retry_keys(),
-            Operation::Stop => unreachable!(),
+            Operation::Stop | Operation::Memory(..) => unreachable!(),
         }
         Ok(())
     }
+    fn record_error(&mut self, text: String, provider_error: bool, active: bool) {
+        self.snapshot.error = Some(text.clone());
+        self.snapshot.error_recorded = false;
+        let target = if active {
+            history::load(&self.state.db, None)
+                .ok()
+                .and_then(|h| h.active_id)
+                .or_else(|| self.snapshot.selected_id.as_deref()?.parse().ok())
+        } else {
+            self.snapshot
+                .selected_id
+                .as_deref()
+                .and_then(|id| id.parse().ok())
+        };
+        match history::record_system_message(
+            &self.state.db,
+            target,
+            &format!("Error: {text}"),
+            provider_error,
+        ) {
+            Ok(true) => {
+                self.revision
+                    .fetch_add(1, std::sync::atomic::Ordering::Release);
+                match self.refresh() {
+                    Ok(()) => self.snapshot.error_recorded = true,
+                    Err(error) => {
+                        self.snapshot.error = Some(format!(
+                            "{text}. No se pudo leer el aviso guardado: {error}"
+                        ))
+                    }
+                }
+            }
+            Ok(false) => {}
+            Err(error) => {
+                self.snapshot.error = Some(format!("{text}. No se pudo guardar el aviso: {error}"))
+            }
+        }
+    }
     fn tick(&mut self) {
-        let mut dirty = false;
+        let mut dirty = self.snapshot.models != self.model_info();
         let mut refresh_history = false;
+        let mut errors = Vec::new();
         if let Some(c) = &mut self.dictation {
             for event in c.tick() {
                 use gennie_transcription::Event::*;
@@ -458,7 +615,7 @@ impl Backend {
                         if let Some(llm) = &self.llm
                             && let Err(e) = llm.speak(&text)
                         {
-                            self.snapshot.error = Some(e.to_string());
+                            errors.push((e.to_string(), false));
                         }
                     }
                     DictationRequested => {
@@ -469,7 +626,7 @@ impl Backend {
                             let _ = v.preload();
                         }
                     }
-                    Error(e) | NoSpeech(e) => self.snapshot.error = Some(e),
+                    Error(e) | NoSpeech(e) => errors.push((e, false)),
                     Saved => {
                         self.snapshot.confirmation = Some("Ajustes de dictado guardados".into())
                     }
@@ -487,9 +644,8 @@ impl Backend {
                 match event {
                     Connected => self.snapshot.connection = "Conectado".into(),
                     Connecting => self.snapshot.connection = "Conectando…".into(),
-                    Disconnected(e) => {
+                    Disconnected(_) => {
                         self.snapshot.connection = "Sin conectar".into();
-                        self.snapshot.error = Some(e);
                     }
                     ReplyDelta(text) => {
                         self.snapshot.reply.push_str(&text);
@@ -518,11 +674,11 @@ impl Backend {
                         self.snapshot.confirmation = Some("Ajustes del asistente guardados".into())
                     }
                     Failed(e) => {
-                        self.snapshot.error = Some(e);
+                        errors.push((e, true));
                         self.failed_turn = true;
                     }
                     HistoryWarning(e) | SettingsSaveFailed(e) => {
-                        self.snapshot.error = Some(e);
+                        errors.push((e, false));
                     }
                 }
                 dirty = true;
@@ -550,7 +706,7 @@ impl Backend {
                         self.snapshot.confirmation = Some("Ajustes de voz guardados".into())
                     }
                     SaveFailed(e) | Failed(_, e) | PreloadFailed(e) => {
-                        self.snapshot.error = Some(e)
+                        errors.push((e, false));
                     }
                     _ => {}
                 }
@@ -562,6 +718,9 @@ impl Backend {
                 dirty = true;
             }
         }
+        for (error, provider_error) in errors {
+            self.record_error(error, provider_error, true);
+        }
         let history_changed =
             self.observed != self.revision.load(std::sync::atomic::Ordering::Acquire);
         dirty |= history_changed;
@@ -569,6 +728,7 @@ impl Backend {
             if history_changed || refresh_history {
                 if let Err(e) = self.refresh() {
                     self.snapshot.error = Some(e.to_string());
+                    self.snapshot.error_recorded = false;
                 }
             } else {
                 self.refresh_controls();
@@ -594,6 +754,7 @@ impl Backend {
         }
         self.llm.take();
         self.voice.take();
+        self.decisions.take();
         let result = startup::stop_all(&self.modules, &self.started, &self.state);
         result.and(self.state.db.close())
     }

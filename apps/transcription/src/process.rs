@@ -17,6 +17,13 @@ pub struct Process {
     partial: std::path::PathBuf,
 }
 impl Process {
+    pub fn resident_bytes(&mut self) -> Option<u64> {
+        if self.child.try_wait().ok()?.is_some() {
+            return Some(0);
+        }
+        gennie_core::process_resident_bytes(self.child.id())
+    }
+
     pub fn spawn(flag: &str, path: &Path, microphone: Option<&str>) -> Result<Self> {
         let mut command = Command::new(
             crate::HELPER_EXECUTABLE

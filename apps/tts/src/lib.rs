@@ -410,6 +410,17 @@ impl TtsModule {
     }
 }
 impl Controller {
+    pub fn resident_bytes(&self) -> Option<u64> {
+        let mut guard = self.child.lock().ok()?;
+        let Some(child) = guard.as_mut() else {
+            return Some(0);
+        };
+        if child.try_wait().ok()?.is_some() {
+            return Some(0);
+        }
+        gennie_core::process_resident_bytes(child.id())
+    }
+
     pub fn model_status(&self) -> ModelStatus {
         let mut status = ModelStatus::from_atomic(self.model_status.load(Ordering::SeqCst));
         if matches!(status, ModelStatus::Loading | ModelStatus::Ready)

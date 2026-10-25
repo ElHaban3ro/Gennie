@@ -6,7 +6,7 @@
 import 'frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
 
 Future<Snapshot> initialize({
   required String envFile,
@@ -64,6 +64,15 @@ Future<List<String>> microphones() =>
     RustLib.instance.api.crateApiMicrophones();
 
 Future<void> shutdown() => RustLib.instance.api.crateApiShutdown();
+
+Future<Snapshot> setModelLoaded({
+  required LocalModel model,
+  required bool loaded,
+}) => RustLib.instance.api.crateApiSetModelLoaded(model: model, loaded: loaded);
+
+/// RSS del proceso propio del modelo. Solo se consulta al abrir su tooltip.
+Future<BigInt?> modelMemoryBytes({required LocalModel model}) =>
+    RustLib.instance.api.crateApiModelMemoryBytes(model: model);
 
 class AssistantSettings {
   final String model;
@@ -176,6 +185,8 @@ class DictationSettings {
           microphone == other.microphone;
 }
 
+enum LocalModel { laya, voice, dictation }
+
 class Message {
   final String speaker;
   final String text;
@@ -203,7 +214,49 @@ class Message {
           createdAt == other.createdAt;
 }
 
+class ModelInfo {
+  final LocalModel model;
+  final ModelState state;
+  final int? unloadMinutes;
+  final String? detail;
+
+  const ModelInfo({
+    required this.model,
+    required this.state,
+    this.unloadMinutes,
+    this.detail,
+  });
+
+  @override
+  int get hashCode =>
+      model.hashCode ^
+      state.hashCode ^
+      unloadMinutes.hashCode ^
+      detail.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ModelInfo &&
+          runtimeType == other.runtimeType &&
+          model == other.model &&
+          state == other.state &&
+          unloadMinutes == other.unloadMinutes &&
+          detail == other.detail;
+}
+
+enum ModelState {
+  unavailable,
+  disabled,
+  unloaded,
+  downloading,
+  loading,
+  ready,
+  failed,
+}
+
 class Snapshot {
+  final List<ModelInfo> models;
   final List<Conversation> conversations;
   final List<Message> messages;
   final String? selectedId;
@@ -212,6 +265,7 @@ class Snapshot {
   final String connection;
   final String reply;
   final String? error;
+  final bool errorRecorded;
   final String? confirmation;
   final String? acknowledgedText;
   final int acknowledgement;
@@ -223,6 +277,7 @@ class Snapshot {
   final bool reducedMotion;
 
   const Snapshot({
+    required this.models,
     required this.conversations,
     required this.messages,
     this.selectedId,
@@ -231,6 +286,7 @@ class Snapshot {
     required this.connection,
     required this.reply,
     this.error,
+    required this.errorRecorded,
     this.confirmation,
     this.acknowledgedText,
     required this.acknowledgement,
@@ -247,6 +303,7 @@ class Snapshot {
 
   @override
   int get hashCode =>
+      models.hashCode ^
       conversations.hashCode ^
       messages.hashCode ^
       selectedId.hashCode ^
@@ -255,6 +312,7 @@ class Snapshot {
       connection.hashCode ^
       reply.hashCode ^
       error.hashCode ^
+      errorRecorded.hashCode ^
       confirmation.hashCode ^
       acknowledgedText.hashCode ^
       acknowledgement.hashCode ^
@@ -270,6 +328,7 @@ class Snapshot {
       identical(this, other) ||
       other is Snapshot &&
           runtimeType == other.runtimeType &&
+          models == other.models &&
           conversations == other.conversations &&
           messages == other.messages &&
           selectedId == other.selectedId &&
@@ -278,6 +337,7 @@ class Snapshot {
           connection == other.connection &&
           reply == other.reply &&
           error == other.error &&
+          errorRecorded == other.errorRecorded &&
           confirmation == other.confirmation &&
           acknowledgedText == other.acknowledgedText &&
           acknowledgement == other.acknowledgement &&

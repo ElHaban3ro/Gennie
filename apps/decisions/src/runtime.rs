@@ -61,13 +61,17 @@ impl RuntimeConfig {
 
 pub struct Process {
     child: Child,
+    observed_pid: Option<std::sync::Arc<std::sync::atomic::AtomicU32>>,
     input: Option<ChildStdin>,
     replies: Receiver<String>,
     reader: Option<JoinHandle<()>>,
 }
 impl Process {
-    pub fn start(config: &RuntimeConfig) -> Result<Self> {
-        Self::start_script(
+    pub fn start(
+        config: &RuntimeConfig,
+        pid: std::sync::Arc<std::sync::atomic::AtomicU32>,
+    ) -> Result<Self> {
+        let mut process = Self::start_script(
             config,
             concat!(
                 include_str!("../python/applications.py"),
@@ -76,7 +80,13 @@ impl Process {
                 "\n",
                 include_str!("../python/worker.py")
             ),
-        )
+        )?;
+        process.observe_pid(pid);
+        Ok(process)
+    }
+    fn observe_pid(&mut self, pid: std::sync::Arc<std::sync::atomic::AtomicU32>) {
+        pid.store(self.child.id(), std::sync::atomic::Ordering::Release);
+        self.observed_pid = Some(pid);
     }
     #[cfg(test)]
     pub fn fake(script: &str) -> Result<Self> {
@@ -141,6 +151,7 @@ impl Process {
         });
         Ok(Self {
             child,
+            observed_pid: None,
             input,
             replies,
             reader: Some(reader),
@@ -219,6 +230,9 @@ impl Drop for Process {
         }
         let _ = self.child.kill();
         let _ = self.child.wait();
+        if let Some(pid) = &self.observed_pid {
+            pid.store(0, std::sync::atomic::Ordering::Release);
+        }
         if let Some(reader) = self.reader.take() {
             let _ = reader.join();
         }
@@ -228,6 +242,19 @@ impl Drop for Process {
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn observed_pid_clears_when_the_owned_process_is_reaped() {
+        let pid = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let mut process = Process::fake("import sys\nsys.stdin.readline()").unwrap();
+        process.observe_pid(pid.clone());
+        assert_eq!(
+            pid.load(std::sync::atomic::Ordering::Acquire),
+            process.child.id()
+        );
+        drop(process);
+        assert_eq!(pid.load(std::sync::atomic::Ordering::Acquire), 0);
+    }
 
     #[test]
     fn worker_failure_message_distinguishes_execution_from_inference() {

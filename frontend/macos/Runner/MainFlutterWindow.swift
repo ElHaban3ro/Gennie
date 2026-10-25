@@ -6,16 +6,25 @@ class MainFlutterWindow: NSWindow {
   private var tooltipChannel: FlutterMethodChannel?
   private var tooltipPanel: NSPanel?
 
-  private lazy var tooltipFont: NSFont = {
-    let path = "App.framework/Resources/flutter_assets/assets/fonts/Inter-Medium.ttf"
-    guard let frameworks = Bundle.main.privateFrameworksURL,
-          let data = try? Data(contentsOf: frameworks.appendingPathComponent(path)),
-          let provider = CGDataProvider(data: data as CFData),
-          let font = CGFont(provider) else {
-      return NSFont.systemFont(ofSize: 12, weight: .medium)
+  private var tooltipFonts: [String: NSFont] = [:]
+  private func tooltipFont(_ face: String, size: CGFloat) -> NSFont {
+    let base: NSFont
+    if let cached = tooltipFonts[face] {
+      base = cached
+    } else {
+      let path = "App.framework/Resources/flutter_assets/assets/fonts/Inter-\(face).ttf"
+      if let frameworks = Bundle.main.privateFrameworksURL,
+         let data = try? Data(contentsOf: frameworks.appendingPathComponent(path)),
+         let provider = CGDataProvider(data: data as CFData), let font = CGFont(provider) {
+        base = CTFontCreateWithGraphicsFont(font, 12, nil, nil) as NSFont
+      } else {
+        base = NSFont.systemFont(ofSize: 12,
+          weight: face == "SemiBold" ? .semibold : face == "Regular" ? .regular : .medium)
+      }
+      tooltipFonts[face] = base
     }
-    return CTFontCreateWithGraphicsFont(font, 12, nil, nil) as NSFont
-  }()
+    return NSFont(descriptor: base.fontDescriptor, size: size) ?? base
+  }
 
   // Una ventana hija permite al compositor desenfocar también la ventana Flutter.
   private func configureTooltips(_ controller: FlutterViewController) {
@@ -41,7 +50,8 @@ class MainFlutterWindow: NSWindow {
                          view: controller.view, dark: args["dark"] as? Bool ?? false,
                          highContrast: args["highContrast"] as? Bool ?? false,
                          preferRight: args["preferRight"] as? Bool ?? true,
-                         textScale: args["textScale"] as? Double ?? 1)
+                         textScale: args["textScale"] as? Double ?? 1,
+                         details: args["details"] as? [String: Any])
         result(nil)
       default:
         result(FlutterMethodNotImplemented)
@@ -64,14 +74,14 @@ class MainFlutterWindow: NSWindow {
   }
 
   private func showTooltip(_ text: String, anchor: NSRect, view: NSView,
-                           dark: Bool, highContrast: Bool, preferRight: Bool, textScale: Double) {
+                           dark: Bool, highContrast: Bool, preferRight: Bool, textScale: Double,
+                           details: [String: Any]?) {
     hideTooltip()
     guard isVisible, isKeyWindow else { return }
-    let label = NSTextField(labelWithString: text)
-    label.font = NSFont(descriptor: tooltipFont.fontDescriptor, size: 12 * textScale)
-    label.textColor = .labelColor
-    label.sizeToFit()
-    let size = NSSize(width: ceil(label.frame.width) + 28, height: ceil(label.frame.height) + 14)
+    let body = GennieTooltipBody(text: text, details: details,
+      textScale: textScale, maxWidth: max(80, min(300, view.bounds.width - 56)),
+      font: { [self] face, size in tooltipFont(face, size: size) })
+    let size = body.frame.size
     // Flutter cuenta desde arriba; AppKit convierte puntos de vista a pantalla.
     let local = NSRect(x: anchor.minX,
                        y: view.isFlipped ? anchor.minY : view.bounds.height - anchor.maxY,
@@ -79,11 +89,14 @@ class MainFlutterWindow: NSWindow {
     let target = convertToScreen(view.convert(local, to: nil))
     var x = preferRight ? target.maxX + 4 : target.midX - size.width / 2
     var y = preferRight ? target.midY - size.height / 2 : target.minY - size.height - 6
-    if let visible = screen?.visibleFrame {
+    let windowBounds = convertToScreen(view.convert(view.bounds, to: nil)).insetBy(dx: 12, dy: 12)
+    let visible = screen.map { windowBounds.intersection($0.visibleFrame.insetBy(dx: 8, dy: 8)) }
+      ?? windowBounds
+    if !visible.isEmpty {
       if preferRight && x + size.width > visible.maxX { x = target.minX - size.width - 4 }
       if !preferRight && y < visible.minY { y = target.maxY + 6 }
-      x = max(visible.minX + 8, min(x, visible.maxX - size.width - 8))
-      y = max(visible.minY + 8, min(y, visible.maxY - size.height - 8))
+      x = max(visible.minX, min(x, visible.maxX - size.width))
+      y = max(visible.minY, min(y, visible.maxY - size.height))
     }
     let panel = NSPanel(contentRect: NSRect(x: x, y: y,
                                             width: size.width, height: size.height),
@@ -96,9 +109,8 @@ class MainFlutterWindow: NSWindow {
     panel.isReleasedWhenClosed = false
     panel.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
     let bounds = NSRect(origin: .zero, size: size)
-    label.setFrameOrigin(NSPoint(x: 14, y: (size.height - label.frame.height) / 2))
     let content = NSView(frame: bounds)
-    content.addSubview(label)
+    content.addSubview(body)
     let opaque = highContrast || NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
     if opaque {
       content.wantsLayer = true
@@ -116,7 +128,7 @@ class MainFlutterWindow: NSWindow {
       effect.layer?.cornerRadius = 8
       effect.layer?.masksToBounds = true
       // El efecto completo elimina el fondo nítido; la etiqueta queda encima.
-      content.addSubview(effect, positioned: .below, relativeTo: label)
+      content.addSubview(effect, positioned: .below, relativeTo: body)
       panel.contentView = content
     }
     addChildWindow(panel, ordered: .above)
@@ -185,4 +197,95 @@ class MainFlutterWindow: NSWindow {
       }
     }
   }
+}
+
+// El mismo contenido estructurado del tooltip Flutter, con márgenes medidos en puntos.
+private final class GennieTooltipBody: NSView {
+  override var isFlipped: Bool { true }
+
+  init(text: String, details: [String: Any]?, textScale: CGFloat, maxWidth: CGFloat,
+       font: (String, CGFloat) -> NSFont) {
+    super.init(frame: .zero)
+    let padding: CGFloat = details == nil ? 7 : 16
+    let horizontal: CGFloat = details == nil ? 14 : 16
+    var y = padding
+
+    func label(_ text: String, width: CGFloat, face: String = "Regular",
+               size: CGFloat = 12, secondary: Bool = false, maxLines: Int = 0) -> NSTextField {
+      let field = NSTextField(wrappingLabelWithString: text)
+      field.font = font(face, size * textScale)
+      let color: NSColor = secondary ? .secondaryLabelColor
+        : face == "Regular" ? .labelColor.withAlphaComponent(0.88) : .labelColor
+      field.textColor = color
+      let style = NSMutableParagraphStyle()
+      style.lineSpacing = details == nil ? 0 : 3 * textScale
+      field.attributedStringValue = NSAttributedString(string: text, attributes: [
+        .font: font(face, size * textScale),
+        .foregroundColor: color,
+        .paragraphStyle: style,
+      ])
+      field.maximumNumberOfLines = maxLines
+      field.preferredMaxLayoutWidth = width
+      let measured = field.attributedStringValue.boundingRect(
+        with: NSSize(width: max(1, width - 4), height: CGFloat.greatestFiniteMagnitude),
+        options: [.usesLineFragmentOrigin, .usesFontLeading])
+      let limit = maxLines > 0 ? CGFloat(maxLines) * (size * textScale * 1.5) : CGFloat.greatestFiniteMagnitude
+      field.setFrameSize(NSSize(width: width, height: min(ceil(measured.height) + 2, limit)))
+      return field
+    }
+    func append(_ field: NSTextField, gap: CGFloat = 0) {
+      y += gap
+      field.setFrameOrigin(NSPoint(x: horizontal, y: y))
+      addSubview(field)
+      y += field.frame.height
+    }
+    if let details {
+      let title = details["title"] as? String ?? ""
+      let status = details["status"] as? String ?? ""
+      let memory = details["memory"] as? String ?? "RAM —"
+      let badge = label("\(status)  ·  \(memory)", width: maxWidth, face: "Medium", size: 11)
+      let badgeText = NSMutableAttributedString(attributedString: badge.attributedStringValue)
+      let memoryRange = NSRange(location: status.utf16.count,
+        length: badgeText.length - status.utf16.count)
+      badgeText.addAttribute(.font, value: font("Regular", 11 * textScale), range: memoryRange)
+      badge.attributedStringValue = badgeText
+      let badgeWidth = ceil(badge.attributedStringValue.size().width) + 4
+      badge.setFrameSize(NSSize(width: badgeWidth, height: badge.frame.height))
+      let titleLabel = label(title, width: max(40, maxWidth - badgeWidth - 24), face: "SemiBold", size: 13)
+      titleLabel.setFrameOrigin(NSPoint(x: horizontal, y: y))
+      badge.setFrameOrigin(NSPoint(x: horizontal + maxWidth - badgeWidth, y: y + 1))
+      addSubview(titleLabel)
+      addSubview(badge)
+      let raw = (details["statusColor"] as? NSNumber)?.uint32Value ?? 0xff858585
+      let dot = NSView(frame: NSRect(x: badge.frame.minX - 12, y: y + 6 * textScale,
+                                     width: 7, height: 7))
+      dot.wantsLayer = true
+      dot.layer?.cornerRadius = 3.5
+      dot.layer?.backgroundColor = NSColor(srgbRed: CGFloat((raw >> 16) & 255) / 255,
+        green: CGFloat((raw >> 8) & 255) / 255, blue: CGFloat(raw & 255) / 255, alpha: 1).cgColor
+      addSubview(dot)
+      y += max(titleLabel.frame.height, badge.frame.height)
+      if let message = details["message"] as? String, !message.isEmpty {
+        append(label(message, width: maxWidth), gap: 12)
+      }
+      if let footer = details["footer"] as? String, !footer.isEmpty {
+        y += 12
+        let line = NSView(frame: NSRect(x: horizontal, y: y, width: maxWidth, height: 1))
+        line.wantsLayer = true
+        line.layer?.backgroundColor = NSColor.separatorColor.cgColor
+        addSubview(line)
+        y += 1
+        append(label(footer, width: maxWidth, size: 11, secondary: true), gap: 10)
+      }
+      setFrameSize(NSSize(width: maxWidth + horizontal * 2, height: y + padding))
+    } else {
+      let field = label(text, width: maxWidth, face: "Medium")
+      let width = min(maxWidth, ceil(field.attributedStringValue.size().width) + 4)
+      field.setFrameSize(NSSize(width: width, height: field.frame.height))
+      append(field)
+      setFrameSize(NSSize(width: width + horizontal * 2, height: y + padding))
+    }
+  }
+
+  required init?(coder: NSCoder) { fatalError("init(coder:) no disponible") }
 }

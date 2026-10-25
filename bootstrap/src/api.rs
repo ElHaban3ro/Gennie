@@ -41,8 +41,33 @@ pub struct Message {
     pub text: String,
     pub created_at: String,
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LocalModel {
+    Laya,
+    Voice,
+    Dictation,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ModelState {
+    Unavailable,
+    Disabled,
+    Unloaded,
+    Downloading,
+    Loading,
+    Ready,
+    Failed,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ModelInfo {
+    pub model: LocalModel,
+    pub state: ModelState,
+    pub unload_minutes: Option<u32>,
+    pub detail: Option<String>,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Snapshot {
+    pub models: Vec<ModelInfo>,
     pub conversations: Vec<Conversation>,
     pub messages: Vec<Message>,
     pub selected_id: Option<String>,
@@ -51,6 +76,7 @@ pub struct Snapshot {
     pub connection: String,
     pub reply: String,
     pub error: Option<String>,
+    pub error_recorded: bool,
     pub confirmation: Option<String>,
     pub acknowledged_text: Option<String>,
     pub acknowledgement: u32,
@@ -115,4 +141,13 @@ pub fn microphones() -> Result<Vec<String>, String> {
 }
 pub fn shutdown() -> Result<(), String> {
     runtime::stop()
+}
+
+pub fn set_model_loaded(model: LocalModel, loaded: bool) -> Result<Snapshot, String> {
+    runtime::request(Operation::Model(model, loaded))
+}
+
+/// RSS del proceso propio del modelo. Solo se consulta al abrir su tooltip.
+pub fn model_memory_bytes(model: LocalModel) -> Result<Option<u64>, String> {
+    runtime::model_memory(model)
 }

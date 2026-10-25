@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -90,71 +91,104 @@ class ChatMessage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final user = message.speaker == 'user';
+    final system = message.speaker == 'system';
     final time = messageTimeLabel(message.createdAt);
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 24),
-      child: Align(
-        alignment: user ? Alignment.centerRight : Alignment.centerLeft,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 700),
-          child: FractionallySizedBox(
-            widthFactor: .9,
-            alignment: user ? Alignment.centerRight : Alignment.centerLeft,
-            child: Align(
-              alignment: user ? Alignment.centerRight : Alignment.centerLeft,
-              widthFactor: 1,
+    return LayoutBuilder(
+      builder: (context, constraints) => Padding(
+        padding: const EdgeInsets.only(bottom: 24),
+        child: Align(
+          alignment: user ? Alignment.centerRight : Alignment.centerLeft,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: BackdropFilter(
+              filter: ui.ImageFilter.blur(sigmaX: 4, sigmaY: 4),
+              // Sustituir el fondo filtrado: srcOver conserva el patrón nítido
+              // al componer sobre el canvas transparente de macOS.
+              blendMode: BlendMode.src,
               child: Container(
+                constraints: BoxConstraints(
+                  minWidth: constraints.maxWidth * .4,
+                  maxWidth: constraints.maxWidth * .7,
+                ),
                 padding: const EdgeInsets.symmetric(
                   horizontal: 16,
                   vertical: 12,
                 ),
                 decoration: BoxDecoration(
-                  color: user ? const Color(0x14808080) : null,
+                  color: const Color(0x14808080),
                   borderRadius: BorderRadius.circular(16),
                 ),
-                child: Column(
+                child: Row(
                   mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    if (user)
-                      Text(
-                        message.text,
-                        style: const TextStyle(fontSize: 14, height: 1.65),
-                      )
-                    else
-                      MarkdownBody(
-                        data: message.text,
-                        selectable: false,
-                        styleSheet: MarkdownStyleSheet(
-                          p: const TextStyle(
-                            fontFamily: 'Inter',
-                            fontSize: 14,
-                            height: 1.65,
-                          ),
-                        ),
-                        onTapLink: (text, href, title) {
-                          final uri = Uri.tryParse(href ?? '');
-                          if (uri != null &&
-                              ['https', 'http'].contains(uri.scheme)) {
-                            unawaited(
-                              launchUrl(
-                                uri,
-                                mode: LaunchMode.externalApplication,
+                    Flexible(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (system)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 6),
+                              child: Text(
+                                message.createdAt.isEmpty
+                                    ? 'Sistema · sin guardar'
+                                    : 'Sistema',
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w500,
+                                ),
                               ),
-                            );
-                          }
-                        },
+                            ),
+                          if (user || system)
+                            Text(
+                              message.text,
+                              style: const TextStyle(
+                                fontSize: 14,
+                                height: 1.65,
+                              ),
+                            )
+                          else
+                            MarkdownBody(
+                              data: message.text,
+                              selectable: false,
+                              styleSheet: MarkdownStyleSheet(
+                                p: const TextStyle(
+                                  fontFamily: 'Inter',
+                                  fontSize: 14,
+                                  height: 1.65,
+                                ),
+                              ),
+                              onTapLink: (text, href, title) {
+                                final uri = Uri.tryParse(href ?? '');
+                                if (uri != null &&
+                                    ['https', 'http'].contains(uri.scheme)) {
+                                  unawaited(
+                                    launchUrl(
+                                      uri,
+                                      mode: LaunchMode.externalApplication,
+                                    ),
+                                  );
+                                }
+                              },
+                            ),
+                        ],
                       ),
+                    ),
                     if (time.isNotEmpty)
                       Padding(
-                        padding: const EdgeInsets.only(top: 6),
-                        child: Text(
-                          time,
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: Theme.of(
-                              context,
-                            ).colorScheme.onSurface.withValues(alpha: .5),
+                        padding: const EdgeInsets.only(left: 12),
+                        child: Transform.translate(
+                          offset: const Offset(0, 6),
+                          child: Text(
+                            time,
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.onSurface.withValues(alpha: .5),
+                            ),
                           ),
                         ),
                       ),

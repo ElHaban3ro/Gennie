@@ -9,13 +9,15 @@ struct Fixture {
 }
 impl Fixture {
     fn new() -> Self {
+        static NEXT_FIXTURE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let directory = std::env::temp_dir().join(format!(
-            "gennie-runtime-{}-{}",
+            "gennie-runtime-{}-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
-                .as_nanos()
+                .as_nanos(),
+            NEXT_FIXTURE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         ));
         std::fs::create_dir(&directory).unwrap();
         Self {
@@ -372,4 +374,120 @@ fn desktop_resolves_relative_database_against_the_env_file_not_flutter_working_d
         resolve_config_path(config, "/checkout/.env").database_path,
         PathBuf::from("/absolute/database.sqlite3")
     );
+}
+
+#[test]
+fn system_notices_persist_without_duplicating_provider_errors_or_switching_read_selection() {
+    let fixture = Fixture::new();
+    fixture.seed_selection();
+    let mut backend = fixture.open();
+    let first = append_conversation(&backend, "first-notice", "Primer chat");
+    let second = append_conversation(&backend, "second-notice", "Chat activo");
+    backend.snapshot.selected_id = Some(first.clone());
+    backend.refresh().unwrap();
+    backend.record_error(
+        "El proveedor rechazó la operación (código -32600)".into(),
+        true,
+        true,
+    );
+    assert!(backend.snapshot.error_recorded);
+    assert_eq!(
+        backend.snapshot.selected_id.as_deref(),
+        Some(first.as_str())
+    );
+    let selected = history::load(&backend.state.db, Some(first.parse().unwrap())).unwrap();
+    assert_eq!(selected.selected_messages.len(), 2);
+    assert_eq!(selected.messages.len(), 3);
+    let notice = selected.messages.last().unwrap();
+    assert_eq!(notice.speaker, "system");
+    assert_eq!(
+        notice.text,
+        "Error: El proveedor rechazó la operación (código -32600)"
+    );
+    assert!(!notice.created_at.is_empty());
+    // El mismo error ya guardado por el worker no debe repetirse.
+    backend.record_error(
+        "El proveedor rechazó la operación (código -32600)".into(),
+        true,
+        true,
+    );
+    assert_eq!(
+        history::load(&backend.state.db, None)
+            .unwrap()
+            .messages
+            .len(),
+        3
+    );
+    // Dos avisos locales iguales en instantes distintos son dos sucesos reales.
+    backend.record_error("Sin audio".into(), false, true);
+    backend.record_error("Sin audio".into(), false, true);
+    backend.close().unwrap();
+    drop(backend);
+    let mut backend = fixture.open();
+    assert_eq!(backend.snapshot.active_id.as_deref(), Some(second.as_str()));
+    assert_eq!(backend.snapshot.messages.len(), 5);
+    backend.state.db.close().unwrap();
+    backend.record_error("Fallo visible".into(), false, true);
+    assert!(!backend.snapshot.error_recorded);
+    assert!(
+        backend
+            .snapshot
+            .error
+            .as_deref()
+            .unwrap()
+            .contains("No se pudo guardar el aviso")
+    );
+}
+
+#[test]
+fn system_notice_before_first_chat_is_local_and_does_not_create_provider_session() {
+    let fixture = Fixture::new();
+    fixture.seed_selection();
+    let mut backend = fixture.open();
+    backend.record_error("Sin conectar".into(), false, true);
+    assert!(backend.snapshot.error_recorded);
+    assert!(backend.snapshot.active_id.is_none());
+    assert_eq!(
+        backend.snapshot.conversations[0].title,
+        "Avisos del sistema"
+    );
+    assert_eq!(backend.snapshot.messages[0].speaker, "system");
+    assert!(backend.llm.is_none());
+    backend.close().unwrap();
+}
+
+#[test]
+fn model_controls_report_unavailable_modules_and_reject_requests() {
+    let fixture = Fixture::new();
+    fixture.seed_selection();
+    let mut backend = fixture.open();
+    assert_eq!(backend.snapshot.models.len(), 3);
+    for model in [LocalModel::Laya, LocalModel::Voice, LocalModel::Dictation] {
+        let info = backend
+            .snapshot
+            .models
+            .iter()
+            .find(|info| info.model == model)
+            .unwrap();
+        assert_eq!(info.state, ModelState::Unavailable);
+        assert!(backend.apply(Operation::Model(model, true)).is_err());
+        assert!(backend.apply(Operation::Model(model, false)).is_err());
+    }
+    backend.close().unwrap();
+}
+
+#[test]
+fn memory_query_does_not_mutate_snapshot_or_create_processes() {
+    let fixture = Fixture::new();
+    fixture.seed_selection();
+    let mut backend = fixture.open();
+    backend.snapshot.confirmation = Some("Conservar aviso".into());
+    for model in [LocalModel::Laya, LocalModel::Voice, LocalModel::Dictation] {
+        assert_eq!(backend.model_memory(model), None);
+    }
+    assert_eq!(
+        backend.snapshot.confirmation.as_deref(),
+        Some("Conservar aviso")
+    );
+    backend.close().unwrap();
 }

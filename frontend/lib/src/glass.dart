@@ -3,6 +3,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'tooltip_content.dart';
+export 'tooltip_content.dart';
 
 // macOS aporta el fondo desde el runner; los demás destinos usan fondo propio.
 class GlassCanvas extends StatelessWidget {
@@ -131,10 +133,14 @@ class AppTooltip extends StatefulWidget {
     required this.label,
     required this.child,
     this.preferRight = false,
+    this.details,
+    this.onHover,
   });
+  final VoidCallback? onHover;
   final String label;
   final Widget child;
   final bool preferRight;
+  final AppTooltipDetails? details;
   @override
   State<AppTooltip> createState() => _AppTooltipState();
 }
@@ -170,6 +176,7 @@ class _AppTooltipState extends State<AppTooltip> {
       try {
         await _nativeTooltip.invokeMethod<void>('show', {
           'label': widget.label,
+          if (widget.details != null) 'details': widget.details!.toMap(),
           'preferRight': widget.preferRight,
           'x': origin.dx,
           'y': origin.dy,
@@ -207,18 +214,22 @@ class _AppTooltipState extends State<AppTooltip> {
                 showBorder: false,
                 tintOpacity: .28,
                 blurSigma: 24,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 7,
-                ),
-                child: Text(
-                  widget.label,
-                  style: const TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
+                padding: widget.details == null
+                    ? const EdgeInsets.symmetric(horizontal: 14, vertical: 7)
+                    : const EdgeInsets.all(16),
+                child: widget.details != null
+                    ? AppTooltipContent(details: widget.details!)
+                    : ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 300),
+                        child: Text(
+                          widget.label,
+                          style: const TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
               ),
             ),
           ),
@@ -229,6 +240,16 @@ class _AppTooltipState extends State<AppTooltip> {
   }
 
   @override
+  void didUpdateWidget(AppTooltip oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.label != widget.label && _active == this) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _active == this) show();
+      });
+    }
+  }
+
+  @override
   void dispose() {
     hide();
     super.dispose();
@@ -236,11 +257,20 @@ class _AppTooltipState extends State<AppTooltip> {
 
   @override
   Widget build(BuildContext context) => MouseRegion(
-    onEnter: (_) => show(),
+    onEnter: (_) {
+      widget.onHover?.call();
+      show();
+    },
     onExit: (_) => hide(),
     child: Focus(
       canRequestFocus: false,
-      onFocusChange: (focused) => focused ? show() : hide(),
+      onFocusChange: (focused) {
+        if (focused) {
+          show();
+        } else {
+          hide();
+        }
+      },
       onKeyEvent: (_, event) {
         if (event.logicalKey == LogicalKeyboardKey.escape ||
             event.logicalKey == LogicalKeyboardKey.enter ||
@@ -257,6 +287,8 @@ class _AppTooltipState extends State<AppTooltip> {
   );
 }
 
+enum RailButtonAppearance { navigation, modelStatus }
+
 class RailButton extends StatelessWidget {
   const RailButton({
     super.key,
@@ -265,61 +297,127 @@ class RailButton extends StatelessWidget {
     required this.onPressed,
     this.selected = false,
     this.asset,
+    this.description,
+    this.details,
+    this.busy = false,
+    this.toggled,
+    this.appearance = RailButtonAppearance.navigation,
+    this.onTooltipRequested,
+    this.statusColor,
   });
+  final String? description;
+  final AppTooltipDetails? details;
+  final bool busy;
+  final bool? toggled;
   final String? asset;
   final String label;
   final IconData icon;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
   final bool selected;
+  final RailButtonAppearance appearance;
+  final VoidCallback? onTooltipRequested;
+  final Color? statusColor;
+
   @override
-  Widget build(BuildContext context) => AppTooltip(
-    label: label,
-    preferRight: true,
-    child: Semantics(
-      button: true,
-      label: label,
-      selected: selected,
-      child: SizedBox(
-        width: 36,
-        height: 36,
-        child: IconButton(
-          onPressed: onPressed,
-          padding: EdgeInsets.zero,
-          style: ButtonStyle(
-            shape: WidgetStatePropertyAll(
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final ink = dark ? const Color(0xffd0d0d0) : const Color(0xff333333);
+    final navigation = appearance == RailButtonAppearance.navigation;
+    final duration = MediaQuery.disableAnimationsOf(context)
+        ? Duration.zero
+        : const Duration(milliseconds: 180);
+    Widget glyph = busy
+        ? SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(
+              strokeWidth: 1.5,
+              value: MediaQuery.disableAnimationsOf(context) ? .75 : null,
+              color: ink,
             ),
-            backgroundColor: WidgetStateProperty.resolveWith(
-              (states) => selected
-                  ? const Color(0x24808080)
-                  : states.contains(WidgetState.hovered)
-                  ? const Color(0x14808080)
-                  : Colors.transparent,
-            ),
-          ),
-          icon: asset == null
-              ? Icon(
-                  icon,
-                  size: 19,
-                  color: Theme.of(context).brightness == Brightness.dark
-                      ? const Color(0xffd0d0d0)
-                      : const Color(0xff333333),
-                )
-              : SvgPicture.asset(
-                  asset!,
-                  width: 18,
-                  height: 18,
-                  colorFilter: ColorFilter.mode(
-                    Theme.of(context).brightness == Brightness.dark
-                        ? const Color(0xffd0d0d0)
-                        : const Color(0xff333333),
-                    BlendMode.srcIn,
+          )
+        : asset == null
+        ? Icon(icon, size: navigation ? 19 : 22, color: ink)
+        : SvgPicture.asset(
+            asset!,
+            width: 18,
+            height: 18,
+            colorFilter: ColorFilter.mode(ink, BlendMode.srcIn),
+          );
+
+    if (appearance == RailButtonAppearance.modelStatus) {
+      glyph = SizedBox(
+        width: 30,
+        height: 30,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            glyph,
+            if (!busy)
+              Positioned(
+                right: 0,
+                bottom: 0,
+                child: Container(
+                  key: ValueKey('model-status-$label'),
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color:
+                        statusColor ??
+                        (onPressed == null
+                            ? const Color(0xff858585)
+                            : selected
+                            ? const Color(0xff32b869)
+                            : const Color(0xffe05b56)),
+                    border: Border.all(
+                      color: dark
+                          ? const Color(0xff34373c)
+                          : const Color(0xffe8e9ea),
+                      width: 1,
+                    ),
                   ),
                 ),
+              ),
+          ],
+        ),
+      );
+    }
+    return AppTooltip(
+      label: description ?? label,
+      details: details,
+      onHover: onTooltipRequested,
+      preferRight: true,
+      child: Semantics(
+        button: true,
+        label: label,
+        selected: toggled == null ? selected : null,
+        toggled: toggled,
+        enabled: onPressed != null,
+        child: SizedBox(
+          width: navigation ? 36 : 40,
+          height: navigation ? 36 : 40,
+          child: IconButton(
+            onPressed: onPressed,
+            padding: EdgeInsets.zero,
+            style: ButtonStyle(
+              animationDuration: duration,
+              shape: WidgetStatePropertyAll(
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              backgroundColor: WidgetStateProperty.resolveWith((states) {
+                if (navigation && selected) return const Color(0x24808080);
+                return states.contains(WidgetState.hovered)
+                    ? const Color(0x14808080)
+                    : Colors.transparent;
+              }),
+            ),
+            icon: glyph,
+          ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 // Mantiene la etiqueta dentro del overlay, también en el botón Enviar al pie.

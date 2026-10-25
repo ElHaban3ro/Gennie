@@ -130,6 +130,7 @@ struct Worker {
     release_requested: Arc<AtomicBool>,
     preferences: Option<settings::Client>,
     status: Arc<Mutex<ModelStatus>>,
+    process_pid: Arc<std::sync::atomic::AtomicU32>,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ModelStatus {
@@ -148,12 +149,20 @@ pub struct Controller {
     replies: Receiver<Reply>,
     generation: Arc<AtomicU64>,
     status: Arc<Mutex<ModelStatus>>,
+    process_pid: Arc<std::sync::atomic::AtomicU32>,
     pending: Cell<bool>,
     warm_requested: Arc<AtomicBool>,
     release_requested: Arc<AtomicBool>,
     preferences: settings::Client,
 }
 impl Controller {
+    pub fn resident_bytes(&self) -> Option<u64> {
+        match self.process_pid.load(Ordering::Acquire) {
+            0 => Some(0),
+            pid => gennie_core::process_resident_bytes(pid),
+        }
+    }
+
     pub fn settings(&self) -> Settings {
         self.preferences.settings()
     }
@@ -286,11 +295,16 @@ impl AppModule for DecisionsModule {
         let release_requested = Arc::new(AtomicBool::new(false));
         let release = release_requested.clone();
         let status = Arc::new(Mutex::new(ModelStatus::Unloaded));
+        let process_pid = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let worker_pid = process_pid.clone();
         let model_status = status.clone();
         let handle = std::thread::Builder::new()
             .name("local-decisions".into())
             .spawn(move || {
-                let mut engine = Engine::default();
+                let mut engine = Engine {
+                    process_pid: worker_pid,
+                    ..Engine::default()
+                };
                 let update_status = |value| {
                     if let Ok(mut status) = model_status.lock() {
                         *status = value;
@@ -386,6 +400,7 @@ impl AppModule for DecisionsModule {
             release_requested,
             preferences: Some(preferences),
             status,
+            process_pid,
         });
         Ok(())
     }
@@ -408,6 +423,13 @@ impl AppModule for DecisionsModule {
 }
 impl DecisionsModule {
     pub fn controller(&self) -> Result<Controller> {
+        self.connect_controller(true)
+    }
+    // El escritorio expone carga manual sin iniciar Laya al conectar sus controles.
+    pub fn manual_controller(&self) -> Result<Controller> {
+        self.connect_controller(false)
+    }
+    fn connect_controller(&self, preload: bool) -> Result<Controller> {
         let mut guard = self
             .worker
             .lock()
@@ -418,7 +440,7 @@ impl DecisionsModule {
             .take()
             .ok_or("Decisiones ya conectadas")?;
         let replies = worker.replies.take().ok_or("Decisiones ya conectadas")?;
-        if preferences.settings().preload {
+        if preload && preferences.settings().preload {
             *worker
                 .status
                 .lock()
@@ -430,6 +452,7 @@ impl DecisionsModule {
             replies,
             generation: worker.generation.clone(),
             status: worker.status.clone(),
+            process_pid: worker.process_pid.clone(),
             pending: Cell::new(false),
             warm_requested: worker.warm_requested.clone(),
             release_requested: worker.release_requested.clone(),
@@ -440,6 +463,7 @@ impl DecisionsModule {
 
 struct Engine {
     process: Option<runtime::Process>,
+    process_pid: Arc<std::sync::atomic::AtomicU32>,
     pending: Option<(String, Instant)>,
     pending_action: Option<String>,
     last_target: Option<String>,
@@ -452,6 +476,7 @@ impl Default for Engine {
     fn default() -> Self {
         Self {
             process: None,
+            process_pid: Arc::new(std::sync::atomic::AtomicU32::new(0)),
             pending: None,
             pending_action: None,
             last_target: None,
@@ -525,7 +550,10 @@ impl Engine {
     }
     fn prepare(&mut self, cancel: &impl Fn() -> bool) -> Result<()> {
         if self.process.is_none() {
-            self.process = Some(runtime::Process::start(&runtime::RuntimeConfig::load()?)?);
+            self.process = Some(runtime::Process::start(
+                &runtime::RuntimeConfig::load()?,
+                self.process_pid.clone(),
+            )?);
         }
         let reply = self
             .process
@@ -809,6 +837,27 @@ mod tests {
         assert_eq!(settings::load(&db).unwrap(), next);
     }
 
+    #[test]
+    fn manual_controller_does_not_preload_default_model() {
+        let db = Database::memory().unwrap();
+        let module = DecisionsModule::default();
+        db.migrate(module.name(), module.migrations()).unwrap();
+        let state = AppState {
+            config: Arc::new(gennie_config::Config {
+                database_path: "/tmp/gennie-unused-manual-laya.sqlite3".into(),
+                db_busy_timeout_ms: 50,
+            }),
+            db,
+            shutdown: gennie_core::Shutdown::default(),
+        };
+        module.start(&state).unwrap();
+        let controller = module.manual_controller().unwrap();
+        assert!(controller.settings().preload);
+        assert_eq!(controller.model_status(), ModelStatus::Unloaded);
+        assert!(!controller.warm_requested.load(Ordering::Acquire));
+        module.stop(&state).unwrap();
+    }
+
     fn test_controller() -> (Controller, Receiver<Request>, mpsc::Sender<Reply>) {
         let (sender, requests) = mpsc::sync_channel(1);
         let (replies, receiver) = mpsc::channel();
@@ -818,6 +867,7 @@ mod tests {
                 replies: receiver,
                 generation: Arc::new(AtomicU64::new(0)),
                 status: Arc::new(Mutex::new(ModelStatus::Ready)),
+                process_pid: Arc::new(std::sync::atomic::AtomicU32::new(0)),
                 pending: Cell::new(false),
                 warm_requested: Arc::new(AtomicBool::new(false)),
                 release_requested: Arc::new(AtomicBool::new(false)),

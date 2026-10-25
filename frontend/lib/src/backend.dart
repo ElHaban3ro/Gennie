@@ -7,6 +7,9 @@ import 'rust/frb_generated.dart';
 export 'rust/api.dart'
     show
         Snapshot,
+        LocalModel,
+        ModelState,
+        ModelInfo,
         Conversation,
         Message,
         AssistantSettings,
@@ -27,6 +30,8 @@ abstract class DesktopBackend {
   Future<api.Snapshot> previewVoice(api.VoiceSettings settings);
   Future<api.Snapshot> saveDictation(api.DictationSettings settings);
   Future<api.Snapshot> motion(bool value);
+  Future<int?> modelMemory(api.LocalModel model);
+  Future<api.Snapshot> setModelLoaded(api.LocalModel model, bool loaded);
   Future<api.Snapshot> prepare();
   Future<api.Snapshot> release();
   Future<api.Snapshot> authorize();
@@ -89,6 +94,12 @@ class RustBackend implements DesktopBackend {
   @override
   Future<api.Snapshot> motion(bool value) =>
       api.saveReducedMotion(value: value);
+  @override
+  Future<int?> modelMemory(api.LocalModel model) async =>
+      (await api.modelMemoryBytes(model: model))?.toInt();
+  @override
+  Future<api.Snapshot> setModelLoaded(api.LocalModel model, bool loaded) =>
+      api.setModelLoaded(model: model, loaded: loaded);
   @override
   Future<api.Snapshot> prepare() => api.prepareDictation();
   @override

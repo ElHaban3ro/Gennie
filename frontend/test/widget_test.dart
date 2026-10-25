@@ -5,26 +5,41 @@ import 'dart:ui' show PointerDeviceKind, ImageByteFormat;
 import 'package:flutter/material.dart';
 import 'package:gennie/src/chat_history.dart';
 import 'package:gennie/src/chat_message.dart';
+import 'package:gennie/src/chat_background.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gennie/main.dart';
 import 'package:gennie/src/backend.dart';
 import 'package:gennie/src/glass.dart';
+import 'package:gennie/src/model_controls.dart';
 
 Snapshot snapshot({
   String selected = 'active',
   String? error,
+  bool errorRecorded = false,
   int ack = 0,
   String? acknowledged,
   String? confirmation,
   bool busy = false,
+  String title = 'Conversación actual',
+  ModelState modelState = ModelState.unloaded,
+  String? modelDetail,
   List<Message>? messages,
 }) => Snapshot(
+  models: [
+    for (final model in LocalModel.values)
+      ModelInfo(
+        model: model,
+        state: modelState,
+        unloadMinutes: 10,
+        detail: modelDetail,
+      ),
+  ],
   conversations: [
     Conversation(
       id: 'active',
-      title: 'Conversación actual',
+      title: title,
       updatedAt: DateTime.now().toUtc().toIso8601String(),
       lastMessage: 'Último mensaje del asistente',
     ),
@@ -53,6 +68,7 @@ Snapshot snapshot({
   connection: 'Conectado',
   reply: '',
   error: error,
+  errorRecorded: errorRecorded,
   confirmation: confirmation,
   acknowledgedText: acknowledged,
   acknowledgement: ack,
@@ -93,6 +109,16 @@ class FakeBackend implements DesktopBackend {
   AssistantSettings? assistantSaved;
   VoiceSettings? voicePreviewed;
   bool? motionSaved;
+  final modelRequests = <(LocalModel, bool)>[];
+  Completer<Snapshot>? pendingModel;
+  final memoryRequests = <LocalModel>[];
+  Completer<int?>? pendingMemory;
+  @override
+  Future<int?> modelMemory(LocalModel model) async {
+    memoryRequests.add(model);
+    return pendingMemory?.future ?? 128 * 1024 * 1024;
+  }
+
   @override
   Future<Snapshot> initialize() async => value;
   @override
@@ -147,6 +173,12 @@ class FakeBackend implements DesktopBackend {
   Future<Snapshot> saveVoice(VoiceSettings settings) async => value;
   @override
   Future<Snapshot> saveDictation(DictationSettings settings) async => value;
+  @override
+  Future<Snapshot> setModelLoaded(LocalModel model, bool loaded) async {
+    modelRequests.add((model, loaded));
+    return pendingModel?.future ?? value;
+  }
+
   @override
   Future<Snapshot> prepare() async => value;
   @override
@@ -208,6 +240,176 @@ String draft(WidgetTester tester) =>
     tester.widget<TextField>(composer()).controller!.text;
 
 void main() {
+  testWidgets(
+    'Modelos al pie: estado real, solicitud pendiente y tooltip detallado',
+    (tester) async {
+      final (fake, state) = await mount(tester, size: const Size(640, 420));
+      expect(fake.memoryRequests, isEmpty);
+      final laya = rail('Laya');
+      final voice = rail('Voz · Kokoro');
+      final dictation = rail('Transcripción · Nemotron');
+      expect(tester.getTopLeft(laya).dy, lessThan(tester.getTopLeft(voice).dy));
+      expect(
+        tester.getTopLeft(voice).dy,
+        lessThan(tester.getTopLeft(dictation).dy),
+      );
+      expect(
+        tester.getTopLeft(dictation).dy,
+        lessThan(tester.getTopLeft(rail('Configuración')).dy),
+      );
+      expect(tester.widget<RailButton>(laya).icon, Icons.psychology_outlined);
+      expect(
+        tester.widget<RailButton>(laya).appearance,
+        RailButtonAppearance.modelStatus,
+      );
+      expect(
+        tester.widget<RailButton>(voice).appearance,
+        RailButtonAppearance.modelStatus,
+      );
+      expect(
+        tester.widget<RailButton>(dictation).appearance,
+        RailButtonAppearance.modelStatus,
+      );
+      Color statusColor(String label) =>
+          (tester
+                      .widget<Container>(
+                        find.byKey(ValueKey('model-status-$label')),
+                      )
+                      .decoration!
+                  as BoxDecoration)
+              .color!;
+      for (final label in [
+        'Laya',
+        'Voz · Kokoro',
+        'Transcripción · Nemotron',
+      ]) {
+        expect(statusColor(label), const Color(0xffe05b56));
+      }
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await mouse.addPointer(location: Offset.zero);
+      await mouse.moveTo(tester.getCenter(laya));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('tooltip-message')), findsNothing);
+      expect(find.text('128 MB RAM'), findsOneWidget);
+      expect(fake.memoryRequests, [LocalModel.laya]);
+      final tooltipContent = find.byType(AppTooltipContent);
+      final tooltipGlass = find
+          .ancestor(of: tooltipContent, matching: find.byType(Glass))
+          .first;
+      final card = tester.getRect(tooltipGlass);
+      final title = find.byKey(const ValueKey('tooltip-title'));
+      final footer = find.byKey(const ValueKey('tooltip-footer'));
+      expect(tester.getRect(title).top - card.top, 16);
+      expect(card.bottom - tester.getRect(footer).bottom, 16);
+      expect(tester.widget<Text>(title).style!.fontWeight, FontWeight.w600);
+      expect(tester.widget<Text>(footer).style!.fontWeight, FontWeight.w400);
+      expect(tester.widget<RailButton>(laya).asset, 'assets/icons/brain.svg');
+      expect(find.text('Apagado'), findsOneWidget);
+      expect(
+        tester.getRect(find.byKey(const ValueKey('tooltip-status'))).left,
+        greaterThan(tester.getRect(title).left),
+      );
+      state.accept(
+        snapshot(
+          modelState: ModelState.failed,
+          modelDetail: 'detalle técnico oculto',
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.text(tester.widget<RailButton>(laya).details!.message!),
+        findsOneWidget,
+      );
+      expect(find.text('Fallo'), findsOneWidget);
+      expect(find.text('No se pudo cargar el modelo.'), findsOneWidget);
+      expect(find.textContaining('detalle técnico'), findsNothing);
+      expect(statusColor('Laya'), const Color(0xffd9a34a));
+      await tester.pump(const Duration(seconds: 3));
+      expect(fake.memoryRequests, [LocalModel.laya]);
+      await mouse.moveTo(Offset.zero);
+      await mouse.removePointer();
+      state.accept(snapshot());
+      await tester.pumpAndSettle();
+      fake.pendingModel = Completer<Snapshot>();
+      await tester.tap(laya);
+      await tester.pump();
+      expect(fake.modelRequests, [(LocalModel.laya, true)]);
+      expect(tester.widget<RailButton>(laya).onPressed, isNull);
+      fake.pendingModel!.complete(snapshot(modelState: ModelState.loading));
+      await tester.pump();
+      await tester.pump();
+      expect(tester.widget<RailButton>(laya).busy, isTrue);
+      state.accept(snapshot(modelState: ModelState.ready));
+      await tester.pumpAndSettle();
+      expect(tester.widget<RailButton>(laya).icon, Icons.psychology_outlined);
+      expect(tester.widget<RailButton>(laya).toggled, isTrue);
+      for (final label in [
+        'Laya',
+        'Voz · Kokoro',
+        'Transcripción · Nemotron',
+      ]) {
+        expect(statusColor(label), const Color(0xff32b869));
+      }
+      expect(tester.widget<RailButton>(voice).icon, Icons.volume_up_outlined);
+      expect(tester.widget<RailButton>(dictation).icon, Icons.mic_none);
+      expect(tester.widget<RailButton>(dictation).details!.message, isNull);
+      expect(tester.widget<RailButton>(voice).description, contains('10 min'));
+      fake.pendingModel = null;
+      await tester.tap(laya);
+      await tester.pumpAndSettle();
+      expect(fake.modelRequests.last, (LocalModel.laya, false));
+      state.accept(snapshot(modelState: ModelState.disabled));
+      await tester.pumpAndSettle();
+      expect(tester.widget<RailButton>(voice).onPressed, isNull);
+      for (final label in [
+        'Laya',
+        'Voz · Kokoro',
+        'Transcripción · Nemotron',
+      ]) {
+        expect(statusColor(label), const Color(0xff858585));
+      }
+      expect(
+        tester.widget<RailButton>(voice).description,
+        contains('Desactivado'),
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('RAM solo al entrar: ignora respuestas de un hover anterior', (
+    tester,
+  ) async {
+    final (fake, _) = await mount(tester);
+    expect(fake.memoryRequests, isEmpty);
+    final first = Completer<int?>();
+    fake.pendingMemory = first;
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await mouse.addPointer(location: Offset.zero);
+    await mouse.moveTo(tester.getCenter(rail('Laya')));
+    await tester.pumpAndSettle();
+    expect(fake.memoryRequests, [LocalModel.laya]);
+    expect(find.text('RAM …'), findsOneWidget);
+    await mouse.moveTo(Offset.zero);
+    await tester.pumpAndSettle();
+    final second = Completer<int?>();
+    fake.pendingMemory = second;
+    await mouse.moveTo(tester.getCenter(rail('Laya')));
+    await tester.pumpAndSettle();
+    second.complete(64 * 1024 * 1024);
+    await tester.pumpAndSettle();
+    expect(find.text('64 MB RAM'), findsOneWidget);
+    first.complete(900 * 1024 * 1024);
+    await tester.pumpAndSettle();
+    expect(find.text('64 MB RAM'), findsOneWidget);
+    expect(find.text('900 MB RAM'), findsNothing);
+    await tester.pump(const Duration(seconds: 3));
+    expect(fake.memoryRequests, [LocalModel.laya, LocalModel.laya]);
+    await mouse.moveTo(Offset.zero);
+    await mouse.removePointer();
+    await tester.pumpAndSettle();
+    expect(find.byType(AppTooltipContent), findsNothing);
+  });
+
   setUpAll(() async {
     final inter = FontLoader('Inter');
     for (final weight in ['Regular', 'Medium', 'SemiBold', 'Bold']) {
@@ -317,11 +519,36 @@ void main() {
     },
   );
 
+  for (final size in [const Size(1400, 720), const Size(640, 420)]) {
+    testWidgets('Título de cabecera acotado a una línea a $size', (
+      tester,
+    ) async {
+      final longTitle = List.filled(15, 'Investigación de cohetes').join(' ');
+      await mount(
+        tester,
+        size: size,
+        initialSnapshot: snapshot(title: longTitle),
+      );
+      final title = find.descendant(
+        of: find.byKey(const ValueKey('chat-header')),
+        matching: find.text(longTitle),
+      );
+      final text = tester.widget<Text>(title);
+      expect(text.maxLines, 1);
+      expect(text.overflow, TextOverflow.ellipsis);
+      expect(tester.getSize(title).width, lessThanOrEqualTo(320));
+      expect(tester.getSize(title).height, lessThan(30));
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   for (final size in [const Size(1100, 720), const Size(640, 420)]) {
     testWidgets('Escritorio y navegación sin overflow a $size', (tester) async {
       final (fake, _) = await mount(tester, size: size);
       expect(tester.takeException(), isNull);
       expect(find.text('Conversación actual'), findsNWidgets(2));
+      final avatar = find.bySemanticsLabel('Gennie, avatar de pingüino');
+      expect(avatar, findsOneWidget);
       final header = tester.getRect(find.byKey(const ValueKey('chat-header')));
       final sidebarHeader = tester.getRect(
         find.byKey(const ValueKey('sidebar-header')),
@@ -342,14 +569,25 @@ void main() {
       );
       expect(header.left, resizeHandle.center.dx);
 
+      expect(find.byType(ChatBackground), findsOneWidget);
+      final background = tester.getRect(find.byType(ChatBackground));
+      expect(background.left, header.left);
+      expect(background.top, header.bottom);
+      expect(background.right, header.right);
+      expect(background.bottom, lessThanOrEqualTo(size.height));
+
       await tester.tap(rail('Plugins'));
       await tester.pumpAndSettle();
       expect(composer(), findsNothing);
+      expect(find.byType(ChatBackground), findsNothing);
+      expect(avatar, findsNothing);
       expect(find.text('No hay contenido disponible'), findsWidgets);
       expect(fake.selected, isEmpty);
       expect(tester.takeException(), isNull);
       await tester.tap(rail('Historial'));
       await tester.pumpAndSettle();
+      expect(avatar, findsOneWidget);
+      expect(find.byType(ChatBackground), findsOneWidget);
       await tester.tap(find.text('Ideas anteriores'));
       await tester.pumpAndSettle();
       expect(fake.selected, ['older']);
@@ -362,6 +600,87 @@ void main() {
   }
 
   if (const bool.fromEnvironment('CAPTURE_UI')) {
+    testWidgets('Comparación visual de controles de modelos', (tester) async {
+      tester.view.physicalSize = const Size(600, 256);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final states = <DesktopState>[];
+      for (final _ in Brightness.values) {
+        for (final modelState in [ModelState.unloaded, ModelState.ready]) {
+          states.add(
+            DesktopState(FakeBackend())
+              ..accept(snapshot(modelState: modelState)),
+          );
+        }
+      }
+      addTearDown(() async {
+        for (final state in states) {
+          state.dispose();
+          await (state.backend as FakeBackend).events.close();
+        }
+      });
+      await tester.pumpWidget(
+        MaterialApp(
+          debugShowCheckedModeBanner: false,
+          home: RepaintBoundary(
+            key: const ValueKey('model-comparison'),
+            child: Row(
+              children: [
+                for (var index = 0; index < states.length; index++)
+                  Expanded(
+                    child: Theme(
+                      data: ThemeData(
+                        brightness: index < 2
+                            ? Brightness.dark
+                            : Brightness.light,
+                        fontFamily: 'Inter',
+                        useMaterial3: true,
+                      ),
+                      child: Material(
+                        color: index < 2
+                            ? const Color(0xff45484e)
+                            : const Color(0xffe5e7e9),
+                        child: Column(
+                          children: [
+                            const SizedBox(height: 22),
+                            Text(
+                              index < 2 ? 'Oscuro' : 'Claro',
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                            const SizedBox(height: 5),
+                            Text(
+                              index.isEven ? 'Sin cargar' : 'Cargado',
+                              style: const TextStyle(fontSize: 11),
+                            ),
+                            const SizedBox(height: 18),
+                            ModelControls(state: states[index]),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      final boundary = tester.renderObject<RenderRepaintBoundary>(
+        find.byKey(const ValueKey('model-comparison')),
+      );
+      await tester.runAsync(() async {
+        final image = await boundary.toImage(pixelRatio: 2);
+        final bytes = await image.toByteData(format: ImageByteFormat.png);
+        final output = Directory('../.verification/flutter-ui');
+        await output.create(recursive: true);
+        await File(
+          '${output.path}/model-controls-comparison.png',
+        ).writeAsBytes(bytes!.buffer.asUint8List());
+        image.dispose();
+      });
+    });
     for (final brightness in Brightness.values) {
       testWidgets('Captura software ${brightness.name}', (tester) async {
         tester.platformDispatcher.platformBrightnessTestValue = brightness;
@@ -462,6 +781,72 @@ void main() {
     );
   }
 
+  testWidgets(
+    'Búsqueda transparente filtra título y vista previa sin seleccionar',
+    (tester) async {
+      final (fake, _) = await mount(tester, size: const Size(640, 420));
+      final search = find.byKey(const ValueKey('history-search'));
+      expect(tester.widget<TextField>(search).decoration!.filled, isFalse);
+      expect(tester.getSize(search).height, 40);
+      expect(find.byIcon(Icons.backspace_outlined), findsNothing);
+      final header = tester.getRect(
+        find.byKey(const ValueKey('sidebar-header')),
+      );
+      expect(tester.getRect(search).top, header.bottom + 12);
+      await tester.enterText(search, '  IDEAS  ');
+      await tester.pumpAndSettle();
+      expect(find.byType(ChatHistoryTile), findsOneWidget);
+      expect(find.text('Ideas anteriores'), findsOneWidget);
+      await tester.enterText(search, 'asistente');
+      await tester.pumpAndSettle();
+      expect(find.byType(ChatHistoryTile), findsOneWidget);
+      expect(find.text('Ideas anteriores'), findsNothing);
+      await tester.enterText(search, 'sin coincidencias');
+      await tester.pumpAndSettle();
+      expect(find.text('No se encontraron chats'), findsOneWidget);
+      expect(find.byType(ChatHistoryTile), findsNothing);
+      await tester.tap(find.byIcon(Icons.backspace_outlined));
+      await tester.pumpAndSettle();
+      expect(tester.widget<TextField>(search).controller!.text, isEmpty);
+      expect(find.byIcon(Icons.backspace_outlined), findsNothing);
+      expect(find.byType(ChatHistoryTile), findsNWidgets(2));
+      expect(fake.selected, isEmpty);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'Los errores aparecen como mensajes de sistema sin banner duplicado',
+    (tester) async {
+      final (_, state) = await mount(tester);
+      const error = 'El proveedor rechazó la operación (código -32600)';
+      state.accept(
+        snapshot(
+          error: error,
+          errorRecorded: true,
+          messages: [
+            Message(
+              speaker: 'system',
+              text: 'Error: $error',
+              createdAt: DateTime.now().toUtc().toIso8601String(),
+            ),
+          ],
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(ChatMessage), findsOneWidget);
+      expect(find.text('Sistema'), findsOneWidget);
+      expect(find.text('Error: $error'), findsOneWidget);
+      expect(find.text(error), findsNothing);
+      state.accept(snapshot(error: 'SQLite no disponible'));
+      await tester.pumpAndSettle();
+      expect(find.text('Sistema · sin guardar'), findsOneWidget);
+      expect(find.text('Error: SQLite no disponible'), findsOneWidget);
+      expect(find.byType(ChatMessage), findsNWidgets(2));
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('Tooltips inmediatos usan Glass y desaparecen al salir', (
     tester,
   ) async {
@@ -506,7 +891,7 @@ void main() {
         null,
       ),
     );
-    await mount(tester);
+    final (_, state) = await mount(tester);
     final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
     await mouse.addPointer(location: Offset.zero);
     for (final label in ['Historial', 'Nuevo chat', 'Enviar mensaje']) {
@@ -520,6 +905,21 @@ void main() {
       await tester.pump();
       expect(calls.last.method, 'hide');
     }
+    await mouse.moveTo(tester.getCenter(rail('Laya')));
+    await tester.pump();
+    final details = calls.last.arguments['details'] as Map;
+    expect(details['title'], 'Laya');
+    expect(details['status'], 'Apagado');
+    expect(details['statusColor'], 0xffe05b56);
+    expect(details.containsKey('description'), isFalse);
+    expect(details['memory'], isNotEmpty);
+    expect(details['message'], isNull);
+    expect(details['footer'], contains('10 min'));
+    state.accept(snapshot(modelState: ModelState.ready));
+    await tester.pump();
+    await tester.pump();
+    expect(calls.last.arguments['details']['status'], 'Encendido');
+    expect(calls.last.arguments['details']['statusColor'], 0xff32b869);
     await mouse.removePointer();
   }, variant: TargetPlatformVariant.only(TargetPlatform.macOS));
 

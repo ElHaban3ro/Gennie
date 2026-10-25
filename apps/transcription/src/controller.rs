@@ -43,6 +43,12 @@ pub struct Controller {
     pending: Vec<Event>,
 }
 impl Controller {
+    pub fn resident_bytes(&mut self) -> Option<u64> {
+        self.process
+            .as_mut()
+            .map_or(Some(0), Process::resident_bytes)
+    }
+
     pub(crate) fn new(
         settings: Settings,
         sender: SyncSender<Settings>,

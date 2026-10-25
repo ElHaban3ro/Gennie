@@ -8,8 +8,10 @@ import 'package:window_manager/window_manager.dart';
 import 'backend.dart';
 import 'chat_history.dart';
 import 'chat_message.dart';
+import 'chat_viewport.dart';
 import 'glass.dart';
 import 'settings.dart';
+import 'model_controls.dart';
 
 class DesktopScreen extends StatefulWidget {
   const DesktopScreen({super.key, required this.state});
@@ -20,6 +22,7 @@ class DesktopScreen extends StatefulWidget {
 
 class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
   final _draft = TextEditingController();
+  final _historySearch = TextEditingController();
   final _scroll = ScrollController();
   double sidebar = 260;
   int tab = 0;
@@ -113,6 +116,7 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
     windowManager.removeListener(this);
     state.removeListener(_changed);
     _draft.dispose();
+    _historySearch.dispose();
     _scroll.dispose();
     super.dispose();
   }
@@ -239,8 +243,29 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
     listenable: state,
     builder: (context, _) {
       final s = state.snapshot;
+      final messages = <Message>[
+        ...?s?.messages,
+        if (s != null && s.reply.isNotEmpty && s.selectedId == s.activeId)
+          Message(speaker: 'assistant', text: s.reply, createdAt: ''),
+        if (state.failure != null &&
+            !(s?.errorRecorded == true && state.failure == s?.error))
+          Message(
+            speaker: 'system',
+            text: 'Error: ${state.failure}',
+            createdAt: '',
+          ),
+      ];
+      final query = _historySearch.text.trim().toLowerCase();
+      final conversations = (s?.conversations ?? <Conversation>[]).where((
+        chat,
+      ) {
+        return query.isEmpty ||
+            chat.title.toLowerCase().contains(query) ||
+            (chat.lastMessage?.toLowerCase().contains(query) ?? false);
+      }).toList();
       final dark = Theme.of(context).brightness == Brightness.dark;
       final ink = dark ? const Color(0xffe3e3e1) : const Color(0xff333333);
+      final panelDivider = BorderSide(color: ink.withValues(alpha: .1));
       return Scaffold(
         body: Glass(
           radius: 0,
@@ -320,6 +345,8 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
                                   ),
                                 ),
                               ),
+                              ModelControls(state: state),
+                              const SizedBox(height: 12),
                               RailButton(
                                 label: 'Configuración',
                                 asset: 'assets/icons/settings.svg',
@@ -341,9 +368,11 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
                       ),
                       SizedBox(
                         width: width,
-                        child: ColoredBox(
-                          color: Colors.white.withValues(
-                            alpha: dark ? .025 : .26,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(
+                              alpha: dark ? .025 : .26,
+                            ),
                           ),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -352,11 +381,7 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
                                 key: const ValueKey('sidebar-header'),
                                 height: 56,
                                 decoration: BoxDecoration(
-                                  border: Border(
-                                    bottom: BorderSide(
-                                      color: ink.withValues(alpha: .1),
-                                    ),
-                                  ),
+                                  border: Border(bottom: panelDivider),
                                 ),
                                 padding: EdgeInsets.only(
                                   left: Platform.isMacOS ? 84 : 20,
@@ -399,6 +424,91 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
                                   ],
                                 ),
                               ),
+                              if (tab == 0)
+                                Padding(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    8,
+                                    12,
+                                    8,
+                                    10,
+                                  ),
+                                  child: SizedBox(
+                                    height: 40,
+                                    child: TextField(
+                                      key: const ValueKey('history-search'),
+                                      textAlignVertical:
+                                          TextAlignVertical.center,
+                                      controller: _historySearch,
+                                      onChanged: (_) => setState(() {}),
+                                      style: const TextStyle(fontSize: 12),
+                                      decoration: InputDecoration(
+                                        hintText: 'Buscar chats…',
+                                        hintStyle: TextStyle(
+                                          fontSize: 12,
+                                          color: ink.withValues(alpha: .5),
+                                        ),
+                                        filled: false,
+                                        isDense: true,
+                                        contentPadding:
+                                            const EdgeInsets.symmetric(
+                                              horizontal: 12,
+                                              vertical: 10,
+                                            ),
+                                        prefixIcon: Icon(
+                                          Icons.search_rounded,
+                                          size: 17,
+                                          color: ink.withValues(alpha: .55),
+                                        ),
+                                        prefixIconConstraints:
+                                            const BoxConstraints(minWidth: 36),
+                                        suffixIconConstraints:
+                                            const BoxConstraints(
+                                              minWidth: 36,
+                                              maxHeight: 40,
+                                            ),
+                                        suffixIcon: _historySearch.text.isEmpty
+                                            ? null
+                                            : AppTooltip(
+                                                label: 'Limpiar búsqueda',
+                                                child: IconButton(
+                                                  onPressed: () => setState(
+                                                    _historySearch.clear,
+                                                  ),
+                                                  icon: Icon(
+                                                    Icons.backspace_outlined,
+                                                    size: 16,
+                                                    color: ink.withValues(
+                                                      alpha: .55,
+                                                    ),
+                                                  ),
+                                                  padding: EdgeInsets.zero,
+                                                  constraints:
+                                                      const BoxConstraints.tightFor(
+                                                        width: 36,
+                                                        height: 36,
+                                                      ),
+                                                ),
+                                              ),
+                                        enabledBorder: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            8,
+                                          ),
+                                          borderSide: BorderSide(
+                                            color: ink.withValues(alpha: .16),
+                                          ),
+                                        ),
+                                        focusedBorder: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            8,
+                                          ),
+                                          borderSide: BorderSide(
+                                            color: ink.withValues(alpha: .5),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
                               Expanded(
                                 child: state.loading
                                     ? const Center(
@@ -408,10 +518,12 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
                                       )
                                     : tab == 1 ||
                                           s == null ||
-                                          s.conversations.isEmpty
-                                    ? const Center(
+                                          conversations.isEmpty
+                                    ? Center(
                                         child: Text(
-                                          'No hay contenido disponible',
+                                          tab == 0 && query.isNotEmpty
+                                              ? 'No se encontraron chats'
+                                              : 'No hay contenido disponible',
                                           style: TextStyle(
                                             fontSize: 12,
                                             color: Color(0xff737373),
@@ -419,12 +531,15 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
                                         ),
                                       )
                                     : ListView.builder(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 8,
+                                        padding: const EdgeInsets.fromLTRB(
+                                          8,
+                                          0,
+                                          8,
+                                          0,
                                         ),
-                                        itemCount: s.conversations.length,
+                                        itemCount: conversations.length,
                                         itemBuilder: (context, index) {
-                                          final chat = s.conversations[index];
+                                          final chat = conversations[index];
                                           return Padding(
                                             padding: const EdgeInsets.only(
                                               bottom: 2,
@@ -458,11 +573,7 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
                                 color: Colors.white.withValues(
                                   alpha: dark ? .025 : .26,
                                 ),
-                                border: Border(
-                                  bottom: BorderSide(
-                                    color: ink.withValues(alpha: .1),
-                                  ),
-                                ),
+                                border: Border(bottom: panelDivider),
                               ),
                               child: Row(
                                 children: [
@@ -472,16 +583,43 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
                                         padding: const EdgeInsets.symmetric(
                                           horizontal: 24,
                                         ),
-                                        child: Align(
-                                          alignment: Alignment.centerLeft,
-                                          child: Text(
-                                            _title(s),
-                                            overflow: TextOverflow.ellipsis,
-                                            style: const TextStyle(
-                                              fontSize: 14,
-                                              fontWeight: FontWeight.w500,
+                                        child: Row(
+                                          children: [
+                                            if (tab == 0 &&
+                                                (s?.conversations.any(
+                                                      (chat) =>
+                                                          chat.id ==
+                                                          s.selectedId,
+                                                    ) ??
+                                                    false)) ...[
+                                              SvgPicture.asset(
+                                                'assets/pets/penguin.svg',
+                                                width: 48,
+                                                height: 48,
+                                                semanticsLabel:
+                                                    'Gennie, avatar de pingüino',
+                                              ),
+                                              const SizedBox(width: 10),
+                                            ],
+                                            Flexible(
+                                              child: ConstrainedBox(
+                                                constraints:
+                                                    const BoxConstraints(
+                                                      maxWidth: 320,
+                                                    ),
+                                                child: Text(
+                                                  _title(s),
+                                                  maxLines: 1,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                  style: const TextStyle(
+                                                    fontSize: 14,
+                                                    fontWeight: FontWeight.w500,
+                                                  ),
+                                                ),
+                                              ),
                                             ),
-                                          ),
+                                          ],
                                         ),
                                       ),
                                     ),
@@ -521,81 +659,94 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
                                 ],
                               ),
                             ),
-                            if (state.failure != null)
-                              _notice(state.failure!, true),
-                            if (s?.confirmation != null)
-                              _notice(s!.confirmation!, false),
                             Expanded(
-                              child:
-                                  tab == 1 ||
-                                      s == null ||
-                                      s.messages.isEmpty && s.reply.isEmpty
-                                  ? _empty(s)
-                                  : Align(
-                                      alignment: Alignment.topCenter,
-                                      child: ConstrainedBox(
-                                        constraints: const BoxConstraints(
-                                          maxWidth: 840,
-                                        ),
-                                        child: SelectionArea(
-                                          child: ListView.builder(
-                                            controller: _scroll,
-                                            padding: const EdgeInsets.fromLTRB(
-                                              32,
-                                              24,
-                                              32,
-                                              24,
-                                            ),
-                                            itemCount:
-                                                s.messages.length +
-                                                (s.reply.isNotEmpty &&
-                                                        s.selectedId ==
-                                                            s.activeId
-                                                    ? 1
-                                                    : 0),
-                                            itemBuilder: (context, index) {
-                                              final message =
-                                                  index < s.messages.length
-                                                  ? s.messages[index]
-                                                  : Message(
-                                                      speaker: 'assistant',
-                                                      text: s.reply,
-                                                      createdAt: '',
-                                                    );
-                                              final day = messageLocalDay(
-                                                message.createdAt,
-                                              );
-                                              final previousDay = index > 0
-                                                  ? messageLocalDay(
-                                                      s
-                                                          .messages[index - 1]
-                                                          .createdAt,
-                                                    )
-                                                  : null;
-                                              return Column(
-                                                children: [
-                                                  if (day != null &&
-                                                      day != previousDay)
-                                                    ChatDayBadge(
-                                                      label: chatDayLabel(
-                                                        message.createdAt,
-                                                        now: DateTime.now(),
-                                                      ),
+                              child: Column(
+                                children: [
+                                  Expanded(
+                                    child: ChatViewport(
+                                      enabled: tab == 0,
+                                      child: tab == 1 || messages.isEmpty
+                                          ? _empty(s)
+                                          : Align(
+                                              alignment: Alignment.topCenter,
+                                              child: ConstrainedBox(
+                                                constraints:
+                                                    const BoxConstraints(
+                                                      maxWidth: 840,
                                                     ),
-                                                  ChatMessage(message: message),
-                                                ],
-                                              );
-                                            },
-                                          ),
-                                        ),
-                                      ),
+                                                child: SelectionArea(
+                                                  child: ListView.builder(
+                                                    controller: _scroll,
+                                                    padding:
+                                                        const EdgeInsets.fromLTRB(
+                                                          32,
+                                                          24,
+                                                          32,
+                                                          24,
+                                                        ),
+                                                    itemCount: messages.length,
+                                                    itemBuilder: (context, index) {
+                                                      final message =
+                                                          messages[index];
+                                                      final day =
+                                                          messageLocalDay(
+                                                            message.createdAt,
+                                                          );
+                                                      final previousDay =
+                                                          index > 0
+                                                          ? messageLocalDay(
+                                                              messages[index -
+                                                                      1]
+                                                                  .createdAt,
+                                                            )
+                                                          : null;
+                                                      return Column(
+                                                        children: [
+                                                          if (day != null &&
+                                                              day !=
+                                                                  previousDay)
+                                                            ChatDayBadge(
+                                                              label: chatDayLabel(
+                                                                message
+                                                                    .createdAt,
+                                                                now:
+                                                                    DateTime.now(),
+                                                              ),
+                                                            ),
+                                                          ChatMessage(
+                                                            message: message,
+                                                          ),
+                                                        ],
+                                                      );
+                                                    },
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
                                     ),
+                                  ),
+                                  if (tab == 0 && s == null && !state.loading)
+                                    TextButton(
+                                      onPressed: state.start,
+                                      child: const Text('Reintentar conexión'),
+                                    ),
+                                  if (tab == 0 && s != null) _composer(s),
+                                ],
+                              ),
                             ),
-                            if (tab == 0 && s != null) _composer(s),
                           ],
                         ),
                       ),
                     ],
+                  ),
+                  Positioned(
+                    left: 60 + width - panelDivider.width,
+                    top: 56,
+                    bottom: 0,
+                    width: panelDivider.width,
+                    child: IgnorePointer(
+                      child: ColoredBox(color: panelDivider.color),
+                    ),
                   ),
                   Positioned(
                     left: 60 + width - 4,
@@ -643,21 +794,6 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
     return 'Gennie';
   }
 
-  Widget _notice(String text, bool error) => Padding(
-    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 4),
-    child: Align(
-      alignment: Alignment.centerLeft,
-      child: Text(
-        text,
-        style: TextStyle(
-          fontSize: 12,
-          color: error
-              ? Theme.of(context).colorScheme.error
-              : const Color(0xff737373),
-        ),
-      ),
-    ),
-  );
   Widget _empty(Snapshot? s) => Center(
     child: Padding(
       padding: const EdgeInsets.all(24),
