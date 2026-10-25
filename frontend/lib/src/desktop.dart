@@ -3,11 +3,11 @@ import 'dart:math' as math;
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:flutter_svg/flutter_svg.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:window_manager/window_manager.dart';
 import 'backend.dart';
+import 'chat_history.dart';
+import 'chat_message.dart';
 import 'glass.dart';
 import 'settings.dart';
 
@@ -234,11 +234,11 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
     builder: (context, _) {
       final s = state.snapshot;
       final dark = Theme.of(context).brightness == Brightness.dark;
-      final surface = dark ? const Color(0xff222428) : const Color(0xfff5f5f4);
       final ink = dark ? const Color(0xffe3e3e1) : const Color(0xff333333);
       return Scaffold(
-        body: Material(
-          color: surface.withValues(alpha: .90),
+        body: Glass(
+          radius: 0,
+          canvas: true,
           child: LayoutBuilder(
             builder: (context, bounds) {
               final width = sidebar
@@ -247,328 +247,378 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
                     math.max(216.0, math.min(420.0, bounds.maxWidth - 380)),
                   )
                   .toDouble();
-              return Row(
+              return Stack(
+                fit: StackFit.expand,
                 children: [
-                  ColoredBox(
-                    color: Colors.black.withValues(alpha: dark ? .12 : .055),
-                    child: SizedBox(
-                      width: 60,
-                      child: Column(
-                        children: [
-                          const SizedBox(height: 14),
-                          SvgPicture.asset(
-                            'assets/icons/gennie-face.svg',
-                            width: 28,
-                            height: 28,
-                            colorFilter: ColorFilter.mode(ink, BlendMode.srcIn),
-                          ),
-                          Expanded(
-                            child: Center(
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  RailButton(
-                                    label: 'Historial',
-                                    asset: 'assets/icons/history.svg',
-                                    icon: Icons.history_rounded,
-                                    selected: tab == 0,
-                                    onPressed: () => setState(() => tab = 0),
-                                  ),
-                                  const SizedBox(height: 6),
-                                  RailButton(
-                                    label: 'Plugins',
-                                    asset: 'assets/icons/plug.svg',
-                                    icon: Icons.extension_outlined,
-                                    selected: tab == 1,
-                                    onPressed: () => setState(() => tab = 1),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                          RailButton(
-                            label: 'Configuración',
-                            asset: 'assets/icons/settings.svg',
-                            icon: Icons.settings_outlined,
-                            onPressed: () {
-                              if (s != null) {
-                                showDialog<void>(
-                                  context: context,
-                                  builder: (_) => SettingsDialog(state: state),
-                                );
-                              }
-                            },
-                          ),
-                          const SizedBox(height: 12),
-                        ],
+                  // Tinte común para historial y lector; los 60 px de navegación
+                  // conservan exactamente el material y la transparencia previos.
+                  Positioned.fill(
+                    left: 60,
+                    child: IgnorePointer(
+                      child: ColoredBox(
+                        color:
+                            (dark
+                                    ? const Color(0xff26282c)
+                                    : const Color(0xfff5f5f4))
+                                .withValues(alpha: .68),
                       ),
                     ),
                   ),
-                  SizedBox(
-                    width: width,
-                    child: ColoredBox(
-                      color: Colors.white.withValues(alpha: dark ? .025 : .26),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const SizedBox(height: 8),
-                          const SizedBox(
-                            height: 36,
-                            child: Padding(
-                              padding: EdgeInsets.only(left: 92),
-                              child: Align(
-                                alignment: Alignment.centerLeft,
-                                child: Text(
-                                  'Gennie',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
+                  Row(
+                    children: [
+                      ColoredBox(
+                        color: Colors.black.withValues(
+                          alpha: dark ? .12 : .055,
+                        ),
+                        child: SizedBox(
+                          width: 60,
+                          child: Column(
+                            children: [
+                              SizedBox(
+                                height: 56,
+                                child: Center(
+                                  child: SvgPicture.asset(
+                                    'assets/icons/gennie-face.svg',
+                                    width: 28,
+                                    height: 28,
+                                    colorFilter: ColorFilter.mode(
+                                      ink,
+                                      BlendMode.srcIn,
+                                    ),
                                   ),
                                 ),
                               ),
-                            ),
+                              Expanded(
+                                child: Center(
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      RailButton(
+                                        label: 'Historial',
+                                        asset: 'assets/icons/history.svg',
+                                        icon: Icons.history_rounded,
+                                        selected: tab == 0,
+                                        onPressed: () =>
+                                            setState(() => tab = 0),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      RailButton(
+                                        label: 'Plugins',
+                                        asset: 'assets/icons/plug.svg',
+                                        icon: Icons.extension_outlined,
+                                        selected: tab == 1,
+                                        onPressed: () =>
+                                            setState(() => tab = 1),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              RailButton(
+                                label: 'Configuración',
+                                asset: 'assets/icons/settings.svg',
+                                icon: Icons.settings_outlined,
+                                onPressed: () {
+                                  if (s != null) {
+                                    showDialog<void>(
+                                      context: context,
+                                      builder: (_) =>
+                                          SettingsDialog(state: state),
+                                    );
+                                  }
+                                },
+                              ),
+                              const SizedBox(height: 12),
+                            ],
                           ),
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(20, 12, 10, 10),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    tab == 0 ? 'Historial de chats' : 'Plugins',
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      color: Color(0xff737373),
+                        ),
+                      ),
+                      SizedBox(
+                        width: width,
+                        child: ColoredBox(
+                          color: Colors.white.withValues(
+                            alpha: dark ? .025 : .26,
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Container(
+                                key: const ValueKey('sidebar-header'),
+                                height: 56,
+                                decoration: BoxDecoration(
+                                  border: Border(
+                                    bottom: BorderSide(
+                                      color: ink.withValues(alpha: .1),
                                     ),
                                   ),
                                 ),
-                                if (tab == 0)
-                                  IconButton(
-                                    tooltip: 'Nuevo chat',
-                                    visualDensity: VisualDensity.compact,
-                                    icon: const Icon(
-                                      Icons.edit_square,
-                                      size: 17,
-                                    ),
-                                    onPressed: s?.assistant != null && !s!.busy
-                                        ? () => state.perform(
-                                            state.backend.newChat,
-                                          )
-                                        : null,
-                                  ),
-                              ],
-                            ),
-                          ),
-                          Expanded(
-                            child: state.loading
-                                ? const Center(
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                    ),
-                                  )
-                                : tab == 1 ||
-                                      s == null ||
-                                      s.conversations.isEmpty
-                                ? const Center(
-                                    child: Text(
-                                      'No hay contenido disponible',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: Color(0xff737373),
+                                padding: EdgeInsets.only(
+                                  left: Platform.isMacOS ? 84 : 20,
+                                  right: 10,
+                                ),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: DragToMoveArea(
+                                        child: Align(
+                                          alignment: Alignment.centerLeft,
+                                          child: Text(
+                                            tab == 0
+                                                ? 'Historial de chats'
+                                                : 'Plugins',
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(
+                                              fontSize: 12,
+                                              color: Color(0xff737373),
+                                            ),
+                                          ),
+                                        ),
                                       ),
                                     ),
-                                  )
-                                : ListView.builder(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                    ),
-                                    itemCount: s.conversations.length,
-                                    itemBuilder: (context, index) {
-                                      final chat = s.conversations[index];
-                                      return Padding(
-                                        padding: const EdgeInsets.only(
-                                          bottom: 2,
+                                    if (tab == 0)
+                                      AppTooltip(
+                                        label: 'Nuevo chat',
+                                        child: IconButton(
+                                          visualDensity: VisualDensity.compact,
+                                          icon: const Icon(Icons.add, size: 17),
+                                          onPressed:
+                                              s?.assistant != null && !s!.busy
+                                              ? () => state.perform(
+                                                  state.backend.newChat,
+                                                )
+                                              : null,
                                         ),
-                                        child: Material(
-                                          color: s.selectedId == chat.id
-                                              ? const Color(0x24808080)
-                                              : Colors.transparent,
-                                          borderRadius: BorderRadius.circular(
-                                            8,
+                                      ),
+                                  ],
+                                ),
+                              ),
+                              Expanded(
+                                child: state.loading
+                                    ? const Center(
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : tab == 1 ||
+                                          s == null ||
+                                          s.conversations.isEmpty
+                                    ? const Center(
+                                        child: Text(
+                                          'No hay contenido disponible',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: Color(0xff737373),
                                           ),
-                                          child: InkWell(
-                                            borderRadius: BorderRadius.circular(
-                                              8,
+                                        ),
+                                      )
+                                    : ListView.builder(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                        ),
+                                        itemCount: s.conversations.length,
+                                        itemBuilder: (context, index) {
+                                          final chat = s.conversations[index];
+                                          return Padding(
+                                            padding: const EdgeInsets.only(
+                                              bottom: 2,
                                             ),
-                                            onTap: () => state.perform(
-                                              () =>
-                                                  state.backend.select(chat.id),
-                                            ),
-                                            child: SizedBox(
-                                              height: 36,
-                                              child: Row(
-                                                children: [
-                                                  const SizedBox(width: 12),
-                                                  Expanded(
-                                                    child: Text(
-                                                      chat.title,
-                                                      maxLines: 1,
-                                                      overflow:
-                                                          TextOverflow.ellipsis,
-                                                      style: const TextStyle(
-                                                        fontSize: 12,
-                                                      ),
-                                                    ),
-                                                  ),
-                                                  PopupMenuButton<String>(
-                                                    tooltip:
-                                                        'Opciones del chat',
-                                                    iconSize: 17,
-                                                    padding: EdgeInsets.zero,
-                                                    icon: const Icon(
-                                                      Icons.more_horiz,
-                                                    ),
-                                                    onSelected: (action) {
-                                                      if (action == 'rename') {
-                                                        _rename(chat);
-                                                      } else {
-                                                        _delete(chat);
-                                                      }
-                                                    },
-                                                    itemBuilder: (_) => [
-                                                      const PopupMenuItem(
-                                                        value: 'rename',
-                                                        child: Text(
-                                                          'Cambiar nombre',
-                                                        ),
-                                                      ),
-                                                      const PopupMenuItem(
-                                                        value: 'delete',
-                                                        child: Text(
-                                                          'Eliminar chat',
-                                                        ),
-                                                      ),
-                                                    ],
-                                                  ),
-                                                ],
+                                            child: ChatHistoryTile(
+                                              chat: chat,
+                                              selected: s.selectedId == chat.id,
+                                              onSelect: () => state.perform(
+                                                () => state.backend.select(
+                                                  chat.id,
+                                                ),
                                               ),
+                                              onRename: () => _rename(chat),
+                                              onDelete: () => _delete(chat),
                                             ),
-                                          ),
-                                        ),
-                                      );
-                                    },
-                                  ),
+                                          );
+                                        },
+                                      ),
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  Semantics(
-                    label: 'Ancho de la sidebar',
-                    slider: true,
-                    onIncrease: () => setState(
-                      () => sidebar = (sidebar + 16).clamp(216, 420),
-                    ),
-                    onDecrease: () => setState(
-                      () => sidebar = (sidebar - 16).clamp(216, 420),
-                    ),
-                    child: MouseRegion(
-                      cursor: SystemMouseCursors.resizeColumn,
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onHorizontalDragUpdate: (d) => setState(
-                          () => sidebar = (width + d.delta.dx).clamp(216, 420),
-                        ),
-                        child: const SizedBox(
-                          width: 8,
-                          height: double.infinity,
                         ),
                       ),
-                    ),
-                  ),
-                  Expanded(
-                    child: Column(
-                      children: [
-                        SizedBox(
-                          height: 56,
-                          child: DragToMoveArea(
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 24,
+                      Expanded(
+                        child: Column(
+                          children: [
+                            Container(
+                              key: const ValueKey('chat-header'),
+                              height: 56,
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(
+                                  alpha: dark ? .025 : .26,
+                                ),
+                                border: Border(
+                                  bottom: BorderSide(
+                                    color: ink.withValues(alpha: .1),
+                                  ),
+                                ),
                               ),
                               child: Row(
                                 children: [
                                   Expanded(
-                                    child: Text(
-                                      _title(s),
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w500,
+                                    child: DragToMoveArea(
+                                      child: Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 24,
+                                        ),
+                                        child: Align(
+                                          alignment: Alignment.centerLeft,
+                                          child: Text(
+                                            _title(s),
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(
+                                              fontSize: 14,
+                                              fontWeight: FontWeight.w500,
+                                            ),
+                                          ),
+                                        ),
                                       ),
                                     ),
                                   ),
-                                  if (s != null)
-                                    Text(
-                                      s.connection,
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        color: ink.withValues(alpha: .55),
+                                  AppTooltip(
+                                    label: 'Opciones del sistema',
+                                    child: PopupMenuButton<String>(
+                                      tooltip: '',
+                                      icon: const Icon(
+                                        Icons.more_horiz,
+                                        size: 20,
                                       ),
+                                      onSelected: (action) {
+                                        if (action == 'settings') {
+                                          showDialog<void>(
+                                            context: context,
+                                            builder: (_) =>
+                                                SettingsDialog(state: state),
+                                          );
+                                        }
+                                      },
+                                      itemBuilder: (_) => [
+                                        if (s != null)
+                                          PopupMenuItem<String>(
+                                            enabled: false,
+                                            child: Text(s.connection),
+                                          ),
+                                        PopupMenuItem(
+                                          value: 'settings',
+                                          enabled: s != null,
+                                          child: const Text('Configuración'),
+                                        ),
+                                      ],
                                     ),
+                                  ),
+                                  const SizedBox(width: 12),
                                 ],
                               ),
                             ),
-                          ),
-                        ),
-                        if (state.failure != null)
-                          _notice(state.failure!, true),
-                        if (s?.confirmation != null)
-                          _notice(s!.confirmation!, false),
-                        Expanded(
-                          child:
-                              tab == 1 ||
-                                  s == null ||
-                                  s.messages.isEmpty && s.reply.isEmpty
-                              ? _empty(s)
-                              : Align(
-                                  alignment: Alignment.topCenter,
-                                  child: ConstrainedBox(
-                                    constraints: const BoxConstraints(
-                                      maxWidth: 840,
-                                    ),
-                                    child: SelectionArea(
-                                      child: ListView.builder(
-                                        controller: _scroll,
-                                        padding: const EdgeInsets.fromLTRB(
-                                          32,
-                                          24,
-                                          32,
-                                          24,
+                            if (state.failure != null)
+                              _notice(state.failure!, true),
+                            if (s?.confirmation != null)
+                              _notice(s!.confirmation!, false),
+                            Expanded(
+                              child:
+                                  tab == 1 ||
+                                      s == null ||
+                                      s.messages.isEmpty && s.reply.isEmpty
+                                  ? _empty(s)
+                                  : Align(
+                                      alignment: Alignment.topCenter,
+                                      child: ConstrainedBox(
+                                        constraints: const BoxConstraints(
+                                          maxWidth: 840,
                                         ),
-                                        itemCount:
-                                            s.messages.length +
-                                            (s.reply.isNotEmpty &&
-                                                    s.selectedId == s.activeId
-                                                ? 1
-                                                : 0),
-                                        itemBuilder: (context, index) =>
-                                            index < s.messages.length
-                                            ? _message(s.messages[index], dark)
-                                            : _message(
-                                                Message(
-                                                  speaker: 'assistant',
-                                                  text: s.reply,
-                                                  createdAt: '',
-                                                ),
-                                                dark,
-                                              ),
+                                        child: SelectionArea(
+                                          child: ListView.builder(
+                                            controller: _scroll,
+                                            padding: const EdgeInsets.fromLTRB(
+                                              32,
+                                              24,
+                                              32,
+                                              24,
+                                            ),
+                                            itemCount:
+                                                s.messages.length +
+                                                (s.reply.isNotEmpty &&
+                                                        s.selectedId ==
+                                                            s.activeId
+                                                    ? 1
+                                                    : 0),
+                                            itemBuilder: (context, index) {
+                                              final message =
+                                                  index < s.messages.length
+                                                  ? s.messages[index]
+                                                  : Message(
+                                                      speaker: 'assistant',
+                                                      text: s.reply,
+                                                      createdAt: '',
+                                                    );
+                                              final day = messageLocalDay(
+                                                message.createdAt,
+                                              );
+                                              final previousDay = index > 0
+                                                  ? messageLocalDay(
+                                                      s
+                                                          .messages[index - 1]
+                                                          .createdAt,
+                                                    )
+                                                  : null;
+                                              return Column(
+                                                children: [
+                                                  if (day != null &&
+                                                      day != previousDay)
+                                                    ChatDayBadge(
+                                                      label: chatDayLabel(
+                                                        message.createdAt,
+                                                        now: DateTime.now(),
+                                                      ),
+                                                    ),
+                                                  ChatMessage(message: message),
+                                                ],
+                                              );
+                                            },
+                                          ),
+                                        ),
                                       ),
                                     ),
-                                  ),
-                                ),
+                            ),
+                            if (tab == 0 && s != null) _composer(s),
+                          ],
                         ),
-                        if (tab == 0 && s != null) _composer(s),
-                      ],
+                      ),
+                    ],
+                  ),
+                  Positioned(
+                    left: 60 + width - 4,
+                    top: 0,
+                    bottom: 0,
+                    width: 8,
+                    child: Semantics(
+                      label: 'Ancho de la sidebar',
+                      slider: true,
+                      onIncrease: () => setState(
+                        () => sidebar = (sidebar + 16).clamp(216, 420),
+                      ),
+                      onDecrease: () => setState(
+                        () => sidebar = (sidebar - 16).clamp(216, 420),
+                      ),
+                      child: MouseRegion(
+                        cursor: SystemMouseCursors.resizeColumn,
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onHorizontalDragUpdate: (d) => setState(
+                            () =>
+                                sidebar = (width + d.delta.dx).clamp(216, 420),
+                          ),
+                          child: const SizedBox(
+                            width: 8,
+                            height: double.infinity,
+                          ),
+                        ),
+                      ),
                     ),
                   ),
                 ],
@@ -632,74 +682,6 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
       ),
     ),
   );
-  Widget _message(Message message, bool dark) {
-    final user = message.speaker == 'user';
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 30),
-      child: Align(
-        alignment: user ? Alignment.centerRight : Alignment.centerLeft,
-        child: Container(
-          constraints: const BoxConstraints(maxWidth: 700),
-          padding: user
-              ? const EdgeInsets.symmetric(horizontal: 18, vertical: 14)
-              : EdgeInsets.zero,
-          decoration: BoxDecoration(
-            color: user ? const Color(0x14808080) : null,
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                user
-                    ? 'Tú'
-                    : message.speaker == 'assistant'
-                    ? 'Gennie'
-                    : 'Actividad',
-                style: const TextStyle(
-                  fontSize: 11,
-                  color: Color(0xff858585),
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              const SizedBox(height: 8),
-              MarkdownBody(
-                data: message.text,
-                selectable: false,
-                styleSheet: MarkdownStyleSheet(
-                  p: const TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 14,
-                    height: 1.65,
-                  ),
-                ),
-                onTapLink: (text, href, title) {
-                  final uri = Uri.tryParse(href ?? '');
-                  if (uri != null && ['https', 'http'].contains(uri.scheme)) {
-                    unawaited(
-                      launchUrl(uri, mode: LaunchMode.externalApplication),
-                    );
-                  }
-                },
-              ),
-              if (message.createdAt.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: Text(
-                    message.createdAt,
-                    style: const TextStyle(
-                      fontSize: 10,
-                      color: Color(0xff858585),
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _composer(Snapshot s) {
     final readonly = s.selectedId != s.activeId;
     if (readonly) {
@@ -751,18 +733,22 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
                         ),
                       ),
                     ),
-                    IconButton(
-                      tooltip: 'Enviar mensaje',
-                      onPressed: s.busy || _sending || s.assistant == null
-                          ? null
-                          : _send,
-                      icon: s.busy
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.arrow_upward_rounded, size: 21),
+                    AppTooltip(
+                      label: 'Enviar mensaje',
+                      child: IconButton(
+                        onPressed: s.busy || _sending || s.assistant == null
+                            ? null
+                            : _send,
+                        icon: s.busy
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.arrow_upward_rounded, size: 21),
+                      ),
                     ),
                   ],
                 ),

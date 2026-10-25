@@ -3,6 +3,8 @@ import 'dart:io';
 import 'dart:ui' show PointerDeviceKind, ImageByteFormat;
 
 import 'package:flutter/material.dart';
+import 'package:gennie/src/chat_history.dart';
+import 'package:gennie/src/chat_message.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -17,18 +19,34 @@ Snapshot snapshot({
   String? acknowledged,
   String? confirmation,
   bool busy = false,
+  List<Message>? messages,
 }) => Snapshot(
   conversations: [
-    Conversation(id: 'active', title: 'Conversación actual', updatedAt: ''),
-    Conversation(id: 'older', title: 'Ideas anteriores', updatedAt: ''),
-  ],
-  messages: [
-    Message(
-      speaker: 'assistant',
-      text: 'Respuesta con **Markdown** y contenido local.',
-      createdAt: '',
+    Conversation(
+      id: 'active',
+      title: 'Conversación actual',
+      updatedAt: DateTime.now().toUtc().toIso8601String(),
+      lastMessage: 'Último mensaje del asistente',
+    ),
+    Conversation(
+      id: 'older',
+      title: 'Ideas anteriores',
+      updatedAt: DateTime.now()
+          .subtract(const Duration(days: 8))
+          .toUtc()
+          .toIso8601String(),
+      lastMessage: 'Última entrada del usuario',
     ),
   ],
+  messages:
+      messages ??
+      [
+        Message(
+          speaker: 'assistant',
+          text: 'Respuesta con **Markdown** y contenido local.',
+          createdAt: '',
+        ),
+      ],
   selectedId: selected,
   activeId: 'active',
   busy: busy,
@@ -181,6 +199,8 @@ Future<(FakeBackend, DesktopState)> mount(
 
 Finder rail(String label) =>
     find.byWidgetPredicate((w) => w is RailButton && w.label == label);
+Finder appTooltip(String label) =>
+    find.byWidgetPredicate((w) => w is AppTooltip && w.label == label);
 Finder composer() => find.widgetWithText(TextField, 'Escribe a Gennie…');
 String draft(WidgetTester tester) =>
     tester.widget<TextField>(composer()).controller!.text;
@@ -219,6 +239,26 @@ void main() {
       final (fake, _) = await mount(tester, size: size);
       expect(tester.takeException(), isNull);
       expect(find.text('Conversación actual'), findsNWidgets(2));
+      final header = tester.getRect(find.byKey(const ValueKey('chat-header')));
+      final sidebarHeader = tester.getRect(
+        find.byKey(const ValueKey('sidebar-header')),
+      );
+      expect(sidebarHeader.top, header.top);
+      expect(sidebarHeader.height, 56);
+      expect(sidebarHeader.bottom, header.bottom);
+      expect(
+        tester.getCenter(find.byIcon(Icons.add)).dy,
+        closeTo(header.center.dy, .5),
+      );
+      expect(
+        tester.getCenter(find.text('Historial de chats')).dy,
+        closeTo(header.center.dy, .5),
+      );
+      final resizeHandle = tester.getRect(
+        find.bySemanticsLabel('Ancho de la sidebar'),
+      );
+      expect(header.left, resizeHandle.center.dx);
+
       await tester.tap(rail('Plugins'));
       await tester.pumpAndSettle();
       expect(composer(), findsNothing);
@@ -261,14 +301,98 @@ void main() {
     }
   }
 
+  for (final brightness in Brightness.values) {
+    testWidgets(
+      'Chat: separadores por día y menú del sistema ${brightness.name}',
+      (tester) async {
+        tester.platformDispatcher.platformBrightnessTestValue = brightness;
+        addTearDown(tester.platformDispatcher.clearPlatformBrightnessTestValue);
+        final (_, state) = await mount(tester);
+        final now = DateTime.now();
+        final today = DateTime(now.year, now.month, now.day, 9, 5);
+        final yesterday = DateTime(now.year, now.month, now.day - 1, 18, 30);
+        state.accept(
+          snapshot(
+            messages: [
+              Message(
+                speaker: 'user',
+                text: 'Quiero organizar las ideas de esta semana.',
+                createdAt: yesterday.toUtc().toIso8601String(),
+              ),
+              Message(
+                speaker: 'assistant',
+                text:
+                    'Podemos empezar por las **tres prioridades** y dejar espacio para lo pendiente.',
+                createdAt: yesterday
+                    .add(const Duration(minutes: 1))
+                    .toUtc()
+                    .toIso8601String(),
+              ),
+              Message(
+                speaker: 'user',
+                text: 'Perfecto. Hoy empezamos con el diseño del chat.',
+                createdAt: today.toUtc().toIso8601String(),
+              ),
+            ],
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(find.byType(ChatDayBadge), findsNWidgets(2));
+        expect(
+          find.descendant(
+            of: find.byType(ChatDayBadge),
+            matching: find.text('Ayer'),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(
+            of: find.byType(ChatDayBadge),
+            matching: find.text('Hoy'),
+          ),
+          findsOneWidget,
+        );
+        expect(find.text('09:05'), findsOneWidget);
+        if (const bool.fromEnvironment('CAPTURE_UI')) {
+          final boundary = tester.renderObject<RenderRepaintBoundary>(
+            find.byKey(const ValueKey('capture')),
+          );
+          await tester.runAsync(() async {
+            final image = await boundary.toImage(pixelRatio: 1);
+            final bytes = await image.toByteData(format: ImageByteFormat.png);
+            final output = Directory('../.verification/flutter-ui');
+            await output.create(recursive: true);
+            await File(
+              '${output.path}/chat-${brightness.name}.png',
+            ).writeAsBytes(bytes!.buffer.asUint8List());
+            image.dispose();
+          });
+        }
+        await tester.tap(find.byIcon(Icons.more_horiz));
+        await tester.pumpAndSettle();
+        expect(find.text('Conectado'), findsOneWidget);
+        await tester.tap(find.text('Configuración'));
+        await tester.pumpAndSettle();
+        expect(find.text('Asistente'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
   testWidgets('Tooltips inmediatos usan Glass y desaparecen al salir', (
     tester,
   ) async {
     await mount(tester);
     final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
     await mouse.addPointer(location: Offset.zero);
-    for (final label in ['Historial', 'Plugins', 'Configuración']) {
-      await mouse.moveTo(tester.getCenter(rail(label)));
+    for (final label in [
+      'Historial',
+      'Plugins',
+      'Configuración',
+      'Nuevo chat',
+      'Enviar mensaje',
+    ]) {
+      await mouse.moveTo(tester.getCenter(appTooltip(label)));
       await tester.pump();
       expect(find.text(label), findsOneWidget);
       expect(
@@ -282,13 +406,47 @@ void main() {
     await mouse.removePointer();
   });
 
+  testWidgets('macOS presenta el tooltip en el compositor nativo y lo oculta', (
+    tester,
+  ) async {
+    const channel = MethodChannel('gennie/tooltip');
+    final calls = <MethodCall>[];
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, (
+      call,
+    ) async {
+      calls.add(call);
+      return null;
+    });
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        channel,
+        null,
+      ),
+    );
+    await mount(tester);
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await mouse.addPointer(location: Offset.zero);
+    for (final label in ['Historial', 'Nuevo chat', 'Enviar mensaje']) {
+      await mouse.moveTo(tester.getCenter(appTooltip(label).first));
+      await tester.pump();
+      expect(calls.last.method, 'show');
+      expect(calls.last.arguments['label'], label);
+      expect(calls.last.arguments['preferRight'], label == 'Historial');
+      expect(find.text(label), findsNothing);
+      await mouse.moveTo(const Offset(1090, 10));
+      await tester.pump();
+      expect(calls.last.method, 'hide');
+    }
+    await mouse.removePointer();
+  }, variant: TargetPlatformVariant.only(TargetPlatform.macOS));
+
   testWidgets('Envío conserva borrador hasta ack, error y edición posterior', (
     tester,
   ) async {
     final (fake, state) = await mount(tester);
     fake.pendingSend = Completer<Snapshot>();
     await tester.enterText(composer(), 'Borrador original');
-    await tester.tap(find.byTooltip('Enviar mensaje'));
+    await tester.tap(appTooltip('Enviar mensaje'));
     await tester.pump();
     expect(fake.sent, ['Borrador original']);
     expect(draft(tester), 'Borrador original');
@@ -297,7 +455,7 @@ void main() {
     expect(draft(tester), 'Borrador original');
     expect(find.textContaining('Guardado rechazado'), findsOneWidget);
     fake.pendingSend = Completer<Snapshot>();
-    await tester.tap(find.byTooltip('Enviar mensaje'));
+    await tester.tap(appTooltip('Enviar mensaje'));
     await tester.pump();
     await tester.enterText(composer(), 'Nueva edición');
     fake.pendingSend!.complete(
@@ -329,7 +487,7 @@ void main() {
   ) async {
     final (fake, _) = await mount(tester);
     fake.pendingRename = Completer<Snapshot>();
-    await tester.tap(find.byTooltip('Opciones del chat').last);
+    await tester.tap(find.byType(ChatHistoryTile).last, buttons: 2);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Cambiar nombre'));
     await tester.pumpAndSettle();
@@ -359,10 +517,7 @@ void main() {
     await tester.tap(find.text('General'));
     await tester.pumpAndSettle();
     expect(find.text('Guardar cambios').hitTestable(), findsOneWidget);
-    expect(
-      find.byTooltip('Cerrar configuración').hitTestable(),
-      findsOneWidget,
-    );
+    expect(appTooltip('Cerrar configuración').hitTestable(), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

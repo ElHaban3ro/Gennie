@@ -28,4 +28,14 @@ routes = {
 for task, rules in routes.items():
     for name in rules:
         assert (ROOT/f'docs/rules/{name}.md').is_file(), f'Regla ausente para {task}: {name}'
+# El estilo de tooltip es único; impedir la vuelta accidental a Material.
+for source in (ROOT/'frontend/lib').rglob('*.dart'):
+    if 'rust' in source.parts:
+        continue
+    text = source.read_text()
+    assert not re.search(r'\bTooltip\s*\(', text), f'Usa AppTooltip: {source}'
+    text = re.sub(r"\btooltip:\s*''", '', text)
+    if source.name == 'glass.dart':
+        text = text.replace('tooltip: widget.label', '')  # Semántica compartida.
+    assert not re.search(r'\btooltip\s*:', text), f'Tooltip fuera de AppTooltip: {source}'
 print('OK: prompt íntegro, dependencias centrales, kernel independiente y enlaces/enrutamiento documental')
