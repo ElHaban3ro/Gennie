@@ -852,7 +852,7 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(18, 6, 8, 6),
                 child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
                     Expanded(
                       child: CallbackShortcuts(
