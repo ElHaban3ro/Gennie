@@ -1,5 +1,7 @@
 # Primera base — 2026-10-11
 
+> Contexto histórico: la UI descrita aquí fue retirada al migrar a Flutter. La cara, presencia flotante, globos y sus sondas no forman parte del producto vigente. Para arquitectura y verificación actuales, consultar los documentos de arquitectura y reglas del índice. Las migraciones y los datos conservan su historia.
+
 Estado final: base construida en checkout main, sin commits/push ni cambios de remoto. Prompt original SHA-256 7412501ba941c357418096079a62cff4487dccf9cb138f197c36f4088ea3d9dd, leído íntegro junto con respuestas/decisiones/plan antes de código. No había código ni AGENTS de ancestros aplicables. Historial consolidado conservando pendientes antiguos resueltos. Corrección visual posterior D-013 aplicada: monocromática, moderna y minimalista.
 
 Verificación final: fmt/check, 13 tests, Clippy -D warnings, build, script invariantes/enlaces. Se comprobaron SQLite/migraciones, registro/DAG, configuración/precedencia y error/confirmación de worker. Resultado y comandos precisos en [implementation](../initialization/implementation.md).

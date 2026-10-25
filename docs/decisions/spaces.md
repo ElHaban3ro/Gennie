@@ -1,8 +1,10 @@
 # D-014 — La presencia acompaña al usuario entre Spaces
 
+> Contexto histórico: la UI descrita aquí fue retirada al migrar a Flutter. La cara, presencia flotante, globos y sus sondas no forman parte del producto vigente. Para arquitectura y verificación actuales, consultar los documentos de arquitectura y reglas del índice. Las migraciones y los datos conservan su historia.
+
 Fecha: 2026-10-11. Origen: fallo runtime reportado por usuario. Estado: aceptada y seguimiento entre dos escritorios normales confirmado por el usuario en instancia propia identificada. Pantalla completa y otras políticas macOS requieren evidencia específica.
 
-Síntoma: gennie permanece en el escritorio de lanzamiento. Causa identificada: desktop.rs solo configuraba nivel AlwaysOnTop y sombra; no establecía collectionBehavior para pertenecer a Spaces. El nivel flotante no cambia pertenencia. Winit 0.30.13 no ofrece esa política en WindowExtMacOS; se usa su raw handle AppKit y NSView.window() sobre la propia ventana ya creada, sin descubrir ventanas ajenas.
+Síntoma: Gennie permanece en el escritorio de lanzamiento. Causa identificada: desktop.rs solo configuraba nivel AlwaysOnTop y sombra; no establecía collectionBehavior para pertenecer a Spaces. El nivel flotante no cambia pertenencia. Winit 0.30.13 no ofrece esa política en WindowExtMacOS; se usa su raw handle AppKit y NSView.window() sobre la propia ventana ya creada, sin descubrir ventanas ajenas.
 
 Arreglo mínimo dentro de desktop.rs: CanJoinAllSpaces y FullScreenAuxiliary en el NSWindow principal; conservar otros comportamientos retirando MoveToActiveSpace, FullScreenPrimary y FullScreenNone por incompatibilidad documentada. No cambiar foco, renderer, transparencia, hit test ni UI. About es ventana normal. Se habilitan NSView/NSWindow en objc2-app-kit 0.3.2 ya fijado, sin nuevas versiones/crates/capas. No se incorpora CanJoinAllApplications/Stage Manager ni seguimiento de monitor preventivo.
 

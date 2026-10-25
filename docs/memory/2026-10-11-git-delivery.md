@@ -1,5 +1,7 @@
 # Entrega Git inicial — 2026-10-11
 
+> Contexto histórico: la UI descrita aquí fue retirada al migrar a Flutter. La cara, presencia flotante, globos y sus sondas no forman parte del producto vigente. Para arquitectura y verificación actuales, consultar los documentos de arquitectura y reglas del índice. Las migraciones y los datos conservan su historia.
+
 Autorización explícita del usuario: «Commitea y pushea TODO en distintos commits. Sin pruebas avanzadas». Alcance: todos los archivos apropiados del proyecto, sin secretos/datos de uso/artefactos. Checkout y rama main conservados; origin git@github.com:ElHaban3ro/Gennie.git. No PR, despliegue ni reinicio de procesos.
 
 Convención elegida dentro de la delegación: mensajes descriptivos en español `tipo: resumen`, sin atribuciones automáticas. Agrupaciones: requisitos originales .creation; base modular completa kernel/config/SQLite, bootstrap y Slint monocromático; corrección de pertenencia a Spaces; documentación/reglas/scripts. La separación del fix de Spaces se realiza en el índice, conservando el archivo final del checkout.

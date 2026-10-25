@@ -1,5 +1,7 @@
 # Verificación de dictado local — 2026-10-11
 
+> Contexto histórico: la UI descrita aquí fue retirada al migrar a Flutter. La cara, presencia flotante, globos y sus sondas no forman parte del producto vigente. Para arquitectura y verificación actuales, consultar los documentos de arquitectura y reglas del índice. Las migraciones y los datos conservan su historia.
+
 ## Descarga y modelo real
 Descarga con el helper real `target/debug/gennie --prepare-model RUTA`: 751094240 bytes, SHA-256 b94545b313b3223fda7b2857a52681da813935c2127643d1e9ff0c23d988089c, revisión Handy 8139c4ec14bdc45c361adf8d57c27c28e7478272. `Ready` tras validación. Instalado en Library/Application Support/soc/models, sin montar ASR. Preparación posterior actualizó la caché de verificación en 12706 ms en build debug, sin nueva descarga. Montar reutiliza esa verificación mientras no cambien tamaño/mtime.
 
@@ -25,7 +27,7 @@ Preparación final con firma de metadatos: Ready en 9423 ms en debug, sin re-des
 ## Apertura de ajustes — 2026-10-12
 El usuario reprodujo que Transcripción sí abría, pero quedaba debajo de otras ventanas. El callback solo llamaba show e ignoraba su resultado. Ahora la apertura explícita muestra, restaura y solicita foco mediante Winit focus_window (en macOS activa la aplicación y hace makeKeyAndOrderFront). No se aplica al globo, timer ni arranque. Los errores se registran y se presentan en el estado de ajustes. Etiqueta del menú simplificada a Transcripción.
 
-Build de gennie, fmt, Clippy de presence con warnings denegados e invariantes pasaron. Instancia empaquetada aislada con SQLite propia: acción del menú de aplicación abrió ajustes visibles, y repetirla después de minimizar restauró la ventana; cierre por Salir de gennie y shutdown_complete. La automatización no expuso el icono de barra superior, por lo que esa apertura exacta desde otra aplicación sigue sin verificación automatizada; ambos menús comparten la misma acción corregida.
+Build de Gennie, fmt, Clippy de presence con warnings denegados e invariantes pasaron. Instancia empaquetada aislada con SQLite propia: acción del menú de aplicación abrió ajustes visibles, y repetirla después de minimizar restauró la ventana; cierre por Salir de Gennie y shutdown_complete. La automatización no expuso el icono de barra superior, por lo que esa apertura exacta desde otra aplicación sigue sin verificación automatizada; ambos menús comparten la misma acción corregida.
 
 ## Solicitud de Accesibilidad — 2026-10-12
 Se añadió solicitud nativa AXIsProcessTrustedWithOptions(prompt=true) y apertura del panel de Accesibilidad al abrir ajustes o pulsar Activar atajo cuando falta confianza. Sin solicitud en el arranque. El controlador comprueba concesión cada segundo mientras espera y configura el atajo al detectarla; no modifica TCC. ABI y constantes contrastadas con headers del SDK local y documentación oficial de Apple. Pasaron 12 pruebas de presence/transcription, build del binario, Clippy de ambos crates/all-targets, fmt e invariantes. No se revocaron permisos existentes para simular denegación: diálogo real sin autorización previa y concesión manual siguen pendientes de observación del usuario. Estas pruebas no demuestran ese flujo del sistema.

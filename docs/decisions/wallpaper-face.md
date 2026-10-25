@@ -1,5 +1,7 @@
 # D-023 — Composición de la cara sobre el escritorio
 
+> Contexto histórico: la UI descrita aquí fue retirada al migrar a Flutter. La cara, presencia flotante, globos y sus sondas no forman parte del producto vigente. Para arquitectura y verificación actuales, consultar los documentos de arquitectura y reglas del índice. Las migraciones y los datos conservan su historia.
+
 Fecha 2026-10-17. Origen: el usuario pidió aproximar la cara al vidrio de los widgets y verificar cada cambio con capturas propias. Estado: composición dual retirada a petición del usuario; se conserva abajo su historial. No se declara equivalencia con WidgetKit.
 
 ## Estado vigente: un solo material

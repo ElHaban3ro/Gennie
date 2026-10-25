@@ -1,5 +1,7 @@
 # D-016 — Control local por voz con Laya
 
+> Contexto histórico: la UI descrita aquí fue retirada al migrar a Flutter. La cara, presencia flotante, globos y sus sondas no forman parte del producto vigente. Para arquitectura y verificación actuales, consultar los documentos de arquitectura y reglas del índice. Las migraciones y los datos conservan su historia.
+
 Historial de la primera integración. El filtro de frases y la configuración descritos aquí se reemplazan por [D-017](semantic-control.md), fuente vigente para la interpretación semántica. La conexión con el dictado normal y el puente `god_call` fueron retirados de Presence; el flujo vigente se describe en [D-021](llm-conversation.md).
 
 Petición del usuario, 2026-10-12: usar Laya multilingüe y el flujo del diagrama adjunto. El README del benchmark es referencia histórica; sus reglas no reemplazan el flujo. El usuario confirmó usar el atajo actual directamente para órdenes.

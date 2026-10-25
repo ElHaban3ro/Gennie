@@ -1,11 +1,13 @@
 # Primera base implementada — 2026-10-11
 
+> Contexto histórico: la UI descrita aquí fue retirada al migrar a Flutter. La cara, presencia flotante, globos y sus sondas no forman parte del producto vigente. Para arquitectura y verificación actuales, consultar los documentos de arquitectura y reglas del índice. Las migraciones y los datos conservan su historia.
+
 Estado: construcción finalizada. No hay bloqueo de configuración/compilación. Falta evaluación manual específica de comportamiento de ventana descrita abajo; no se declara validación completa del OS.
 
 ## Construido
 Workspace de cinco crates útiles, sin capas vacías: configuración explícita Config/Secrets; SQLite único compartido con foreign keys/WAL/FULL y busy timeout; migraciones por módulo atómicas, versionadas y protegidas por SHA-256; registro explícito con DAG/selección conservada; arranque y cleanup inverso; worker de preferencias confirmado después de commit y error visible.
 
-Presence posee UI nativa Slint 1.18.1/Winit/FemtoVG sin WebView: monocromática moderna/minimalista, dormida pequeña con zetas y activa feliz expandida, cara siempre visible, expansión/contracción y gestos graduales, respiración sutil y zetas con ritmos independientes, movimiento reducido persistido. Mac Accessory sin activación forzada, no-frame/transparent/always-on-top, ubicación diferida hasta existir ventana y hit test circular dinámico. Icono/menú de barra superior macOS con Asistente → Despertar / Descansar, Acerca de gennie y Salir de gennie. Menú nativo de información y cierre; atajos y ayuda sobre la cara desactivados, con soporte de preferencias reservado para configuración futura.
+Presence posee UI nativa Slint 1.18.1/Winit/FemtoVG sin WebView: monocromática moderna/minimalista, dormida pequeña con zetas y activa feliz expandida, cara siempre visible, expansión/contracción y gestos graduales, respiración sutil y zetas con ritmos independientes, movimiento reducido persistido. Mac Accessory sin activación forzada, no-frame/transparent/always-on-top, ubicación diferida hasta existir ventana y hit test circular dinámico. Icono/menú de barra superior macOS con Asistente → Despertar / Descansar, Acerca de Gennie y Salir de Gennie. Menú nativo de información y cierre; atajos y ayuda sobre la cara desactivados, con soporte de preferencias reservado para configuración futura.
 
 ## Sueño y despertar suaves — 2026-10-11
 
@@ -32,7 +34,7 @@ La cara despierta sigue la dirección del mouse suavemente, conservando apertura
 Verificación específica: `cargo test --locked -p gennie-presence` correcto (4 pruebas, incluida dirección/rango de mirada), compilación Slint correcta, invariantes y diff correctos. Se formatearon solo los archivos Rust editados. No se reinició la instancia del usuario ni se certifica aquí seguimiento visual del cursor/transparencia compositada; otros OS y monitores pendientes de evaluación.
 
 ## Ejecutar y verificar
-`cargo run --locked -p gennie` desde raíz. `.env` local preparado con GENNIE_DATABASE_PATH=data/gennie.sqlite3, GENNIE_DB_BUSY_TIMEOUT_MS=500; no secretos/puertos. Clic alterna; el menú Acerca de gennie abre información y el menú Salir termina. M, A, Espacio, Escape y cierre con clic derecho están desactivados. Ver [README](../../README.md).
+`cargo run --locked -p gennie` desde raíz. `.env` local preparado con GENNIE_DATABASE_PATH=data/gennie.sqlite3, GENNIE_DB_BUSY_TIMEOUT_MS=500; no secretos/puertos. Clic alterna; el menú Acerca de Gennie abre información y el menú Salir termina. M, A, Espacio, Escape y cierre con clic derecho están desactivados. Ver [README](../../README.md).
 
 Pasaron `cargo fmt --all -- --check`, `cargo test --workspace --locked` (13), `cargo clippy --workspace --all-targets --locked -- -D warnings`, `cargo build --locked -p gennie` y `python3 scripts/check_invariants.py`. Tests recorren atomicidad/checksum/historia de migración, reapertura real, namespaces, cierre compartido, registro y orphans, DAG, dependencias y selección, fallo de startup y cleanup inverso, lifecycle idempotente, precedencia de configuración, variables sincronizadas, commit y error real de worker.
 
@@ -60,7 +62,7 @@ Estado: inicialización completada; archivo histórico. Fuente vigente en docs; 
 - Verificar lectura y coincidencia byte por byte del prompt con el adjunto.
 
 ## Siguiente paso pendiente
-- Nombre recibido: gennie. Recoger función, necesidad y público de la aplicación.
+- Nombre recibido: Gennie. Recoger función, necesidad y público de la aplicación.
 - Resolver la carpeta definitiva dentro de Dev y registrar la respuesta antes de avanzar.
 
 ## Alcance de la base
@@ -76,7 +78,7 @@ Leer initialization-prompt.md, answers.md, decisions.md y plan.md antes de gener
 Pendiente definir producto y decisiones estructurales, escribir propuesta vinculada a requisitos y verificar dependencias antes de incorporarlas. Consolidar los documentos al terminar según el prompt.
 
 ## Síntesis inicial del producto — 2026-10-11
-gennie será un asistente personal orientado a productividad y rapidez de decisión, proactivo e integrado con el sistema operativo. El usuario desea aprovechar cuotas de servicios que ya paga.
+Gennie será un asistente personal orientado a productividad y rapidez de decisión, proactivo e integrado con el sistema operativo. El usuario desea aprovechar cuotas de servicios que ya paga.
 
 Último paso completado: registrar el propósito y separar objetivos de integración de capacidades todavía no verificadas.
 Siguiente paso: elegir el sistema operativo inicial, concretar los recorridos de la primera versión y definir autonomía. Después investigar las integraciones admitidas por los proveedores elegidos.
@@ -125,12 +127,12 @@ Siguiente pendiente inmediato: evaluar soporte de animaciones suaves y rebote/re
 ## Ejecución autorizada — 2026-10-11
 La base conjunta está autorizada. Primer alcance: workspace Rust con kernel de configuración/persistencia y contratos mínimos de módulos, app dedicada de interfaz Slint y bootstrap; SQLite compartido y migraciones necesarias; presencia sin marco siempre encima, cara dormida/activa, clic y transiciones. Sin HTTP, usuarios, sesiones, voz, correo ni conectores de IA en esta fase.
 Antes de incorporar dependencias: verificar versión exacta, compatibilidad, features y avisos en fuentes oficiales. Validar comportamiento real de transparencia, foco, expansión y cierre en macOS y distinguirlo de compilación/pruebas.
-Bloqueo de enrutamiento: gennie no figura entre los proyectos disponibles de Codex. La ejecución del repositorio requiere un chat de su proyecto; falta registrar/abrir gennie como proyecto en la aplicación. No dirigir trabajo a iClock ni a otros proyectos.
+Bloqueo de enrutamiento: Gennie no figura entre los proyectos disponibles de Codex. La ejecución del repositorio requiere un chat de su proyecto; falta registrar/abrir Gennie como proyecto en la aplicación. No dirigir trabajo a iClock ni a otros proyectos.
 Último paso completado: registrar autorización y alcance conjunto.
-Siguiente pendiente: disponer del proyecto gennie en Codex para enviar la implementación con todo el contexto y supervisar hasta entrega.
+Siguiente pendiente: disponer del proyecto Gennie en Codex para enviar la implementación con todo el contexto y supervisar hasta entrega.
 
 ## Propuesta vinculada y construcción — 2026-10-11
-Estado vigente: construcción en el checkout gennie; el impedimento de enrutamiento anterior está resuelto por este chat.
+Estado vigente: construcción en el checkout Gennie; el impedimento de enrutamiento anterior está resuelto por este chat.
 - R1 nativa/cara: apps/presence posee UI Slint, estados y movimiento; clic alterna, Escape/clic secundario sale. 80 px dormida y 168 px activa, cara siempre visible, azules #b8dcf5/#74b6e8, tinta #20394d, mejillas #f1a9b7 y zetas #86a4bf. Tipografía del sistema para zetas y ayuda; cara dibujada con paths, sin imágenes externas. Esquina inferior derecha y margen 24 px: supuestos delegados revisables.
 - R2 kernel inicial: kernel/config carga Config y Secrets separados; kernel/db posee una conexión SQLite compartida/serializada, busy timeout, foreign keys, WAL y migraciones transaccionales con checksum SHA-256 por módulo. kernel/core define AppModule, AppState y apagado persistente. Sin pool artificial para una app local con escrituras mínimas.
 - R3 persistencia justificada: registro modules conserva activación entre arranques; presence_preferences recuerda reducción de movimiento (tecla M), no el estado activo transitorio. Arranca dormida. SQLite archivo local data/gennie.sqlite3 explícito en .env; sin secretos necesarios hoy.

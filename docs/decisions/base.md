@@ -1,5 +1,7 @@
 # D-012 — Base conjunta nativa
 
+> Contexto histórico: la UI descrita aquí fue retirada al migrar a Flutter. La cara, presencia flotante, globos y sus sondas no forman parte del producto vigente. Para arquitectura y verificación actuales, consultar los documentos de arquitectura y reglas del índice. Las migraciones y los datos conservan su historia.
+
 - Fecha: 2026-10-11. Estado: aceptada como elección técnica delegada; detalles visuales provisionales revisables.
 - Origen: alcance autorizado del usuario y diseño del asistente. Reemplaza pendientes históricos de enrutamiento y toolkit; mantiene D-003..D-011.
 - Decisión: cinco crates útiles, Slint/Winit/FemtoVG, configuración .env explícita, SQLite compartido, migraciones por módulo con checksum, lifecycle/registro central y presence dueña de UI.

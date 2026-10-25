@@ -1,5 +1,7 @@
 # Decisiones de descubrimiento — historial preservado
 
+> Contexto histórico: la UI descrita aquí fue retirada al migrar a Flutter. La cara, presencia flotante, globos y sus sondas no forman parte del producto vigente. Para arquitectura y verificación actuales, consultar los documentos de arquitectura y reglas del índice. Las migraciones y los datos conservan su historia.
+
 Fuente consolidada del historial; entradas posteriores precisan/reemplazan anteriores. Para implementación actual ver [base](base.md) y [D-013](monochrome-face.md).
 
 # Decisiones de producto y técnicas
@@ -21,7 +23,7 @@ Estado: inicialización completada; archivo histórico. Fuente vigente en docs; 
 ## D-002 — Nombre de la aplicación
 - Fecha: 2026-10-11.
 - Tema: nombre del producto.
-- Decisión: la aplicación se llama gennie.
+- Decisión: la aplicación se llama Gennie.
 - Motivo: nombre indicado explícitamente por el usuario.
 - Origen: usuario.
 - Estado: aceptada.
@@ -89,7 +91,7 @@ Estado: inicialización completada; archivo histórico. Fuente vigente en docs; 
 - Decisión: inicializar Git en /Users/fer/Documents/Projects/Fer/Dev/soc y asociar origin al repositorio compartido.
 - Motivo: instrucción del usuario de inicializar localmente; remoto vacío según su confirmación.
 - Origen: usuario.
-- Estado: aceptada; reemplaza la ubicación provisional de D-001. Documentación vigente: gennie/.creation.
+- Estado: aceptada; reemplaza la ubicación provisional de D-001. Documentación vigente: Gennie/.creation.
 - Condición de revisión: cambio explícito de ubicación, rama o remoto.
 - Rama inicial: main, seleccionada por Git; no se impuso ni cambió.
 

@@ -1,17 +1,19 @@
 # Gennie — instrucciones del checkout
 
-Gennie es un asistente personal futuro; esta base ofrece presencia nativa local en macOS, configuración y SQLite. Añade dictado local Nemotron con atajo configurable, globo temporal y control de aplicaciones/música mediante Laya local. No hay HTTP entrante, usuarios, correo ni conectores de IA remota adicionales. Antes de modificar código, identifica las áreas afectadas y lee los archivos de reglas correspondientes. Los enlaces de este índice son instrucciones de lectura, no sustituyen su contenido.
+Gennie es un asistente personal con escritorio Flutter local en macOS y backend Rust mediante flutter_rust_bridge, configuración y SQLite. Conserva dictado Nemotron, conversación con Codex y narración Kokoro; Laya permanece como módulo independiente. La presencia flotante, la cara y los globos fueron retirados y no deben replicarse. No hay HTTP entrante, usuarios, correo ni conectores de IA remota adicionales. Antes de modificar código, identifica las áreas afectadas y lee los archivos de reglas correspondientes. Los enlaces de este índice son instrucciones de lectura, no sustituyen su contenido.
 
 ## Mapa e invariantes
+- El nombre visible de la aplicación se escribe **Gennie**, siempre con G mayúscula. Mantén en minúscula los identificadores técnicos, crates, comandos, rutas y nombres de archivo existentes.
 - `kernel/config`: carga y valida Config; Secrets separado, sin Debug ni inclusión en AppState.
 - `kernel/db`: única conexión SQLite compartida, transacciones y migraciones inmutables.
 - `kernel/core`: AppModule, AppState y señal de apagado. Kernel nunca importa apps ni contracts.
-- `apps/presence`: UI Slint, estado visual, globo y configuración; preferencias propias y worker de persistencia.
+- `frontend/lib`: interfaz Flutter, navegación, historial, conversación y ajustes; consume únicamente la API Rust generada.
+- `apps/presence`: datos de historial, preparación de respuestas y narración; conserva sus migraciones SQL históricas, sin interfaz ni ventanas.
 - `apps/transcription`: dictado, preferencias propias, descarga verificada de Nemotron y proceso hijo de audio/inferencia con descarga por inactividad.
 - `apps/decisions`: catálogo, intención semántica y disponibilidad separadas, Laya local/adaptaciones, ejecutores comprobados y diario de intentos; sin reintentos automáticos.
-- `apps/llm`: proceso hijo app-server, sesión ChatGPT de Codex CLI, hilo conversacional único y su identificador SQLite; presence conserva mensajes finalizados en `presence_history`, sin audio persistido.
+- `apps/llm`: proceso hijo app-server, sesión ChatGPT de Codex CLI, un hilo activo y su identificador SQLite; presence posee el catálogo de conversaciones e historial local, sin audio persistido. Bootstrap inyecta su diario al worker LLM; ver D-024.
 - `apps/reminders-plugin`: controlador local de Recordatorios mediante EventKit; lectura, escritura y observador de cambios, sin conexión a la IA o UI todavía.
-- `bootstrap`: composición explícita y secuencia de arranque/cierre. Grafo acíclico; datos de apps no invaden AppState.
+- `bootstrap`: biblioteca `gennie_backend`, API FRB en `api.rs`, coordinador en `runtime.rs` y binario helper de audio; composición explícita y secuencia de arranque/cierre. Grafo acíclico; datos de apps no invaden AppState.
 - No existen contracts, HTTP, buses ni testkit sin una necesidad real. Los avisos futuros salen después del commit.
 - Símbolos, archivos y SQL en inglés; comentarios y documentación en español. Ausencias con Option y fechas persistidas ISO 8601 UTC.
 
@@ -19,7 +21,7 @@ Gennie es un asistente personal futuro; esta base ofrece presencia nativa local 
 | Condición | Documento | Motivo |
 |---|---|---|
 | Servicios Rust, errores, recursos compartidos, workers | [backend](docs/rules/backend.md) | Inyección, errores y concurrencia |
-| UI, cara, estilos, foco, animación o interacción | [frontend](docs/rules/frontend.md) | Slint y comportamiento nativo |
+| UI, estilos, foco, animación o interacción | [UI](UI.md) y [frontend](docs/rules/frontend.md) | Decisiones visuales acordadas, Flutter y comportamiento nativo |
 | Apps, kernel, Cargo, features, registro, contratos, lifecycle | [modules](docs/rules/modules.md) | Límites y dependencias |
 | SQL, repositorios, conexión, transacciones o migraciones | [database](docs/rules/database.md) | Propiedad e inmutabilidad |
 | .env, variables, secretos o preferencias | [configuration](docs/rules/configuration.md) | Precedencia y validación |
@@ -33,11 +35,11 @@ Gennie es un asistente personal futuro; esta base ofrece presencia nativa local 
 - Corrige problemas incidentales claros y pequeños dentro del alcance autorizado e informa. Entrega primero el arreglo mínimo; explica mecanismos o arquitectura que amplíen el alcance antes de incorporarlos.
 - Ante fallos inspecciona síntoma y causa con evidencia. No defiendas el resultado sin comprobarlo; distingue hechos, hipótesis y límites de acceso.
 - Preserva cambios existentes, rama y checkout. Otro worktree o rama necesita petición/autorización expresa.
-- Antes de arrancar un proceso indica propósito y puerto si aplica; no detengas procesos ajenos. Identifica y apaga tus procesos temporales al terminar, salvo petición de dejarlos activos. Esta app no abre puertos.
+- Antes de arrancar un proceso indica propósito y puerto si aplica; no detengas procesos ajenos. Identifica y apaga tus procesos temporales al terminar, salvo petición de dejarlos activos. El producto no abre puertos; las herramientas Flutter de depuración pueden usar servicios locales temporales.
 - Commit y push solo con autorización explícita para ese cambio. Convención de commits: mensajes descriptivos en español con formato `tipo: resumen` (docs, feat, fix), elegida para la entrega inicial autorizada. Publicar código y desplegar son acciones distintas; una autorización Git no autoriza despliegue.
 - Distingue revisión estática, compilación, pruebas, ejecución y despliegue. No sustituyas evidencia runtime por una captura o un test unitario.
 - Documenta estado vigente, actualiza documentos afectados y retira afirmaciones obsoletas. Si se autorizan agentes paralelos asigna archivos/responsabilidades y exige verificación propia; no hay obligación de delegar.
-- Un único proceso Cargo por target. Comandos reales: `cargo run --locked -p gennie`, `cargo fmt --all -- --check`, `cargo test --workspace --locked`, `cargo clippy --workspace --all-targets --locked -- -D warnings`.
+- Un único proceso Cargo por target. Lanzadores: `./scripts/dev.sh` y `./scripts/build.sh`. El binario Rust es un helper, no inicia la UI. Comandos de verificación: `cargo fmt --all -- --check`, `cargo test --workspace --locked`, `cargo clippy --workspace --all-targets --locked -- -D warnings`.
 
 ## Mantenimiento
 Cada regla tiene un propietario en docs/rules. Cambia regla, referencias y comprobaciones en el mismo trabajo. Usuario y entorno prevalecen; una memoria histórica no es regla vigente. Resuelve contradicciones antes del cambio dependiente. Si falta una lectura obligatoria, informa y resuelve antes de modificar ese ámbito. `.creation` conserva origen/historial; los documentos consolidados en docs son la fuente vigente tras completar la inicialización.

@@ -1,10 +1,12 @@
-# Requisitos vigentes — primera base gennie
+# Requisitos vigentes — primera base Gennie
+
+> Contexto histórico: la UI descrita aquí fue retirada al migrar a Flutter. La cara, presencia flotante, globos y sus sondas no forman parte del producto vigente. Para arquitectura y verificación actuales, consultar los documentos de arquitectura y reglas del índice. Las migraciones y los datos conservan su historia.
 
 Estado: primera base implementada y verificada localmente, checkout actual main sin commits, origin git@github.com:ElHaban3ro/Gennie.git. Repositorio remoto vacío según usuario; no accedido ni verificado. Pendientes históricos de carpeta/Git/macOS/activación manual están resueltos.
 
 Producto futuro: asistente personal proactivo integrado al OS para productividad/decisiones. Viabilidad de reutilizar cuotas ChatGPT/Grok no verificada; fuera de esta base. Autonomía y tareas reales se definirán después.
 
-Base confirmada: macOS primero, orientación multiplataforma; Rust modular, kernel y SQLite junto a interfaz nativa sin WebView; sin HTTP/usuarios/sesiones/grandes dominios. App dedicada de presencia. Cara siempre visible: reposo pequeño dormido con zetas, activo grande feliz; clic alterna; siempre encima. Expansión suave con rebote ligero y contracción tranquila aceptadas. Cierre claro; no dejar procesos temporales.
+Base confirmada: macOS primero, orientación multiplataforma; Rust modular, kernel y SQLite junto a interfaz nativa sin WebView; sin HTTP/usuarios/sesiones/grandes dominios. App dedicada de presencia. La aplicación abre una ventana de escritorio con sidebar y área principal vacía y redimensionable (1100×720, mínimo 640×420), con vidrio nativo de Gennie y controles estándar de macOS; cerrarla conserva los servicios y «Abrir Gennie» la recupera. La presencia flotante es opcional y arranca oculta; «Asistente → Mostrar asistente flotante» guarda la elección sin detener atajos, dictado ni modelos. Cuando está visible, conserva reposo pequeño y estado activo expandido, clic para alternar y nivel siempre encima. Expansión suave con rebote ligero y contracción tranquila aceptadas. Cierre claro; no dejar procesos temporales.
 
 Elecciones delegadas: Slint 1.18.1, módulos y recursos concretos, preferencia reduced_motion persistida, tonos monocromáticos/tamaños/esquina inferiores revisables; no son requisitos nuevos del usuario.
 
@@ -25,7 +27,7 @@ Estado: inicialización completada; archivo histórico. Fuente vigente en docs; 
 - Pendiente aclarar si Dev será la raíz final o la carpeta contenedora de una subcarpeta del proyecto.
 
 ## Preguntas pendientes
-- ¿Cuál será el nombre técnico o carpeta final? Nombre de la aplicación confirmado: gennie.
+- ¿Cuál será el nombre técnico o carpeta final? Nombre de la aplicación confirmado: Gennie.
 - ¿Qué hace, qué necesidad resuelve y quién la utilizará?
 - Alcance inicial, datos, interfaz, entorno, integraciones y criterios de entrega.
 - Git: proyecto nuevo o existente, URL sin credenciales, checkout local, rama y remoto; autorizaciones por definir.
@@ -34,7 +36,7 @@ Estado: inicialización completada; archivo histórico. Fuente vigente en docs; 
 - Conservar el prompt completo y registrar respuestas, decisiones y avance antes de generar la base.
 
 ## Respuesta registrada — 2026-10-11
-- Usuario: la aplicación se llamará «gennie».
+- Usuario: la aplicación se llamará «Gennie».
 - Pendiente: función, necesidad, público y carpeta final.
 
 ## Propósito descrito por el usuario — 2026-10-11
@@ -71,7 +73,7 @@ Estado: inicialización completada; archivo histórico. Fuente vigente en docs; 
 ## Pendientes estructurales actuales
 - Tipo de interfaz: escritorio nativo sin WebView o escritorio con tecnologías web; stack todavía no elegido.
 - Forma visual inicial, referencias y criterio de aceptación de la base gráfica.
-- Nombre técnico/carpeta final; gennie es el nombre confirmado y Dev el directorio indicado.
+- Nombre técnico/carpeta final; Gennie es el nombre confirmado y Dev el directorio indicado.
 - Estado de Git y checkout.
 - Modelo mínimo de datos que necesita la base; no inventar entidades de dominio.
 
@@ -115,7 +117,7 @@ Estado: inicialización completada; archivo histórico. Fuente vigente en docs; 
 - Repositorio local inicializado, sin commits.
 - Rama inicial elegida por la configuración de Git: main; no se cambió de rama.
 - Remoto local origin: git@github.com:ElHaban3ro/Gennie.git.
-- Documentación trasladada de Dev/.creation a gennie/.creation; contenido verificado byte por byte antes de actualizar registros.
+- Documentación trasladada de Dev/.creation a Gennie/.creation; contenido verificado byte por byte antes de actualizar registros.
 - Sin commit ni push; no se contactó el remoto.
 
 ## Corrección del orden y animaciones — 2026-10-11

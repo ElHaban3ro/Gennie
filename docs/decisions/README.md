@@ -1,5 +1,9 @@
 # Índice de decisiones
 
+Estado actual: escritorio Flutter + flutter_rust_bridge; ver [arquitectura](../architecture/overview.md) y [UI](../../UI.md). Los documentos anteriores conservan decisiones históricas; no reintroducir la presencia flotante ni sus sondas.
+
+- [Historial propio D-024](chat-history.md): catálogo local, mensajes por conversación y consulta desde la sidebar.
+
 - [Composición de la cara sobre el escritorio D-023](wallpaper-face.md): material nativo global, ajustes de apariencia y límites de las capturas.
 
 - [Reminders plugin](reminders-plugin.md): integración local EventKit y eventos de cambios.
@@ -25,7 +29,7 @@
 
 - [Spaces D-014](spaces.md): pertenencia de la presencia a escritorios macOS.
 - [Cara monocromática D-013](monochrome-face.md): corrección estética explícita del usuario.
-- [Base conjunta D-012](base.md): arquitectura vigente y adaptaciones justificadas.
+- [Base conjunta D-012](base.md): arquitectura inicial y adaptaciones históricas.
 - [Versiones, licencia y avisos](dependencies.md): comprobación 2026-10-11 y límites.
 - [Historial D-001..D-011](initialization-history.md): respuestas/decisiones originales; D-009 reemplaza ubicación D-001 y D-010 la demo aislada.
 

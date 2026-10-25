@@ -1,6 +1,8 @@
 # D-018 — Precarga de Laya y aplicaciones instaladas
 
-2026-10-12. El usuario pidió precargar Laya al abrir gennie y resolver aplicaciones instaladas, incluida «Por favor, abre Discord.».
+> Contexto histórico: la UI descrita aquí fue retirada al migrar a Flutter. La cara, presencia flotante, globos y sus sondas no forman parte del producto vigente. Para arquitectura y verificación actuales, consultar los documentos de arquitectura y reglas del índice. Las migraciones y los datos conservan su historia.
+
+2026-10-12. El usuario pidió precargar Laya al abrir Gennie y resolver aplicaciones instaladas, incluida «Por favor, abre Discord.».
 
 Auditoría posterior: [experiencia, fallos corregidos y límites semánticos](../verification/voice-experience.md). La campaña amplia de 220 casos detecta 16 selecciones indebidas; las regresiones pequeñas siguientes son evidencia histórica acotada, no una garantía de interpretación general.
 
@@ -36,6 +38,6 @@ Verificación final: 42 pruebas Rust, 25 Python, fmt/test/clippy/build correctos
 
 La carga original inicializaba pesos aleatorios antes de sustituirlos por el checkpoint. La medición por fases dio 21,28 s en build_model y 26,02 s hasta ready. El helper ahora usa el contexto temporal no_init_weights de Transformers alrededor de laya.load; requiere el encoder local y conserva la verificación de compatibilidad, load_state_dict estricto, buffers y FP32. No se modifica la librería instalada ni el checkpoint. Es seguro en el helper serial; no debe trasladarse a un proceso con construcción/inferencia concurrentes.
 
-La carga optimizada dio 0,043 s en build_model y 4,08 s hasta ready en la sonda por fases; el Controller real de Rust dio 3,35 s de precarga y 0,68 s para la primera decisión. Los 174 tensores (parámetros y buffers) y seis predicciones coinciden exactamente con la carga original; también pasan las 15 regresiones de apps. [Evidencia](../verification/laya-startup.json). Importar librerías, tokenizer y preparar GPU todavía cuesta segundos; no se promete arranque instantáneo. Los tiempos varían con la carga del equipo. El binario compilado requiere reabrir gennie para aplicarse a una instancia previa.
+La carga optimizada dio 0,043 s en build_model y 4,08 s hasta ready en la sonda por fases; el Controller real de Rust dio 3,35 s de precarga y 0,68 s para la primera decisión. Los 174 tensores (parámetros y buffers) y seis predicciones coinciden exactamente con la carga original; también pasan las 15 regresiones de apps. [Evidencia](../verification/laya-startup.json). Importar librerías, tokenizer y preparar GPU todavía cuesta segundos; no se promete arranque instantáneo. Los tiempos varían con la carga del equipo. El binario compilado requiere reabrir Gennie para aplicarse a una instancia previa.
 
 scripts/benchmark_laya_startup.py --model RUTA --output RESULTADO permite medir el loader vigente; --baseline usa la carga original, --reference RESULTADO compara todos los tensores/predicciones y --max-ready-seconds fija un presupuesto explícito para la sonda. Son procesos propios, sin efectos ni micrófono; ejecutar las dos modalidades en secuencia. Las mediciones anteriores desde Rust (23,7–67,7 s) corresponden al loader original y no describen el actual.

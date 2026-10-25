@@ -1,5 +1,7 @@
 # Reminders plugin
 
+> Contexto histórico: la UI descrita aquí fue retirada al migrar a Flutter. La cara, presencia flotante, globos y sus sondas no forman parte del producto vigente. Para arquitectura y verificación actuales, consultar los documentos de arquitectura y reglas del índice. Las migraciones y los datos conservan su historia.
+
 `gennie-reminders-plugin` conecta Gennie con Recordatorios de macOS mediante EventKit. `bootstrap` registra el módulo `reminders_plugin`, activo por defecto, sin tablas ni variables de entorno nuevas. El crate compila un ejecutable Swift local durante el build y expone un `Controller` Rust para consultar listas y recordatorios, crear, leer, editar y borrar. La aplicación de Gennie todavía no presenta estos datos en la UI ni se los entrega a la IA; ese cableado queda para otro cambio.
 
 Cada operación del controlador envía una petición JSON a un proceso breve. Los métodos son bloqueantes y deben invocarse desde un worker, nunca desde el hilo Slint. El build incorpora los bytes del puente en el crate; al iniciar se extrae a `~/Library/Application Support/soc/reminders-plugin/`, con permiso de ejecución local, para que Gennie funcione aunque se mueva su binario. macOS pide acceso completo a Recordatorios para la identidad del puente `com.fer.gennie.reminders-bridge`; un rechazo se devuelve como error. No se guarda una copia de los recordatorios en SQLite ni se registran títulos o notas.

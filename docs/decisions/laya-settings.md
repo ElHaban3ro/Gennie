@@ -1,5 +1,7 @@
 # D-019 — Ajustes propios de Laya
 
+> Contexto histórico: la UI descrita aquí fue retirada al migrar a Flutter. La cara, presencia flotante, globos y sus sondas no forman parte del producto vigente. Para arquitectura y verificación actuales, consultar los documentos de arquitectura y reglas del índice. Las migraciones y los datos conservan su historia.
+
 Estado vigente desde 2026-10-16: Laya permanece en `gennie-decisions` para herramientas independientes; Presence ya no muestra la pestaña ni crea su Controller. Las referencias a UI y precarga de sesión a continuación describen la integración anterior.
 
 2026-10-12. El usuario observa liberación temprana y pide configuración independiente para Laya. No se ha medido el intervalo de su incidente concreto. El código anterior fijaba 600 s y cerraba el helper también ante error/cancelación; la UI atribuía Unloaded a inactividad sin conocer la causa.
@@ -8,7 +10,7 @@ Estado vigente desde 2026-10-16: Laya permanece en `gennie-decisions` para herra
 
 La cola acotada de preferencias se procesa en el worker serial existente, fuera de main. Solo un guardado pendiente; resultado confirmado después del commit, sin aplicar valores rechazados ni borrar el borrador de UI ante fallo. Cierre drena el guardado pendiente. No añade procesos, dependencias ni Config global. El runtime externo y la configuración de Nemotron conservan su propiedad.
 
-Menú gennie/barra superior → Voz y órdenes → Órdenes · Laya. Precarga, mantener cargado y plazo tienen guardado propio. Cargar Laya y Liberar Laya son acciones explícitas de sesión; liberar cancela la petición pendiente y no la repite. El siguiente pedido explícito puede cargar de nuevo. Liberar Nemotron afecta solo al reconocimiento de voz. El estado descargado ya no afirma que se debió al temporizador; errores conservan su estado diferenciado. Los logs de liberación manual/inactividad usan motivos fijos, sin contenido del usuario.
+Menú Gennie/barra superior → Voz y órdenes → Órdenes · Laya. Precarga, mantener cargado y plazo tienen guardado propio. Cargar Laya y Liberar Laya son acciones explícitas de sesión; liberar cancela la petición pendiente y no la repite. El siguiente pedido explícito puede cargar de nuevo. Liberar Nemotron afecta solo al reconocimiento de voz. El estado descargado ya no afirma que se debió al temporizador; errores conservan su estado diferenciado. Los logs de liberación manual/inactividad usan motivos fijos, sin contenido del usuario.
 
 La opción mantener cargado desactiva únicamente el vencimiento por inactividad. No evita cierres explícitos, cancelaciones de IPC ni fallos del helper. La cara dormida y el vencimiento del globo no cambian el temporizador de Laya.
 

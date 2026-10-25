@@ -1,5 +1,7 @@
 # Auditoría de experiencia de control por voz — 2026-10-12
 
+> Contexto histórico: la UI descrita aquí fue retirada al migrar a Flutter. La cara, presencia flotante, globos y sus sondas no forman parte del producto vigente. Para arquitectura y verificación actuales, consultar los documentos de arquitectura y reglas del índice. Las migraciones y los datos conservan su historia.
+
 Se amplió la investigación tras el rechazo de «Abre Discord.». Se corrigieron defectos reproducibles del controlador, inventario, protocolo y selección de reproductor. La batería amplia encontró una limitación semántica pendiente de Laya: los cambios de infraestructura no la resuelven. No se activó ninguna adaptación ni se cambió el modelo, los cortes o las preguntas a partir de los resultados reservados.
 
 ## Cambios comprobados
@@ -39,7 +41,7 @@ Se exploraron cuatro preguntas de clasificación y tres comprobaciones semántic
 
 [Voz sintética](voice-experience-synthetic.json): siete audios de `say` con señal comprobada, mono 16 kHz, Nemotron real CPU y Laya en preview. Se transcribieron 6/7 y se obtuvo la salida esperada en 3/7, sin falsos positivos ejecutables. «No abras Chrome» se transcribió «No habrá Scrum»; «abre el» produjo «Abreel»; «hazlo» no produjo texto. No se corrigieron manualmente las transcripciones. Una primera ejecución restringida produjo resultados vacíos y avisos del sandbox; se invalidó y se repitió con acceso local.
 
-[Ejecutor nativo](voice-experience-native.json): «Abre Finder.» desde el binario actualizado, SQLite temporal, aplicación realmente en primer plano, resultado `verified` y foco anterior restaurado. No se reinició la instancia habitual de gennie.
+[Ejecutor nativo](voice-experience-native.json): «Abre Finder.» desde el binario actualizado, SQLite temporal, aplicación realmente en primer plano, resultado `verified` y foco anterior restaurado. No se reinició la instancia habitual de Gennie.
 
 `chat_probe --decisions` ejecutó una secuencia visual aislada de 6,6 s con diez snapshots: carga/listo/análisis y resultados de Laya mientras Nemotron cambia de estado. [Coexistencia a 1,2 s](voice-experience-chat-1200.png) y [reposo sin globos a 6,3 s](voice-experience-chat-6300.png). La sonda restringida quedó bloqueada por el entorno; se verificó su PID y se cerró exclusivamente ese proceso propio antes de finalizar. La ejecución nativa terminó por sí misma. Los mensajes son simulados: esto no prueba micrófono ni gesto físico del atajo.
 
