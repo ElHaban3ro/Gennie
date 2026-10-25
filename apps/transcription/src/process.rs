@@ -18,7 +18,13 @@ pub struct Process {
 }
 impl Process {
     pub fn spawn(flag: &str, path: &Path, microphone: Option<&str>) -> Result<Self> {
-        let mut command = Command::new(std::env::current_exe()?);
+        let mut command = Command::new(
+            crate::HELPER_EXECUTABLE
+                .get()
+                .cloned()
+                .map(Ok)
+                .unwrap_or_else(std::env::current_exe)?,
+        );
         command.arg(flag).arg(path);
         if let Some(name) = microphone {
             command.arg("--microphone").arg(name);

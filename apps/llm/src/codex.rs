@@ -1,4 +1,4 @@
-use crate::Settings;
+use crate::{ConversationJournal, Settings};
 use gennie_core::Result;
 use gennie_db::Database;
 use serde_json::{Value, json};
@@ -34,6 +34,8 @@ fn turn_start_request(thread_id: &str, cwd: &Path, model: &str, effort: &str, te
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum StreamEvent {
+    UserSaved(String),
+    HistoryWarning(String),
     Delta(String),
     Completed(String),
 }
@@ -114,13 +116,27 @@ pub(crate) fn load_thread(db: &Database) -> Result<Option<String>> {
     })
 }
 
+#[cfg(test)]
 pub(crate) fn save_thread(db: &Database, thread_id: &str) -> Result<()> {
+    save_recorded_thread(db, thread_id, None, None)
+}
+fn save_recorded_thread(
+    db: &Database,
+    thread_id: &str,
+    title: Option<&str>,
+    journal: Option<&dyn ConversationJournal>,
+) -> Result<()> {
     db.with_connection(|connection| {
         let tx = connection.transaction()?;
+        if let Some(journal) = journal { journal.activate(&tx, "codex", thread_id, title)?; }
         tx.execute("INSERT INTO codex_conversation(id,thread_id) VALUES(1,?1) ON CONFLICT(id) DO UPDATE SET thread_id=excluded.thread_id,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')", [thread_id])?;
         tx.commit()?;
         Ok(())
-    })
+    })?;
+    if let Some(journal) = journal {
+        journal.committed();
+    }
+    Ok(())
 }
 
 #[derive(Clone, Default)]
@@ -142,6 +158,7 @@ pub struct Session {
     reader: Option<JoinHandle<()>>,
     process: ProcessHandle,
     thread_id: String,
+    journal: Option<Arc<dyn ConversationJournal>>,
     cwd: PathBuf,
     model: String,
     effort: String,
@@ -149,11 +166,21 @@ pub struct Session {
 }
 
 impl Session {
-    pub fn connect(db: &Database, process: ProcessHandle, settings: &Settings) -> Result<Self> {
-        Self::connect_in(db, process, gennie_directory()?, settings)
-    }
-    pub fn connect_new(db: &Database, process: ProcessHandle, settings: &Settings) -> Result<Self> {
-        Self::connect_in_with_mode(db, process, gennie_directory()?, true, settings)
+    pub fn connect_recorded(
+        db: &Database,
+        process: ProcessHandle,
+        settings: &Settings,
+        new_chat: bool,
+        journal: Option<Arc<dyn ConversationJournal>>,
+    ) -> Result<Self> {
+        Self::connect_in_with_mode(
+            db,
+            process,
+            gennie_directory()?,
+            new_chat,
+            settings,
+            journal,
+        )
     }
     #[cfg(test)]
     pub(crate) fn connect_new_in(
@@ -162,15 +189,16 @@ impl Session {
         base: PathBuf,
         settings: &Settings,
     ) -> Result<Self> {
-        Self::connect_in_with_mode(db, process, base, true, settings)
+        Self::connect_in_with_mode(db, process, base, true, settings, None)
     }
+    #[cfg(test)]
     pub(crate) fn connect_in(
         db: &Database,
         process: ProcessHandle,
         base: PathBuf,
         settings: &Settings,
     ) -> Result<Self> {
-        Self::connect_in_with_mode(db, process, base, false, settings)
+        Self::connect_in_with_mode(db, process, base, false, settings, None)
     }
     fn connect_in_with_mode(
         db: &Database,
@@ -178,6 +206,7 @@ impl Session {
         base: PathBuf,
         new_chat: bool,
         settings: &Settings,
+        journal: Option<Arc<dyn ConversationJournal>>,
     ) -> Result<Self> {
         settings.validate()?;
         let cwd = base.join("workspace");
@@ -247,12 +276,13 @@ impl Session {
             reader: Some(reader),
             process,
             thread_id: String::new(),
+            journal,
             cwd,
             model: String::new(),
             effort: settings.effort.clone(),
             settings: settings.clone(),
         };
-        session.send(json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"gennie","title":"Gennie","version":env!("CARGO_PKG_VERSION")},"capabilities":{"experimentalApi":true}}}))?;
+        session.send(json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"Gennie","title":"Gennie","version":env!("CARGO_PKG_VERSION")},"capabilities":{"experimentalApi":true}}}))?;
         session.response(1, HANDSHAKE_TIMEOUT)?;
         session.send(json!({"jsonrpc":"2.0","method":"initialized","params":{}}))?;
         session.send(
@@ -315,9 +345,14 @@ impl Session {
         {
             return Err("El proveedor reanudó una conversación distinta".into());
         }
-        if saved.is_none() {
-            save_thread(db, thread_id)?;
-        }
+        save_recorded_thread(
+            db,
+            thread_id,
+            thread
+                .pointer("/thread/name")
+                .map(|value| value.as_str().unwrap_or("")),
+            session.journal.as_deref(),
+        )?;
         session.thread_id = thread_id.into();
         Ok(session)
     }
@@ -340,8 +375,48 @@ impl Session {
         if thread_id == self.thread_id {
             return Err("El proveedor no creó un chat distinto".into());
         }
-        save_thread(db, thread_id)?;
+        save_recorded_thread(
+            db,
+            thread_id,
+            thread
+                .pointer("/thread/name")
+                .map(|value| value.as_str().unwrap_or("")),
+            self.journal.as_deref(),
+        )?;
         self.thread_id = thread_id.into();
+        Ok(())
+    }
+
+    fn capture_title(&self, response: &Value) -> Result<()> {
+        if response.pointer("/thread/id").and_then(Value::as_str) != Some(self.thread_id.as_str()) {
+            return Err("El proveedor devolvió metadatos de otra conversación".into());
+        }
+        if let Some(value) = response.pointer("/thread/name")
+            && let Some(title) = value.as_str().or_else(|| value.is_null().then_some(""))
+            && let Some(journal) = &self.journal
+        {
+            journal.update_title("codex", &self.thread_id, title)?;
+        }
+        Ok(())
+    }
+    fn refresh_title(&mut self) -> Result<()> {
+        if self.journal.is_none() {
+            return Ok(());
+        }
+        self.send(json!({"jsonrpc":"2.0","id":7,"method":"thread/read","params":{"threadId":self.thread_id,"includeTurns":false}}))?;
+        let response = self.response(7, Duration::from_secs(3))?;
+        self.capture_title(&response)
+    }
+
+    pub fn record_error(&self, error: &str) -> Result<()> {
+        if let Some(journal) = &self.journal {
+            journal.append(
+                "codex",
+                &self.thread_id,
+                "system",
+                &format!("Error: {error}"),
+            )?;
+        }
         Ok(())
     }
 
@@ -361,10 +436,38 @@ impl Session {
         text: &str,
         mut on_message: impl FnMut(StreamEvent),
     ) -> Result<()> {
-        self.turn(text, &mut on_message)
+        if let Some(journal) = &self.journal {
+            journal.append("codex", &self.thread_id, "user", text)?;
+        }
+        on_message(StreamEvent::UserSaved(text.to_owned()));
+        let journal = self.journal.clone();
+        let thread_id = self.thread_id.clone();
+        self.turn(text, &mut |event| {
+            if let StreamEvent::Completed(text) = &event
+                && let Some(journal) = &journal
+            {
+                // Mostrar la respuesta aunque falle su guardado; el error también se propaga.
+                if let Err(error) = journal.append("codex", &thread_id, "assistant", text) {
+                    on_message(event);
+                    return Err(error);
+                }
+            }
+            on_message(event);
+            Ok(())
+        })?;
+        if let Err(error) = self.refresh_title() {
+            on_message(StreamEvent::HistoryWarning(format!(
+                "No se pudo actualizar el título del chat: {error}"
+            )));
+        }
+        Ok(())
     }
 
-    fn turn(&mut self, text: &str, on_message: &mut impl FnMut(StreamEvent)) -> Result<()> {
+    fn turn(
+        &mut self,
+        text: &str,
+        on_message: &mut impl FnMut(StreamEvent) -> Result<()>,
+    ) -> Result<()> {
         self.send(turn_start_request(
             &self.thread_id,
             &self.cwd,
@@ -389,7 +492,7 @@ impl Session {
             }
             let method = event.get("method").and_then(Value::as_str);
             if let Some(message) = messages.accept(&event, turn_id)? {
-                on_message(message);
+                on_message(message)?;
             }
             if method == Some("turn/completed")
                 && event.pointer("/params/turn/id").and_then(Value::as_str) == Some(turn_id)
@@ -399,7 +502,7 @@ impl Session {
                     return Err("El proveedor no completó la respuesta".into());
                 }
                 if let Some(message) = messages.finish() {
-                    on_message(message);
+                    on_message(message)?;
                 }
                 if messages.completed.is_empty() {
                     return Err("El proveedor terminó sin texto de respuesta".into());
@@ -454,9 +557,27 @@ impl Session {
         if line.len() > 1_000_000 {
             return Err("Mensaje del proveedor demasiado grande".into());
         }
-        Ok(serde_json::from_str(&line)?)
+        let event: Value = serde_json::from_str(&line)?;
+        if let Some(title) = notification_title(&event, &self.thread_id)
+            && let Some(journal) = &self.journal
+        {
+            journal.update_title("codex", &self.thread_id, title)?;
+        }
+        Ok(event)
     }
 }
+fn notification_title<'a>(event: &'a Value, thread_id: &str) -> Option<&'a str> {
+    if event.get("method").and_then(Value::as_str) == Some("thread/name/updated")
+        && event.pointer("/params/threadId").and_then(Value::as_str) == Some(thread_id)
+    {
+        event
+            .pointer("/params/threadName")
+            .and_then(|value| value.as_str().or_else(|| value.is_null().then_some("")))
+    } else {
+        None
+    }
+}
+
 fn filesystem_config(settings: &Settings, binary_rule: &str) -> String {
     let root = if settings.write_files {
         "write"
@@ -610,5 +731,69 @@ mod tests {
                 json!([{"type":"text","text":text}])
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod journal_tests {
+    #[test]
+    fn title_notification_accepts_only_the_matching_thread_name() {
+        let event = serde_json::json!({"method":"thread/name/updated","params":{"threadId":"a","threadName":"Nombre original"}});
+        assert_eq!(
+            super::notification_title(&event, "a"),
+            Some("Nombre original")
+        );
+        assert_eq!(super::notification_title(&event, "b"), None);
+        assert_eq!(
+            super::notification_title(
+                &serde_json::json!({"method":"thread/name/updated","params":{"threadId":"a","threadName":null}}),
+                "a"
+            ),
+            Some("")
+        );
+    }
+    use super::*;
+    use gennie_core::AppModule;
+    struct FailingJournal;
+    impl ConversationJournal for FailingJournal {
+        fn activate(
+            &self,
+            connection: &gennie_db::SqliteConnection,
+            _: &str,
+            _: &str,
+            _: Option<&str>,
+        ) -> Result<()> {
+            connection.execute("INSERT INTO journal_probe VALUES('new')", [])?;
+            Err("Fallo de persistencia local".into())
+        }
+        fn append(&self, _: &str, _: &str, _: &str, _: &str) -> Result<()> {
+            unreachable!()
+        }
+        fn committed(&self) {
+            panic!("No se puede anunciar un rollback como confirmado");
+        }
+    }
+    #[test]
+    fn local_history_failure_rolls_back_provider_selection_and_catalogue() {
+        let db = Database::memory().unwrap();
+        let module = crate::LlmModule::default();
+        db.migrate(module.name(), module.migrations()).unwrap();
+        save_thread(&db, "old").unwrap();
+        db.with_connection(|connection| {
+            connection.execute_batch("CREATE TABLE journal_probe(value TEXT)")?;
+            Ok(())
+        })
+        .unwrap();
+        assert!(save_recorded_thread(&db, "new", None, Some(&FailingJournal)).is_err());
+        assert_eq!(load_thread(&db).unwrap().as_deref(), Some("old"));
+        db.with_connection(|connection| {
+            assert_eq!(
+                connection.query_row("SELECT count(*) FROM journal_probe", [], |row| row
+                    .get::<_, i64>(0))?,
+                0
+            );
+            Ok(())
+        })
+        .unwrap();
     }
 }

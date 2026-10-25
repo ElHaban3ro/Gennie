@@ -1,5 +1,4 @@
-mod registry;
-mod startup;
+use gennie_backend::startup;
 fn main() {
     let mut arguments = std::env::args_os().skip(1);
     if let Some(flag) = arguments.next() {
@@ -74,8 +73,7 @@ fn main() {
         eprintln!("Argumento no reconocido");
         std::process::exit(1);
     }
-    if let Err(error) = startup::run() {
-        eprintln!("event=startup_failed error={error}");
-        std::process::exit(1);
-    }
+    eprintln!(
+        "Inicia el escritorio con ./scripts/dev.sh; este binario ejecuta los helpers de Rust."
+    );
 }

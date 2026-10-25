@@ -5,3 +5,10 @@
 .DS_Store
 __pycache__/
 *.pyc
+
+/frontend/.dart_tool/
+/frontend/build/
+/frontend/macos/Flutter/ephemeral/
+/frontend/linux/flutter/ephemeral/
+/frontend/windows/flutter/ephemeral/
+/frontend/macos/Pods/

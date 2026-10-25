@@ -1,71 +1,152 @@
-use gennie_db::{Database, params};
+use gennie_core::Result;
+use gennie_db::{Database, SqliteConnection, params};
 use std::{
-    sync::mpsc::{self, Receiver, SyncSender},
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+        mpsc::{self, Receiver, SyncSender},
+    },
     thread::JoinHandle,
 };
 
+pub(crate) struct Journal {
+    pub db: Database,
+    pub revision: Arc<AtomicU64>,
+}
+
+impl gennie_llm::ConversationJournal for Journal {
+    fn activate(
+        &self,
+        connection: &SqliteConnection,
+        provider: &str,
+        thread_id: &str,
+        title: Option<&str>,
+    ) -> Result<()> {
+        connection.execute("INSERT INTO presence_conversations(provider,provider_thread_id,title) VALUES(?1,?2,'Nuevo chat') ON CONFLICT(provider,provider_thread_id) DO NOTHING", params![provider,thread_id])?;
+        connection.execute("INSERT INTO presence_current_conversation(id,conversation_id) SELECT 1,id FROM presence_conversations WHERE provider=?1 AND provider_thread_id=?2 ON CONFLICT(id) DO UPDATE SET conversation_id=excluded.conversation_id", params![provider,thread_id])?;
+        if let Some(title) = title {
+            let title = title.split_whitespace().collect::<Vec<_>>().join(" ");
+            let title = if title.is_empty() { None } else { Some(title) };
+            connection.execute("UPDATE presence_conversations SET provider_title=?3 WHERE provider=?1 AND provider_thread_id=?2 AND deleted=0",params![provider,thread_id,title])?;
+        }
+        Ok(())
+    }
+    fn append(&self, provider: &str, thread_id: &str, speaker: &str, text: &str) -> Result<()> {
+        if text.trim().is_empty() {
+            return Ok(());
+        }
+        let title: String = text
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .chars()
+            .take(72)
+            .collect();
+        let inserted = self.db.with_connection(|connection| {
+            let tx = connection.transaction()?;
+            let (id, deleted): (i64, bool) = tx.query_row("SELECT id,deleted FROM presence_conversations WHERE provider=?1 AND provider_thread_id=?2", params![provider,thread_id], |row| Ok((row.get(0)?,row.get(1)?)))?;
+            // Una respuesta ya en curso no debe recrear un chat eliminado.
+            if deleted && speaker != "user" { return Ok(false); }
+            if deleted { tx.execute("UPDATE presence_conversations SET deleted=0 WHERE id=?1", [id])?; }
+            tx.execute("INSERT INTO presence_history(conversation_id,speaker,text) VALUES(?1,?2,?3)",params![id,speaker,text])?;
+            tx.execute("UPDATE presence_conversations SET title=CASE WHEN automatic_title=1 AND ?2='user' THEN ?3 ELSE title END, automatic_title=CASE WHEN ?2='user' THEN 0 ELSE automatic_title END,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?1",params![id,speaker,title])?;
+            tx.commit()?;
+            Ok(true)
+        })?;
+        if inserted {
+            self.committed();
+        }
+        Ok(())
+    }
+    fn update_title(&self, provider: &str, thread_id: &str, title: &str) -> Result<()> {
+        let title = title.split_whitespace().collect::<Vec<_>>().join(" ");
+        let title = if title.is_empty() { None } else { Some(title) };
+        let changed = self.db.with_connection(|connection| {
+            Ok(connection.execute("UPDATE presence_conversations SET provider_title=?3 WHERE provider=?1 AND provider_thread_id=?2 AND deleted=0 AND provider_title IS NOT ?3",params![provider,thread_id,title])?)
+        })?;
+        if changed > 0 {
+            self.committed();
+        }
+        Ok(())
+    }
+    fn committed(&self) {
+        self.revision.fetch_add(1, Ordering::Release);
+    }
+}
+
 enum Command {
-    Save(&'static str, String),
-    Load,
+    Load(Option<i64>),
+    Rename(i64, String),
+    Delete(i64),
     Shutdown,
 }
-
-pub enum Event {
-    Loaded(std::result::Result<Snapshot, String>),
-    Saved,
-    SaveFailed(String),
+#[derive(Clone, Copy)]
+pub enum Mutation {
+    Rename,
+    Delete,
 }
-
+pub enum Event {
+    Loaded(Option<i64>, std::result::Result<Snapshot, String>),
+    Changed,
+    Modified(i64, Mutation, std::result::Result<(), String>),
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Message {
     pub speaker: String,
     pub text: String,
     pub created_at: String,
 }
-
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Conversation {
+    pub id: i64,
+    pub title: String,
+    pub updated_at: String,
+}
 pub struct Snapshot {
     pub messages: Vec<Message>,
+    pub conversations: Vec<Conversation>,
+    pub selected_id: Option<i64>,
+    pub active_id: Option<i64>,
+    pub selected_messages: Vec<Message>,
 }
-
-#[derive(Clone)]
-pub struct Writer(SyncSender<Command>);
-
-impl Writer {
-    pub fn save(&self, speaker: &'static str, text: &str) -> Result<(), &'static str> {
-        if text.trim().is_empty() {
-            return Ok(());
-        }
-        self.0
-            .try_send(Command::Save(speaker, text.to_owned()))
-            .map_err(|_| "No se pudo poner el mensaje en cola para el chat")
-    }
-}
-
 pub struct Store {
     sender: SyncSender<Command>,
     events: Receiver<Event>,
     handle: Option<JoinHandle<()>>,
+    revision: Arc<AtomicU64>,
+    observed: std::cell::Cell<u64>,
 }
-
 impl Store {
-    pub fn start(db: Database) -> gennie_db::Result<Self> {
-        let (sender, commands) = mpsc::sync_channel(64);
+    pub fn start(db: Database, revision: Arc<AtomicU64>) -> Result<Self> {
+        let (sender, commands) = mpsc::sync_channel(8);
         let (events_sender, events) = mpsc::channel();
+        let worker_revision = revision.clone();
         let handle = std::thread::Builder::new()
             .name("presence-history".into())
             .spawn(move || {
                 while let Ok(command) = commands.recv() {
                     match command {
-                        Command::Save(speaker, text) => match save(&db, speaker, &text) {
-                            Ok(()) => {
-                                let _ = events_sender.send(Event::Saved);
+                        Command::Load(selected) => {
+                            let _ = events_sender.send(Event::Loaded(
+                                selected,
+                                load(&db, selected).map_err(|error| error.to_string()),
+                            ));
+                        }
+                        Command::Rename(id, title) => {
+                            let result = rename(&db, id, &title).map_err(|error| error.to_string());
+                            if result.is_ok() {
+                                worker_revision.fetch_add(1, Ordering::Release);
                             }
-                            Err(error) => {
-                                let _ = events_sender.send(Event::SaveFailed(error.to_string()));
+                            let _ =
+                                events_sender.send(Event::Modified(id, Mutation::Rename, result));
+                        }
+                        Command::Delete(id) => {
+                            let result = delete(&db, id).map_err(|error| error.to_string());
+                            if result.is_ok() {
+                                worker_revision.fetch_add(1, Ordering::Release);
                             }
-                        },
-                        Command::Load => {
-                            let result = load(&db).map_err(|error| error.to_string());
-                            let _ = events_sender.send(Event::Loaded(result));
+                            let _ =
+                                events_sender.send(Event::Modified(id, Mutation::Delete, result));
                         }
                         Command::Shutdown => break,
                     }
@@ -75,24 +156,34 @@ impl Store {
             sender,
             events,
             handle: Some(handle),
+            revision,
+            observed: std::cell::Cell::new(0),
         })
     }
-
-    pub fn writer(&self) -> Writer {
-        Writer(self.sender.clone())
-    }
-
-    pub fn load(&self) -> Result<(), &'static str> {
+    pub fn load(&self, selected: Option<i64>) -> std::result::Result<(), &'static str> {
         self.sender
-            .try_send(Command::Load)
-            .map_err(|_| "No se pudo abrir el chat")
+            .try_send(Command::Load(selected))
+            .map_err(|_| "No se pudo cargar el historial; vuelve a intentarlo")
     }
-
+    pub fn rename(&self, id: i64, title: &str) -> std::result::Result<(), &'static str> {
+        self.sender
+            .try_send(Command::Rename(id, title.to_owned()))
+            .map_err(|_| "No se pudo guardar el nombre; vuelve a intentarlo")
+    }
+    pub fn delete(&self, id: i64) -> std::result::Result<(), &'static str> {
+        self.sender
+            .try_send(Command::Delete(id))
+            .map_err(|_| "No se pudo eliminar el chat; vuelve a intentarlo")
+    }
     pub fn poll(&self) -> Vec<Event> {
-        self.events.try_iter().collect()
+        let mut events: Vec<_> = self.events.try_iter().collect();
+        let revision = self.revision.load(Ordering::Acquire);
+        if revision != self.observed.replace(revision) {
+            events.push(Event::Changed);
+        }
+        events
     }
 }
-
 impl Drop for Store {
     fn drop(&mut self) {
         let _ = self.sender.send(Command::Shutdown);
@@ -103,34 +194,52 @@ impl Drop for Store {
         }
     }
 }
-
-fn save(db: &Database, speaker: &str, text: &str) -> gennie_db::Result<()> {
+pub fn rename(db: &Database, id: i64, title: &str) -> Result<()> {
+    let title = title.split_whitespace().collect::<Vec<_>>().join(" ");
+    if title.is_empty() || title.chars().count() > 200 {
+        return Err("Escribe un nombre de entre 1 y 200 caracteres".into());
+    }
     db.with_connection(|connection| {
-        connection.execute(
-            "INSERT INTO presence_history(speaker,text) VALUES(?1,?2)",
-            params![speaker, text],
-        )?;
+        if connection.execute(
+            "UPDATE presence_conversations SET local_title=?2 WHERE id=?1 AND deleted=0",
+            params![id, title],
+        )? != 1
+        {
+            return Err("El chat ya no está disponible".into());
+        }
         Ok(())
     })
 }
-
-fn load(db: &Database) -> gennie_db::Result<Snapshot> {
+pub fn delete(db: &Database, id: i64) -> Result<()> {
     db.with_connection(|connection| {
-        let mut statement = connection
-            .prepare("SELECT speaker,text,created_at FROM presence_history ORDER BY id")?;
-        let mut rows = statement.query([])?;
-        let mut messages = Vec::new();
-        while let Some(row) = rows.next()? {
-            let speaker: String = row.get(0)?;
-            let text: String = row.get(1)?;
-            let created_at: String = row.get(2)?;
-            messages.push(Message {
-                speaker,
-                text,
-                created_at,
-            });
-        }
-        Ok(Snapshot { messages })
+        let tx = connection.transaction()?;
+        if tx.execute("UPDATE presence_conversations SET deleted=1,title='Nuevo chat',automatic_title=1,local_title=NULL,provider_title=NULL WHERE id=?1 AND deleted=0",[id])? != 1 {return Err("El chat ya no está disponible".into());}
+        tx.execute("DELETE FROM presence_history WHERE conversation_id=?1",[id])?;
+        tx.commit()?;
+        Ok(())
+    })
+}
+fn messages(connection: &SqliteConnection, id: Option<i64>) -> Result<Vec<Message>> {
+    let mut statement = connection.prepare(
+        "SELECT speaker,text,created_at FROM presence_history WHERE conversation_id=?1 ORDER BY id",
+    )?;
+    let rows = statement.query_map([id], |row| {
+        Ok(Message {
+            speaker: row.get(0)?,
+            text: row.get(1)?,
+            created_at: row.get(2)?,
+        })
+    })?;
+    Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+}
+pub fn load(db: &Database, selected: Option<i64>) -> Result<Snapshot> {
+    db.with_connection(|connection| {
+        let mut statement = connection.prepare("SELECT id,coalesce(local_title,provider_title,title),updated_at FROM presence_conversations WHERE deleted=0 ORDER BY updated_at DESC,id DESC")?;
+        let rows = statement.query_map([], |row| Ok(Conversation {id:row.get(0)?,title:row.get(1)?,updated_at:row.get(2)?}))?;
+        let conversations: Vec<_> = rows.collect::<std::result::Result<_,_>>()?;
+        let active = connection.prepare("SELECT c.id FROM presence_current_conversation a JOIN presence_conversations c ON c.id=a.conversation_id WHERE a.id=1 AND c.deleted=0")?.query_map([], |row|row.get::<_,i64>(0))?.next().transpose()?;
+        let selected_id = selected.filter(|id| conversations.iter().any(|chat|chat.id==*id)).or(active).or_else(|| conversations.first().map(|chat| chat.id));
+        Ok(Snapshot {messages:messages(connection,active)?,selected_messages:messages(connection,selected_id)?,conversations,selected_id,active_id:active})
     })
 }
 
@@ -138,31 +247,132 @@ fn load(db: &Database) -> gennie_db::Result<Snapshot> {
 mod tests {
     use super::*;
     use gennie_core::AppModule;
+    use gennie_llm::ConversationJournal;
 
+    fn journal(db: &Database) -> Journal {
+        Journal {
+            db: db.clone(),
+            revision: Arc::default(),
+        }
+    }
+    fn activate(journal: &Journal, id: &str) {
+        journal
+            .db
+            .with_connection(|connection| {
+                let tx = connection.transaction()?;
+                journal.activate(&tx, "codex", id, None)?;
+                tx.commit()?;
+                Ok(())
+            })
+            .unwrap();
+        journal.committed();
+    }
+    fn migrate(db: &Database) {
+        let module = crate::PresenceModule::default();
+        db.migrate(module.name(), module.migrations()).unwrap();
+    }
     #[test]
-    fn old_memory_notices_are_removed_without_erasing_chat_messages() {
+    fn migration_keeps_legacy_rows_without_inventing_a_provider_link() {
         let db = Database::memory().unwrap();
         let module = crate::PresenceModule::default();
         db.migrate(module.name(), &module.migrations()[..2])
             .unwrap();
-        save(&db, "user", "Recuerdo guardado · #1\nOrigen: Chat").unwrap();
-        save(&db, "system", "Nuevo chat iniciado").unwrap();
-        save(&db, "system", "Recuperado (1) · #1: Dato\nOrigen: Chat").unwrap();
-        save(&db, "system", "Recuerdo guardado · #2: Dato\nOrigen: Chat").unwrap();
-        save(&db, "assistant", "Respuesta normal").unwrap();
-
-        db.migrate(module.name(), module.migrations()).unwrap();
-        let messages = load(&db).unwrap().messages;
-        assert_eq!(messages.len(), 3);
-        assert_eq!(messages[0].speaker, "user");
-        assert_eq!(messages[1].text, "Nuevo chat iniciado");
-        assert_eq!(messages[2].text, "Respuesta normal");
+        db.with_connection(|connection| {
+            for (speaker,text) in [("user","Recuerdo guardado · #1\nOrigen: Chat"),("system","Nuevo chat iniciado"),("system","Recuperado (1) · #1: Dato\nOrigen: Chat"),("assistant","Respuesta normal")] {
+                connection.execute("INSERT INTO presence_history(speaker,text,created_at) VALUES(?1,?2,'2026-10-12T10:00:00.000Z')",params![speaker,text])?;
+            }
+            Ok(())
+        }).unwrap();
+        migrate(&db);
+        let snapshot = load(&db, None).unwrap();
+        assert_eq!(snapshot.conversations.len(), 1);
+        assert_eq!(snapshot.conversations[0].title, "Historial anterior");
+        assert_eq!(snapshot.selected_messages.len(), 3);
+        assert!(snapshot.messages.is_empty());
+        assert_eq!(snapshot.selected_messages[0].speaker, "user");
+        assert_eq!(snapshot.selected_messages[1].text, "Nuevo chat iniciado");
+        assert_eq!(snapshot.selected_messages[2].text, "Respuesta normal");
+        assert_eq!(
+            snapshot.selected_messages[2].created_at,
+            "2026-10-12T10:00:00.000Z"
+        );
+        db.with_connection(|connection| {
+            assert!(connection.query_row("SELECT provider IS NULL AND provider_thread_id IS NULL FROM presence_conversations",[],|row|row.get::<_,bool>(0))?);
+            assert!(connection.execute("INSERT INTO presence_history(conversation_id,speaker,text) VALUES(999,'user','Invalid')",[]).is_err());
+            Ok(())
+        }).unwrap();
+        migrate(&db);
+        assert_eq!(load(&db, None).unwrap().conversations.len(), 1);
     }
-
     #[test]
-    fn finalized_messages_survive_reopen_and_keep_order() {
+    fn independent_chats_titles_and_reading_do_not_switch_the_active_chat() {
+        let db = Database::memory().unwrap();
+        migrate(&db);
+        assert!(load(&db, None).unwrap().conversations.is_empty());
+        let journal = journal(&db);
+        activate(&journal, "first");
+        journal
+            .append("codex", "first", "user", "  Organiza\n mi día  ")
+            .unwrap();
+        journal
+            .append(
+                "codex",
+                "first",
+                "assistant",
+                "[Agenda](https://example.com)",
+            )
+            .unwrap();
+        let first = load(&db, None).unwrap().selected_id.unwrap();
+        activate(&journal, "second");
+        journal
+            .append("codex", "second", "user", "Otra conversación")
+            .unwrap();
+        journal
+            .append("codex", "second", "system", "Error: sin conexión")
+            .unwrap();
+        let second = load(&db, None).unwrap().selected_id.unwrap();
+        let snapshot = load(&db, Some(first)).unwrap();
+        assert_eq!(snapshot.conversations.len(), 2);
+        assert_eq!(snapshot.conversations[0].id, second);
+        assert_eq!(snapshot.selected_messages.len(), 2);
+        assert_eq!(
+            snapshot.selected_messages[1].text,
+            "[Agenda](https://example.com)"
+        );
+        assert_eq!(snapshot.messages[0].text, "Otra conversación");
+        assert_eq!(snapshot.messages[1].speaker, "system");
+        assert_eq!(load(&db, None).unwrap().selected_id, Some(second));
+        activate(&journal, "first");
+        journal
+            .append("codex", "first", "user", "No cambia el título")
+            .unwrap();
+        let snapshot = load(&db, None).unwrap();
+        assert_eq!(
+            snapshot
+                .conversations
+                .iter()
+                .find(|chat| chat.id == first)
+                .unwrap()
+                .title,
+            "Organiza mi día"
+        );
+        assert_eq!(snapshot.messages.len(), 3);
+        assert!(
+            journal
+                .append("codex", "missing", "user", "Sin chat")
+                .is_err()
+        );
+        assert!(
+            journal
+                .append("codex", "first", "tool", "No permitido")
+                .is_err()
+        );
+        assert_eq!(load(&db, None).unwrap().messages.len(), 3);
+    }
+    #[test]
+    fn messages_and_selection_survive_reopen_and_worker_loads_off_main() {
         let path = std::env::temp_dir().join(format!(
-            "gennie-history-{}-{}.sqlite3",
+            "gennie-chat-{}-{}.sqlite3",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -170,42 +380,229 @@ mod tests {
                 .as_nanos()
         ));
         let db = Database::open(&path, 500).unwrap();
-        let module = crate::PresenceModule::default();
-        db.migrate(module.name(), module.migrations()).unwrap();
-        let store = Store::start(db.clone()).unwrap();
-        let writer = store.writer();
-        writer.save("user", "Una pregunta").unwrap();
-        writer.save("assistant", "Una respuesta").unwrap();
-        writer.save("system", "Nuevo chat iniciado").unwrap();
-        store.load().unwrap();
-        let mut saved = 0;
-        let snapshot = loop {
-            match store
-                .events
-                .recv_timeout(std::time::Duration::from_secs(2))
-                .unwrap()
-            {
-                Event::Saved => saved += 1,
-                Event::Loaded(Ok(snapshot)) => break snapshot,
-                _ => panic!("El chat no se cargó después de guardar"),
+        migrate(&db);
+        let journal = journal(&db);
+        activate(&journal, "thread");
+        journal
+            .append("codex", "thread", "user", &"ñ".repeat(90))
+            .unwrap();
+        journal
+            .append("codex", "thread", "assistant", "Respuesta final")
+            .unwrap();
+        let store = Store::start(db.clone(), journal.revision.clone()).unwrap();
+        assert!(
+            store
+                .poll()
+                .iter()
+                .any(|event| matches!(event, Event::Changed))
+        );
+        assert!(store.poll().is_empty());
+        store.load(None).unwrap();
+        match store
+            .events
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .unwrap()
+        {
+            Event::Loaded(None, Ok(snapshot)) => {
+                assert_eq!(snapshot.messages.len(), 2);
+                assert_eq!(snapshot.conversations[0].title.chars().count(), 72);
             }
-        };
-        assert_eq!(saved, 3);
-        assert_eq!(snapshot.messages.len(), 3);
-        assert_eq!(snapshot.messages[0].speaker, "user");
-        assert_eq!(snapshot.messages[0].text, "Una pregunta");
-        assert_eq!(snapshot.messages[1].speaker, "assistant");
-        assert_eq!(snapshot.messages[1].text, "Una respuesta");
-        assert_eq!(snapshot.messages[2].speaker, "system");
-        assert_eq!(snapshot.messages[2].text, "Nuevo chat iniciado");
-        drop(writer);
+            _ => panic!("Lectura fallida"),
+        }
         drop(store);
         db.close().unwrap();
         let reopened = Database::open(&path, 500).unwrap();
-        let snapshot = load(&reopened).unwrap();
-        assert_eq!(snapshot.messages.len(), 3);
-        assert_eq!(snapshot.messages[0].text, "Una pregunta");
+        migrate(&reopened);
+        let snapshot = load(&reopened, None).unwrap();
+        assert_eq!(snapshot.messages[0].text, "ñ".repeat(90));
+        assert_eq!(snapshot.messages[1].text, "Respuesta final");
+        let revision = journal.revision.load(Ordering::Acquire);
+        assert!(
+            journal
+                .append("codex", "thread", "user", "Fallará")
+                .is_err()
+        );
+        assert_eq!(journal.revision.load(Ordering::Acquire), revision);
         reopened.close().unwrap();
-        let _ = std::fs::remove_file(path);
+        std::fs::remove_file(path).unwrap();
+    }
+    #[test]
+    fn provider_names_and_local_renames_preserve_messages_and_activity() {
+        let db = Database::memory().unwrap();
+        migrate(&db);
+        let journal = journal(&db);
+        activate(&journal, "named");
+        journal
+            .append("codex", "named", "user", "Título provisional")
+            .unwrap();
+        journal
+            .append("codex", "named", "assistant", "Contenido intacto")
+            .unwrap();
+        let before = load(&db, None).unwrap();
+        let id = before.selected_id.unwrap();
+        journal
+            .update_title("codex", "named", "Nombre de Codex")
+            .unwrap();
+        assert_eq!(
+            load(&db, None).unwrap().conversations[0].title,
+            "Nombre de Codex"
+        );
+        rename(&db, id, "  Mi nombre\n personal  ").unwrap();
+        journal
+            .update_title("codex", "named", "Otro nombre de Codex")
+            .unwrap();
+        journal.update_title("codex", "named", "   ").unwrap();
+        let after = load(&db, None).unwrap();
+        assert_eq!(after.conversations[0].title, "Mi nombre personal");
+        assert_eq!(before.messages, after.messages);
+        assert_eq!(
+            before.conversations[0].updated_at,
+            after.conversations[0].updated_at
+        );
+        assert!(rename(&db, id, "  ").is_err());
+        assert!(rename(&db, id, &"ñ".repeat(201)).is_err());
+        assert!(rename(&db, 999, "Desaparecido").is_err());
+        assert_eq!(
+            load(&db, None).unwrap().conversations[0].title,
+            "Mi nombre personal"
+        );
+    }
+    #[test]
+    fn local_deletion_erases_messages_and_ignores_a_late_reply_without_touching_provider() {
+        let db = Database::memory().unwrap();
+        migrate(&db);
+        let module = gennie_llm::LlmModule::default();
+        db.migrate(module.name(), module.migrations()).unwrap();
+        db.with_connection(|c| {
+            c.execute(
+                "INSERT INTO codex_conversation(id,thread_id) VALUES(1,'active')",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let journal = journal(&db);
+        activate(&journal, "old");
+        journal.append("codex", "old", "user", "Conservar").unwrap();
+        let old = load(&db, None).unwrap().selected_id.unwrap();
+        activate(&journal, "active");
+        journal.append("codex", "active", "user", "Borrar").unwrap();
+        let id = load(&db, None).unwrap().selected_id.unwrap();
+        rename(&db, id, "Privado").unwrap();
+        delete(&db, id).unwrap();
+        journal
+            .append("codex", "active", "assistant", "Respuesta tardía")
+            .unwrap();
+        journal
+            .update_title("codex", "active", "Nombre tardío")
+            .unwrap();
+        activate(&journal, "active");
+        let snapshot = load(&db, Some(id)).unwrap();
+        assert_eq!(snapshot.conversations.len(), 1);
+        assert_eq!(snapshot.selected_id, Some(old));
+        assert!(snapshot.messages.is_empty());
+        assert_eq!(snapshot.selected_messages[0].text, "Conservar");
+        assert!(delete(&db, id).is_err());
+        db.with_connection(|c| {
+            assert_eq!(
+                c.query_row(
+                    "SELECT count(*) FROM presence_history WHERE conversation_id=?1",
+                    [id],
+                    |r| r.get::<_, i64>(0)
+                )?,
+                0
+            );
+            assert_eq!(
+                c.query_row(
+                    "SELECT thread_id FROM codex_conversation WHERE id=1",
+                    [],
+                    |r| r.get::<_, String>(0)
+                )?,
+                "active"
+            );
+            Ok(())
+        })
+        .unwrap();
+        journal
+            .append("codex", "active", "user", "Un mensaje nuevo")
+            .unwrap();
+        let snapshot = load(&db, None).unwrap();
+        assert_eq!(snapshot.messages.len(), 1);
+        assert_eq!(snapshot.messages[0].text, "Un mensaje nuevo");
+        assert_eq!(
+            snapshot
+                .conversations
+                .iter()
+                .find(|c| c.id == id)
+                .unwrap()
+                .title,
+            "Un mensaje nuevo"
+        );
+    }
+    #[test]
+    fn rename_worker_confirms_commit_and_keeps_changes_after_reopen() {
+        let path = std::env::temp_dir().join(format!(
+            "gennie-rename-{}-{}.sqlite3",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let db = Database::open(&path, 500).unwrap();
+        migrate(&db);
+        let journal = journal(&db);
+        activate(&journal, "chat");
+        journal.append("codex", "chat", "user", "Mensaje").unwrap();
+        let id = load(&db, None).unwrap().selected_id.unwrap();
+        let store = Store::start(db.clone(), journal.revision.clone()).unwrap();
+        store.rename(id, "Guardado local").unwrap();
+        assert!(matches!(
+            store
+                .events
+                .recv_timeout(std::time::Duration::from_secs(2))
+                .unwrap(),
+            Event::Modified(_, Mutation::Rename, Ok(()))
+        ));
+        assert_eq!(
+            load(&db, None).unwrap().conversations[0].title,
+            "Guardado local"
+        );
+        drop(store);
+        db.close().unwrap();
+        let reopened = Database::open(&path, 500).unwrap();
+        migrate(&reopened);
+        assert_eq!(
+            load(&reopened, None).unwrap().conversations[0].title,
+            "Guardado local"
+        );
+        let store = Store::start(reopened.clone(), Arc::default()).unwrap();
+        reopened.close().unwrap();
+        store.rename(id, "Fallará").unwrap();
+        assert!(matches!(
+            store
+                .events
+                .recv_timeout(std::time::Duration::from_secs(2))
+                .unwrap(),
+            Event::Modified(_, Mutation::Rename, Err(_))
+        ));
+        drop(store);
+        std::fs::remove_file(path).unwrap();
+    }
+    #[test]
+    fn failed_delete_rolls_back_the_catalogue_and_retains_messages() {
+        let db = Database::memory().unwrap();
+        migrate(&db);
+        let journal = journal(&db);
+        activate(&journal, "retained");
+        journal
+            .append("codex", "retained", "user", "Mensaje importante")
+            .unwrap();
+        let before = load(&db, None).unwrap();
+        db.with_connection(|c| {c.execute_batch("CREATE TRIGGER reject_history_delete BEFORE DELETE ON presence_history BEGIN SELECT RAISE(ABORT,'delete failed'); END;")?;Ok(())}).unwrap();
+        assert!(delete(&db, before.selected_id.unwrap()).is_err());
+        let after = load(&db, None).unwrap();
+        assert_eq!(before.conversations, after.conversations);
+        assert_eq!(before.messages, after.messages);
     }
 }

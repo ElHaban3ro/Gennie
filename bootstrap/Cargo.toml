@@ -16,3 +16,9 @@ gennie-llm.workspace = true
 gennie-tts.workspace = true
 gennie-reminders-plugin.workspace = true
 serde_json.workspace = true
+
+flutter_rust_bridge.workspace = true
+
+[lib]
+name = "gennie_backend"
+crate-type = ["cdylib", "staticlib", "rlib"]

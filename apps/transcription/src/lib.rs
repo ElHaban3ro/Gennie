@@ -122,3 +122,19 @@ impl TranscriptionModule {
         )
     }
 }
+
+static HELPER_EXECUTABLE: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+pub fn configure_helper(path: std::path::PathBuf) -> Result<()> {
+    if !path.is_file() {
+        return Err("No se encontró el helper de transcripción".into());
+    }
+    if let Some(previous) = HELPER_EXECUTABLE.get() {
+        if previous != &path {
+            return Err("El helper ya está configurado".into());
+        }
+        return Ok(());
+    }
+    HELPER_EXECUTABLE
+        .set(path)
+        .map_err(|_| "El helper ya está configurado".into())
+}

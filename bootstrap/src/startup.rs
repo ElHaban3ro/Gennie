@@ -1,7 +1,6 @@
 use gennie_config::Config;
 use gennie_core::{AppModule, AppState, Migration, Result, Shutdown};
 use gennie_db::Database;
-use gennie_presence::PresenceModule;
 use std::{collections::BTreeSet, path::Path, sync::Arc};
 
 pub fn voice_review() -> Result<()> {
@@ -184,79 +183,10 @@ pub fn start_all(
     }
     Ok(started)
 }
-pub fn run() -> Result<()> {
-    let (config, _secrets) = Config::load(Path::new(".env"))?;
-    let db = Database::open(&config.database_path, config.db_busy_timeout_ms)?;
-    eprintln!(
-        "event=database_ready connections=1 busy_timeout_ms={}",
-        config.db_busy_timeout_ms
-    );
-    let state = AppState {
-        config: Arc::new(config),
-        db: db.clone(),
-        shutdown: Shutdown::default(),
-    };
-    let result = (|| {
-        let presence = Arc::new(PresenceModule::default());
-        let transcription = Arc::new(gennie_transcription::TranscriptionModule::default());
-        let decisions = Arc::new(gennie_decisions::DecisionsModule::default());
-        let llm = Arc::new(gennie_llm::LlmModule::default());
-        let tts = Arc::new(gennie_tts::TtsModule::default());
-        let reminders = Arc::new(gennie_reminders_plugin::RemindersPluginModule::default());
-        let modules = crate::registry::build(
-            presence.clone(),
-            transcription.clone(),
-            decisions.clone(),
-            llm.clone(),
-            tts.clone(),
-            reminders.clone(),
-        );
-        let order = crate::registry::order(&modules)?;
-        let active = register(&db, &modules)?;
-        crate::registry::validate_active(&modules, &active)?;
-        for i in &order {
-            db.migrate(modules[*i].name(), modules[*i].migrations())?;
-        }
-        let started = start_all(&modules, &order, &active, &state)?;
-        let ui_result = if active.contains("presence") {
-            eprintln!("event=ui_starting");
-            presence.run_with_tts(
-                &state,
-                if active.contains("transcription") {
-                    Some(&transcription)
-                } else {
-                    None
-                },
-                if active.contains("llm") {
-                    Some(&llm)
-                } else {
-                    None
-                },
-                if active.contains("tts") {
-                    Some(&tts)
-                } else {
-                    None
-                },
-            )
-        } else {
-            eprintln!("event=no_active_surface");
-            Ok(())
-        };
-        let stop_result = stop_all(&modules, &started, &state);
-        ui_result.and(stop_result)
-    })();
-    let close = db.close();
-    if close.is_ok() {
-        eprintln!("event=shutdown_complete");
-    } else {
-        eprintln!("event=database_close_failed");
-    }
-    result.and(close)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gennie_presence::PresenceModule;
     use std::sync::Mutex;
     struct Fake {
         name: &'static str,

@@ -1,6 +1,6 @@
 // Acumula frases completas para voz mientras el proveedor envía fragmentos.
 #[derive(Default)]
-pub(crate) struct Narration {
+pub struct Narration {
     pending: String,
 }
 

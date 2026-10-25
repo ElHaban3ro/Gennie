@@ -8,22 +8,5 @@ publish.workspace = true
 [dependencies]
 gennie-core.workspace = true
 gennie-db.workspace = true
-gennie-transcription.workspace = true
 gennie-llm.workspace = true
-gennie-tts.workspace = true
 pulldown-cmark.workspace = true
-slint.workspace = true
-i-slint-backend-winit.workspace = true
-
-[build-dependencies]
-slint-build.workspace = true
-
-[target.'cfg(target_os = "macos")'.dependencies]
-objc2-app-kit = { workspace = true, features = ["NSBox", "NSGlassEffectView", "NSVisualEffectView", "NSGraphics", "NSColor", "NSPasteboard", "objc2-core-foundation"] }
-objc2.workspace = true
-objc2-foundation.workspace = true
-tray-icon.workspace = true
-
-[dev-dependencies]
-gennie-config.workspace = true
-slint = { workspace = true, features = ["renderer-software"] }

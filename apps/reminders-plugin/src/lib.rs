@@ -1,5 +1,5 @@
 //! Integración local de Gennie con Recordatorios mediante EventKit.
-//! Las operaciones son bloqueantes: los consumidores deben llamarlas fuera del hilo de Slint.
+//! Las operaciones son bloqueantes: los consumidores deben llamarlas fuera del hilo de UI.
 
 use gennie_core::{AppModule, AppState, Result};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};

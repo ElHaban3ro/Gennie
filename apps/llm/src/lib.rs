@@ -13,7 +13,27 @@ use std::{
     thread::JoinHandle,
 };
 
+/// Persistencia local inyectada por bootstrap; se invoca únicamente desde el worker.
+pub trait ConversationJournal: Send + Sync {
+    /// Participa en la transacción del hilo, sin abrir otra conexión ni confirmar por separado.
+    fn activate(
+        &self,
+        connection: &gennie_db::SqliteConnection,
+        provider: &str,
+        thread_id: &str,
+        title: Option<&str>,
+    ) -> Result<()>;
+    fn append(&self, provider: &str, thread_id: &str, speaker: &str, text: &str) -> Result<()>;
+    fn update_title(&self, provider: &str, thread_id: &str, title: &str) -> Result<()> {
+        let _ = (provider, thread_id, title);
+        Ok(())
+    }
+    /// Se emite después del commit de activación.
+    fn committed(&self);
+}
+
 pub struct LlmModule {
+    journal: Option<Arc<dyn ConversationJournal>>,
     worker: Mutex<Option<Worker>>,
 }
 struct Worker {
@@ -44,6 +64,8 @@ pub enum Event {
     Connected,
     Connecting,
     Disconnected(String),
+    UserMessageSaved(String),
+    HistoryWarning(String),
     ReplyDelta(String),
     Reply(String),
     NewChatReady,
@@ -55,7 +77,16 @@ pub enum Event {
 impl Default for LlmModule {
     fn default() -> Self {
         Self {
+            journal: None,
             worker: Mutex::new(None),
+        }
+    }
+}
+impl LlmModule {
+    pub fn with_journal(journal: Arc<dyn ConversationJournal>) -> Self {
+        Self {
+            journal: Some(journal),
+            ..Self::default()
         }
     }
 }
@@ -98,6 +129,7 @@ impl AppModule for LlmModule {
         let stopping = Arc::new(AtomicBool::new(false));
         let process = codex::ProcessHandle::default();
         let db = state.db.clone();
+        let journal = self.journal.clone();
         let settings = Arc::new(Mutex::new(settings::load(&db)?));
         let worker_settings = settings.clone();
         let worker_pending = pending.clone();
@@ -144,9 +176,21 @@ impl AppModule for LlmModule {
                         if session.is_none() {
                             let _ = event_sender.send(Event::Connecting);
                             session = Some(if matches!(&command, Command::NewChat) {
-                                codex::Session::connect_new(&db, worker_process.clone(), &current)?
+                                codex::Session::connect_recorded(
+                                    &db,
+                                    worker_process.clone(),
+                                    &current,
+                                    true,
+                                    journal.clone(),
+                                )?
                             } else {
-                                codex::Session::connect(&db, worker_process.clone(), &current)?
+                                codex::Session::connect_recorded(
+                                    &db,
+                                    worker_process.clone(),
+                                    &current,
+                                    false,
+                                    journal.clone(),
+                                )?
                             });
                             let _ = event_sender.send(Event::Connected);
                             if matches!(&command, Command::NewChat) {
@@ -159,6 +203,12 @@ impl AppModule for LlmModule {
                                     &text,
                                     |event| {
                                         let event = match event {
+                                            codex::StreamEvent::HistoryWarning(text) => {
+                                                Event::HistoryWarning(text)
+                                            }
+                                            codex::StreamEvent::UserSaved(text) => {
+                                                Event::UserMessageSaved(text)
+                                            }
                                             codex::StreamEvent::Delta(text) => {
                                                 Event::ReplyDelta(text)
                                             }
@@ -186,7 +236,14 @@ impl AppModule for LlmModule {
                         }
                         Ok(None) => {}
                         Err(error) => {
-                            let message = error.to_string();
+                            let mut message = error.to_string();
+                            if let Some(current) = &session
+                                && let Err(save_error) = current.record_error(&message)
+                            {
+                                message = format!(
+                                    "{message}. No se pudo guardar en el historial: {save_error}"
+                                );
+                            }
                             session = None;
                             worker_process.kill();
                             let _ = event_sender.send(Event::Disconnected(message.clone()));

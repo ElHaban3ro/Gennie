@@ -94,7 +94,7 @@ impl Controller {
         if !handy_keys::check_accessibility() {
             self.awaiting_permission = Some(Instant::now());
             self.settings_status =
-                "El atajo necesita Accesibilidad. Pulsa Activar atajo para autorizar gennie".into();
+                "El atajo necesita Accesibilidad. Pulsa Activar atajo para autorizar Gennie".into();
             return;
         }
         let result = (|| -> Result<HotkeyManager> {
@@ -142,7 +142,7 @@ impl Controller {
         if self.awaiting_permission.is_some() {
             self.settings_status = match crate::permissions::request_accessibility() {
                 Ok(()) => {
-                    "Autoriza gennie en el panel abierto. El atajo se activará al conceder el permiso"
+                    "Autoriza Gennie en el panel abierto. El atajo se activará al conceder el permiso"
                         .into()
                 }
                 Err(error) => format!("No se pudo solicitar Accesibilidad: {error}"),
@@ -340,7 +340,10 @@ impl Controller {
                     }
                     self.pending.push(Event::Saved);
                 }
-                Err(error) => self.settings_status = error,
+                Err(error) => {
+                    self.settings_status = error.clone();
+                    self.pending.push(Event::Error(error));
+                }
             }
         }
         let mut events = Vec::new();
