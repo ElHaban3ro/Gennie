@@ -118,81 +118,86 @@ class ChatMessage extends StatelessWidget {
                   color: const Color(0x14808080),
                   borderRadius: BorderRadius.circular(16),
                 ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Flexible(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          if (system)
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 6),
-                              child: Text(
-                                message.createdAt.isEmpty
-                                    ? 'Sistema · sin guardar'
-                                    : 'Sistema',
-                                style: const TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w500,
+                child: ImageFiltered(
+                  imageFilter: ui.ImageFilter.matrix(
+                    Matrix4.identity().storage,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Flexible(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (system)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 6),
+                                child: Text(
+                                  message.createdAt.isEmpty
+                                      ? 'Sistema · sin guardar'
+                                      : 'Sistema',
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w500,
+                                  ),
                                 ),
                               ),
-                            ),
-                          if (user || system)
-                            Text(
-                              message.text,
-                              style: const TextStyle(
-                                fontSize: 14,
-                                height: 1.65,
-                              ),
-                            )
-                          else
-                            MarkdownBody(
-                              data: message.text,
-                              selectable: false,
-                              styleSheet: MarkdownStyleSheet(
-                                p: const TextStyle(
-                                  fontFamily: 'Inter',
+                            if (user || system)
+                              Text(
+                                message.text,
+                                style: const TextStyle(
                                   fontSize: 14,
                                   height: 1.65,
                                 ),
+                              )
+                            else
+                              MarkdownBody(
+                                data: message.text,
+                                selectable: false,
+                                styleSheet: MarkdownStyleSheet(
+                                  p: const TextStyle(
+                                    fontFamily: 'Inter',
+                                    fontSize: 14,
+                                    height: 1.65,
+                                  ),
+                                ),
+                                onTapLink: (text, href, title) {
+                                  final uri = Uri.tryParse(href ?? '');
+                                  if (uri != null &&
+                                      ['https', 'http'].contains(uri.scheme)) {
+                                    unawaited(
+                                      launchUrl(
+                                        uri,
+                                        mode: LaunchMode.externalApplication,
+                                      ),
+                                    );
+                                  }
+                                },
                               ),
-                              onTapLink: (text, href, title) {
-                                final uri = Uri.tryParse(href ?? '');
-                                if (uri != null &&
-                                    ['https', 'http'].contains(uri.scheme)) {
-                                  unawaited(
-                                    launchUrl(
-                                      uri,
-                                      mode: LaunchMode.externalApplication,
-                                    ),
-                                  );
-                                }
-                              },
-                            ),
-                        ],
+                          ],
+                        ),
                       ),
-                    ),
-                    if (time.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(left: 12),
-                        child: Transform.translate(
-                          offset: const Offset(0, 6),
-                          child: Text(
-                            time,
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: Theme.of(
-                                context,
-                              ).colorScheme.onSurface.withValues(alpha: .5),
+                      if (time.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(left: 12),
+                          child: Transform.translate(
+                            offset: const Offset(0, 6),
+                            child: Text(
+                              time,
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurface.withValues(alpha: .5),
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
