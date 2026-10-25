@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 362 362" role="img" aria-label="rabbit" aria-labelledby="rabbit-title"><title id="rabbit-title">Conejo</title><defs><linearGradient id="rabbit-fur" x1="0" y1="0" x2="0.8" y2="1"><stop stop-color="#f6eee2" /><stop offset="1" stop-color="#f5ede0" /></linearGradient><linearGradient id="rabbit-tail" x1="0" y1="0" x2="0.8" y2="1"><stop stop-color="#f2e8d8" /><stop offset="1" stop-color="#f1e6d8" /></linearGradient><linearGradient id="rabbit-pink" x1="0" y1="0" x2="0.8" y2="1"><stop stop-color="#f3ad9f" /><stop offset="1" stop-color="#f3aea1" /></linearGradient></defs><g transform="translate(9 -65)">
+<ellipse fill="url(#rabbit-tail)" cx="265.4" cy="293.7" rx="22.2" ry="23.3" />
+<path fill="url(#rabbit-fur)" d="M95 199C84 179 77 160 78 141C78 120 88 104 104 105C128 103 142 135 144 180L153 180C150 152 155 118 173 106C189 95 206 105 213 126C221 150 212 178 204 195C222 207 235 228 247 252C259 275 267 299 264 318C262 339 250 353 225 359C218 375 193 375 186 364C162 366 140 365 116 364C106 375 82 374 79 352C59 341 51 322 54 292C55 256 69 220 95 199Z" />
+<path fill="url(#rabbit-pink)" d="M107 191C101 177 94 159 97 146C100 132 113 132 121 143C128 153 130 169 130 182C122 184 114 187 107 191Z" />
+<path fill="url(#rabbit-pink)" d="M168 180C166 161 169 143 176 136C183 128 194 135 197 146C200 159 197 174 192 186C184 183 176 181 168 180Z" />
+<ellipse fill="#382b23" cx="110.9" cy="255.4" rx="6.7" ry="7.0" /><ellipse fill="#372a22" cx="176.7" cy="255" rx="6.7" ry="7.0" />
+</g></svg>

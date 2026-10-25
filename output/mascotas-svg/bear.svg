@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+<title id="title">Oso</title>
+<desc id="desc">Mascota animal minimalista. Recreación vectorial de la lámina de conceptos, con fondo transparente.</desc>
+<g id="ears"><ellipse cx="159" cy="133" rx="46" ry="47" fill="#A77B5D"/><ellipse cx="351" cy="133" rx="46" ry="47" fill="#A77B5D"/></g><g id="body"><path d="M 157,156 C 179,139 215,133 256,133 C 299,133 335,140 357,158 C 389,186 408,260 408,333 C 408,384 379,409 342,411 C 340,432 304,437 292,414 L 215,414 C 201,437 168,432 164,411 C 124,408 103,384 104,335 C 105,259 123,188 157,156 Z" fill="#A77B5D"/></g><g id="eyes" fill="#302922"><circle cx="205" cy="231" r="10"/><circle cx="307" cy="231" r="10"/></g>
+</svg>

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+<title id="title">Rana</title>
+<desc id="desc">Mascota animal minimalista. Recreación vectorial de la lámina de conceptos, con fondo transparente.</desc>
+<g id="feet"><ellipse cx="148" cy="405" rx="32" ry="19" fill="#9DAA77"/><ellipse cx="364" cy="405" rx="32" ry="19" fill="#9DAA77"/></g><g id="body"><path d="M 119,226 C 97,192 108,145 142,141 C 167,137 191,150 202,170 C 238,160 274,160 310,170 C 321,150 345,137 370,141 C 404,145 415,192 393,226 C 408,260 420,309 417,348 C 414,392 382,414 338,415 L 174,415 C 130,414 98,392 95,348 C 92,309 104,260 119,226 Z" fill="#9DAA77"/></g><g id="belly"><path d="M 164,366 C 166,317 202,281 256,281 C 310,281 346,317 348,366 C 350,399 324,407 256,407 C 188,407 162,399 164,366 Z" fill="#E6E3B3"/></g><g id="eyes" fill="#302922"><circle cx="148" cy="177" r="13"/><circle cx="364" cy="177" r="13"/></g>
+</svg>

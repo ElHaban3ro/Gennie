@@ -1,0 +1,182 @@
+{
+  "cat": {
+    "source_bbox": [
+      55,
+      78,
+      315,
+      299
+    ],
+    "svg_bbox": [
+      55,
+      78,
+      315,
+      299
+    ],
+    "silhouette_iou_estimate": 0.9819
+  },
+  "dog": {
+    "source_bbox": [
+      43,
+      82,
+      310,
+      299
+    ],
+    "svg_bbox": [
+      44,
+      83,
+      308,
+      298
+    ],
+    "silhouette_iou_estimate": 0.9815
+  },
+  "rabbit": {
+    "source_bbox": [
+      62,
+      37,
+      297,
+      307
+    ],
+    "svg_bbox": [
+      62,
+      37,
+      297,
+      307
+    ],
+    "silhouette_iou_estimate": 0.9831
+  },
+  "bear": {
+    "source_bbox": [
+      52,
+      47,
+      302,
+      303
+    ],
+    "svg_bbox": [
+      52,
+      48,
+      301,
+      303
+    ],
+    "silhouette_iou_estimate": 0.9806
+  },
+  "fox": {
+    "source_bbox": [
+      43,
+      35,
+      323,
+      281
+    ],
+    "svg_bbox": [
+      44,
+      36,
+      323,
+      281
+    ],
+    "silhouette_iou_estimate": 0.9763
+  },
+  "owl": {
+    "source_bbox": [
+      57,
+      52,
+      302,
+      281
+    ],
+    "svg_bbox": [
+      58,
+      52,
+      301,
+      281
+    ],
+    "silhouette_iou_estimate": 0.9764
+  },
+  "penguin": {
+    "source_bbox": [
+      46,
+      54,
+      310,
+      283
+    ],
+    "svg_bbox": [
+      48,
+      55,
+      308,
+      283
+    ],
+    "silhouette_iou_estimate": 0.9839
+  },
+  "frog": {
+    "source_bbox": [
+      64,
+      74,
+      292,
+      280
+    ],
+    "svg_bbox": [
+      65,
+      75,
+      291,
+      280
+    ],
+    "silhouette_iou_estimate": 0.9805
+  },
+  "axolotl": {
+    "source_bbox": [
+      22,
+      49,
+      341,
+      255
+    ],
+    "svg_bbox": [
+      23,
+      50,
+      340,
+      255
+    ],
+    "silhouette_iou_estimate": 0.979
+  },
+  "turtle": {
+    "source_bbox": [
+      39,
+      48,
+      299,
+      258
+    ],
+    "svg_bbox": [
+      39,
+      48,
+      299,
+      257
+    ],
+    "silhouette_iou_estimate": 0.9846
+  },
+  "hamster": {
+    "source_bbox": [
+      37,
+      46,
+      261,
+      260
+    ],
+    "svg_bbox": [
+      38,
+      46,
+      259,
+      259
+    ],
+    "silhouette_iou_estimate": 0.9885
+  },
+  "seal": {
+    "source_bbox": [
+      21,
+      49,
+      338,
+      254
+    ],
+    "svg_bbox": [
+      22,
+      49,
+      337,
+      254
+    ],
+    "silhouette_iou_estimate": 0.9799
+  }
+}

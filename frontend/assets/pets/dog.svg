@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 362 362" role="img" aria-label="dog" aria-labelledby="dog-title"><title id="dog-title">Perro</title><defs><linearGradient id="dog-fur" x1="0" y1="0" x2="0.8" y2="1"><stop stop-color="#d5aa87" /><stop offset="1" stop-color="#d3a784" /></linearGradient><linearGradient id="dog-ears" x1="0" y1="0" x2="0.8" y2="1"><stop stop-color="#a07151" /><stop offset="1" stop-color="#9c6e4e" /></linearGradient></defs><g transform="translate(-13 -65)">
+<path fill="url(#dog-ears)" d="M280 282C293 282 302 260 314 265C330 271 317 308 286 315Z" />
+<path fill="url(#dog-fur)" d="M126 166C156 143 201 140 239 166C265 187 277 220 285 252C292 279 296 309 279 331C272 340 265 344 255 347C251 365 221 370 217 351C194 353 171 351 150 351C146 367 114 368 111 345C89 334 82 310 84 280C85 249 96 217 106 194Z" />
+<path fill="url(#dog-ears)" d="M120 162C111 163 94 175 77 191C60 208 52 227 60 243C66 256 88 258 100 246C112 232 115 204 124 183C128 173 137 160 120 162Z" />
+<path fill="url(#dog-ears)" d="M242 164C253 164 278 186 290 208C302 227 302 243 291 255C280 266 263 263 256 251C248 237 247 217 242 194C240 183 230 162 242 164Z" />
+<ellipse fill="#392c23" cx="145.5" cy="228" rx="6.8" ry="7.2" /><ellipse fill="#3a2d24" cx="214.3" cy="227.9" rx="6.8" ry="7.2" />
+</g></svg>

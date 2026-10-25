@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+<title id="title">Búho</title>
+<desc id="desc">Mascota animal minimalista. Recreación vectorial de la lámina de conceptos, con fondo transparente.</desc>
+<g id="feet"><ellipse cx="199" cy="409" rx="26" ry="13" fill="#9F856D"/><ellipse cx="309" cy="409" rx="26" ry="13" fill="#9F856D"/></g><g id="body"><path d="M 256,116 C 345,116 403,185 405,285 L 405,343 C 405,390 368,416 256,416 C 143,416 108,389 108,342 L 109,283 C 110,184 171,116 256,116 Z" fill="#B39A83"/></g><g id="face"><path d="M 255,196 C 207,148 150,170 151,233 C 152,282 188,311 255,311 C 322,311 359,283 360,234 C 360,174 302,146 255,196 Z" fill="#F5E7D0"/></g><g id="wings"><ellipse cx="124" cy="332" rx="25" ry="65" fill="#A18971"/><ellipse cx="389" cy="332" rx="25" ry="65" fill="#A18971"/></g><g id="eyes" fill="#302922"><circle cx="205" cy="243" r="11"/><circle cx="308" cy="243" r="11"/></g><g id="beak"><path d="M 244,260 Q 256,253 268,261 Q 270,272 256,283 Q 243,273 244,260 Z" fill="#E9AF4C"/></g>
+</svg>

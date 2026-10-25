@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 362 362" role="img" aria-labelledby="turtle-title"><title id="turtle-title">Tortuga</title><g transform="translate(-33 0)"><defs><linearGradient id="turtle-shell" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#75815e" /><stop offset="1" stop-color="#707d5b" /></linearGradient><linearGradient id="turtle-skin" x1="0" y1="0" x2=".8" y2="1"><stop stop-color="#c1c298" /><stop offset="1" stop-color="#bfc194" /></linearGradient></defs>
+<path fill="#99a580" d="M91 205C80 215 76 231 83 241C91 256 114 254 127 237L132 216Z" />
+<path fill="url(#turtle-shell)" d="M114 107C137 69 180 44 220 49C272 51 307 91 320 136C325 153 328 183 322 198C317 211 290 215 254 204L218 184Z" />
+<path fill="#87936e" opacity=".55" d="M183 54C197 49 209 47 224 50C250 51 277 67 292 85C291 98 283 106 269 107C245 109 211 97 194 83C182 73 177 62 183 54Z" />
+<path fill="#86936d" opacity=".47" d="M152 66C165 67 171 80 163 92L128 100C132 89 142 75 152 66Z" />
+<path fill="#8a9670" opacity=".55" d="M306 109C318 131 325 157 324 178C313 185 304 177 297 162C287 143 282 117 306 109Z" />
+<path fill="url(#turtle-skin)" d="M72 168C72 128 105 93 142 92C193 87 223 122 227 182C247 201 280 210 319 204L321 195C329 203 336 221 328 231C319 244 298 238 288 226C281 229 271 232 262 233C264 248 251 258 237 257C224 257 215 250 211 240C181 243 155 243 133 240C93 238 72 223 72 187Z" />
+<g fill="#282b23"><circle cx="109.5" cy="161.3" r="6.9" /><circle cx="171.5" cy="161.2" r="6.9" /></g></g></svg>

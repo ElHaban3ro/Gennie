@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+<title id="title">Foca</title>
+<desc id="desc">Mascota animal minimalista. Recreación vectorial de la lámina de conceptos, con fondo transparente.</desc>
+<g id="rear-flipper"><path d="M 151,346 C 125,343 83,359 78,378 C 73,397 109,407 139,401 C 157,397 174,387 184,376 Z" fill="#929FB2"/></g><g id="body"><path d="M 118,330 C 110,230 173,132 258,132 C 337,131 375,199 389,290 C 399,320 415,327 432,310 C 454,286 481,304 467,334 C 451,376 413,402 367,408 C 314,417 191,411 149,397 C 126,388 116,363 118,330 Z" fill="#A3ADBC"/></g><g id="front-flipper"><path d="M 277,366 C 301,366 332,384 347,404 C 361,423 343,431 321,426 C 297,421 278,408 264,394 C 253,383 258,369 277,366 Z" fill="#929FB2"/></g><g id="muzzle"><path d="M 214,270 C 225,250 243,248 256,251 C 272,249 288,257 295,275 C 303,296 284,307 257,300 C 229,309 208,297 214,270 Z" fill="#F0E8D8"/><ellipse cx="256" cy="265" rx="9" ry="7" fill="#302922"/></g><g id="eyes" fill="#302922"><circle cx="196" cy="270" r="10"/><circle cx="317" cy="270" r="10"/></g>
+</svg>

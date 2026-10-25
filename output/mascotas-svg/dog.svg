@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+<title id="title">Perro</title>
+<desc id="desc">Mascota animal minimalista. Recreación vectorial de la lámina de conceptos, con fondo transparente.</desc>
+<g id="tail"><path d="M 377,330 C 404,326 419,311 432,304 C 453,294 460,313 450,333 C 436,361 412,374 383,375 Z" fill="#A2734E"/></g><g id="body"><path d="M 157,156 C 179,139 215,133 256,133 C 299,133 335,140 357,158 C 389,186 408,260 408,333 C 408,384 379,409 342,411 C 340,432 304,437 292,414 L 215,414 C 201,437 168,432 164,411 C 124,408 103,384 104,335 C 105,259 123,188 157,156 Z" fill="#D1A47E"/></g><g id="ears"><path d="M 179,148 C 163,129 128,152 104,183 C 85,208 65,250 78,267 C 91,284 126,266 145,242 C 163,217 174,180 179,148 Z" fill="#A2734E"/><path d="M 333,149 C 352,135 378,154 398,184 C 417,215 430,253 418,272 C 407,290 375,278 360,255 C 344,229 339,185 333,149 Z" fill="#A2734E"/></g><g id="eyes" fill="#302922"><circle cx="205" cy="252" r="10"/><circle cx="307" cy="252" r="10"/></g>
+</svg>

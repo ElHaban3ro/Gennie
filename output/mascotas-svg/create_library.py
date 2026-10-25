@@ -1,0 +1,62 @@
+from pathlib import Path
+from xml.sax.saxutils import escape
+import xml.etree.ElementTree as ET
+import zipfile
+
+root = Path(__file__).resolve().parent
+INK = '#302922'
+def path(d, fill): return f'<path d="{d}" fill="{fill}"/>'
+def ellipse(cx,cy,rx,ry,fill): return f'<ellipse cx="{cx}" cy="{cy}" rx="{rx}" ry="{ry}" fill="{fill}"/>'
+def eyes(x1=205,x2=307,y=261,r=10): return f'<g id="eyes" fill="{INK}"><circle cx="{x1}" cy="{y}" r="{r}"/><circle cx="{x2}" cy="{y}" r="{r}"/></g>'
+def group(name, body): return f'<g id="{name}">{body}</g>'
+def body(fill): return path('M 157,156 C 179,139 215,133 256,133 C 299,133 335,140 357,158 C 389,186 408,260 408,333 C 408,384 379,409 342,411 C 340,432 304,437 292,414 L 215,414 C 201,437 168,432 164,411 C 124,408 103,384 104,335 C 105,259 123,188 157,156 Z',fill)
+items=[]
+def add(slug,label,art): items.append((slug,label,art))
+# Gato: cola bicolor, silueta crema y orejas asimétricas.
+add('cat','Gato',group('tail',path('M 365,355 C 402,356 412,322 414,301 C 415,280 436,278 444,293 C 457,321 431,387 386,390 Z','#A99783')+path('M 365,355 C 390,355 405,340 411,324 L 437,342 C 427,369 408,387 386,390 Z','#F4DDB8'))+group('body',path('M 117,215 C 112,177 119,113 137,104 C 148,99 180,119 199,137 C 232,130 275,130 301,138 C 323,120 352,99 369,104 C 386,113 396,173 391,211 C 406,250 413,303 410,345 C 407,387 384,406 348,409 C 344,431 310,432 299,412 L 214,412 C 200,433 167,431 163,410 C 127,406 105,388 103,348 C 99,303 104,250 117,215 Z','#F7E7CC')+path('M 117,215 C 112,177 119,113 137,104 C 148,99 180,119 199,137 C 183,174 154,200 117,215 Z','#EAB06D')+path('M 301,138 C 323,120 352,99 369,104 C 386,113 396,173 391,211 C 350,199 321,175 301,138 Z','#A99783')+path('M 391,312 C 374,316 367,334 371,356 C 375,369 386,372 396,363 Z','#EAB06D'))+eyes(205,309,248))
+add('dog','Perro',group('tail',path('M 377,330 C 404,326 419,311 432,304 C 453,294 460,313 450,333 C 436,361 412,374 383,375 Z','#A2734E'))+group('body',body('#D1A47E'))+group('ears',path('M 179,148 C 163,129 128,152 104,183 C 85,208 65,250 78,267 C 91,284 126,266 145,242 C 163,217 174,180 179,148 Z','#A2734E')+path('M 333,149 C 352,135 378,154 398,184 C 417,215 430,253 418,272 C 407,290 375,278 360,255 C 344,229 339,185 333,149 Z','#A2734E'))+eyes(205,307,252))
+add('rabbit','Conejo',group('tail',ellipse(397,338,30,32,'#F0E8D9'))+group('ears',path('M 185,209 C 172,171 150,90 168,61 C 180,40 198,49 212,77 C 232,115 237,167 231,205 Z','#F4EDE0')+path('M 281,205 C 275,167 280,115 300,77 C 314,49 332,40 344,61 C 362,90 340,171 327,209 Z','#F4EDE0')+path('M 195,162 C 185,138 174,98 183,85 C 189,77 200,92 208,113 C 216,134 220,155 221,172 Q 208,168 195,162 Z','#EDA99D')+path('M 317,162 C 327,138 338,98 329,85 C 323,77 312,92 304,113 C 296,134 292,155 291,172 Q 304,168 317,162 Z','#EDA99D'))+group('feet',ellipse(189,399,25,29,'#F4EDE0')+ellipse(323,399,25,29,'#F4EDE0'))+group('body',path('M 256,166 C 342,166 395,250 398,337 C 400,384 374,405 335,406 L 177,406 C 138,405 112,384 114,337 C 117,250 170,166 256,166 Z','#F4EDE0'))+eyes(206,306,277))
+add('bear','Oso',group('ears',ellipse(159,133,46,47,'#A77B5D')+ellipse(351,133,46,47,'#A77B5D'))+group('body',body('#A77B5D'))+eyes(205,307,231))
+add('fox','Zorro',group('tail',path('M 356,345 C 391,348 400,310 424,290 C 444,273 463,274 467,289 C 472,335 437,402 380,408 Z','#E88B4A')+path('M 424,290 C 444,273 463,274 467,289 C 469,309 464,330 453,348 L 433,335 L 414,338 L 414,319 L 401,316 Z','#F8E6C7'))+group('body',path('M 126,216 C 112,172 113,103 131,98 C 150,91 191,123 212,151 C 240,144 271,145 299,152 C 322,122 357,94 376,99 C 395,104 397,169 383,214 C 401,253 413,302 409,350 C 405,387 382,409 347,412 C 341,434 310,433 298,415 L 213,415 C 200,436 168,431 165,410 C 124,407 104,387 104,349 C 102,304 112,251 126,216 Z','#E88B4A')+path('M 139,178 C 133,156 133,126 141,123 C 150,123 178,145 186,160 Z','#F8E6C7')+path('M 324,161 C 338,145 360,126 369,124 C 377,139 374,162 369,180 Z','#F8E6C7')+path('M 143,338 C 153,299 195,281 253,281 C 310,281 352,306 367,344 C 375,366 368,397 351,409 C 308,422 199,423 157,406 C 143,390 136,361 143,338 Z','#F8E6C7'))+eyes(205,306,258))
+add('owl','Búho',group('feet',ellipse(199,409,26,13,'#9F856D')+ellipse(309,409,26,13,'#9F856D'))+group('body',path('M 256,116 C 345,116 403,185 405,285 L 405,343 C 405,390 368,416 256,416 C 143,416 108,389 108,342 L 109,283 C 110,184 171,116 256,116 Z','#B39A83'))+group('face',path('M 255,196 C 207,148 150,170 151,233 C 152,282 188,311 255,311 C 322,311 359,283 360,234 C 360,174 302,146 255,196 Z','#F5E7D0'))+group('wings',ellipse(124,332,25,65,'#A18971')+ellipse(389,332,25,65,'#A18971'))+eyes(205,308,243,11)+group('beak',path('M 244,260 Q 256,253 268,261 Q 270,272 256,283 Q 243,273 244,260 Z','#E9AF4C')))
+add('penguin','Pingüino',group('feet',ellipse(195,413,32,12,'#ECB04B')+ellipse(314,413,32,12,'#ECB04B'))+group('flippers',path('M 138,261 C 118,284 91,326 84,357 C 79,385 102,383 122,366 L 150,326 Z','#626362')+path('M 372,261 C 397,288 420,328 427,356 C 433,383 411,385 391,367 L 361,325 Z','#626362'))+group('body',path('M 256,118 C 324,118 365,164 384,240 C 394,280 401,323 400,354 C 397,396 357,415 256,415 C 155,415 115,396 112,354 C 109,312 121,259 130,225 C 149,157 193,118 256,118 Z','#626362'))+group('belly',path('M 256,214 C 220,174 185,194 175,243 C 169,274 149,311 150,351 C 150,389 188,409 256,409 C 324,409 362,389 362,351 C 364,309 342,274 337,244 C 326,196 291,174 256,214 Z','#F6E9D2'))+eyes(205,307,242)+group('beak',ellipse(256,251,22,13,'#ECB04B')))
+add('frog','Rana',group('feet',ellipse(148,405,32,19,'#9DAA77')+ellipse(364,405,32,19,'#9DAA77'))+group('body',path('M 119,226 C 97,192 108,145 142,141 C 167,137 191,150 202,170 C 238,160 274,160 310,170 C 321,150 345,137 370,141 C 404,145 415,192 393,226 C 408,260 420,309 417,348 C 414,392 382,414 338,415 L 174,415 C 130,414 98,392 95,348 C 92,309 104,260 119,226 Z','#9DAA77'))+group('belly',path('M 164,366 C 166,317 202,281 256,281 C 310,281 346,317 348,366 C 350,399 324,407 256,407 C 188,407 162,399 164,366 Z','#E6E3B3'))+eyes(148,364,177,13))
+add('axolotl','Ajolote',group('gills',ellipse(119,178,20,58,'#ED918C').replace('/>',' transform="rotate(-38 119 178)"/>')+ellipse(109,220,19,53,'#ED918C').replace('/>',' transform="rotate(-72 109 220)"/>')+ellipse(114,260,18,47,'#ED918C').replace('/>',' transform="rotate(-102 114 260)"/>')+ellipse(393,178,20,58,'#ED918C').replace('/>',' transform="rotate(38 393 178)"/>')+ellipse(403,220,19,53,'#ED918C').replace('/>',' transform="rotate(72 403 220)"/>')+ellipse(398,260,18,47,'#ED918C').replace('/>',' transform="rotate(102 398 260)"/>'))+group('tail',path('M 362,345 C 394,351 421,325 441,333 C 459,341 444,364 421,375 C 400,386 379,384 358,375 Z','#F6C5BA')+path('M 390,359 C 409,357 430,341 436,348 C 442,355 423,369 402,371 Z','#EEAEA5'))+group('feet',ellipse(188,398,25,29,'#F6C5BA')+ellipse(324,398,25,29,'#F6C5BA'))+group('body',path('M 256,133 C 345,133 399,215 400,331 C 400,381 374,405 332,407 L 180,407 C 138,405 112,381 112,331 C 113,215 167,133 256,133 Z','#F6C5BA'))+eyes(205,307,277))
+add('turtle','Tortuga',group('feet',ellipse(147,393,30,25,'#B6BC8A')+ellipse(342,394,31,25,'#B6BC8A')+ellipse(397,373,32,23,'#B6BC8A'))+'<defs><clipPath id="shell-clip">'+path('M 158,275 C 159,190 223,128 296,130 C 375,132 427,207 432,301 C 437,367 404,397 339,399 C 286,399 239,391 209,378 C 174,361 156,322 158,275 Z','#FFFFFF')+'</clipPath></defs>'+group('shell',path('M 158,275 C 159,190 223,128 296,130 C 375,132 427,207 432,301 C 437,367 404,397 339,399 C 286,399 239,391 209,378 C 174,361 156,322 158,275 Z','#7E8D62'))+'<g id="shell-markings" clip-path="url(#shell-clip)">'+path('M 221,129 C 250,110 294,112 326,136 C 348,154 357,183 338,199 C 319,216 277,207 251,190 C 230,177 211,147 221,129 Z','#8E9C70')+path('M 373,162 C 397,167 422,196 429,221 C 438,248 421,266 393,267 C 366,268 342,254 340,231 C 338,206 351,169 373,162 Z','#74865A')+path('M 371,290 C 397,278 435,279 450,300 L 450,353 C 422,375 384,370 363,350 C 347,334 348,303 371,290 Z','#697C53')+'</g>'+group('head',path('M 244,234 C 225,212 203,204 175,204 C 123,204 88,242 88,291 C 88,346 121,380 171,385 C 201,388 219,386 236,392 C 255,399 279,399 286,384 C 293,368 270,355 257,341 C 247,328 250,305 253,283 C 255,265 253,246 244,234 Z','#B6BC8A'))+eyes(139,220,288))
+add('hamster','Hámster',group('ears',ellipse(166,154,39,43,'#E5B17C')+ellipse(346,154,39,43,'#E5B17C')+ellipse(168,154,22,26,'#EBA896')+ellipse(344,154,22,26,'#EBA896'))+group('feet',ellipse(191,402,25,27,'#E5B17C')+ellipse(321,402,25,27,'#E5B17C'))+group('body',path('M 256,126 C 326,126 369,172 394,251 C 409,297 415,343 404,367 C 390,399 361,410 320,411 L 192,411 C 151,410 122,399 108,367 C 97,343 103,297 118,251 C 143,172 186,126 256,126 Z','#E5B17C'))+'<defs><clipPath id="cheek-clip">'+path('M 256,126 C 326,126 369,172 394,251 C 409,297 415,343 404,367 C 390,399 361,410 320,411 L 192,411 C 151,410 122,399 108,367 C 97,343 103,297 118,251 C 143,172 186,126 256,126 Z','#FFFFFF')+'</clipPath></defs><g id="cheeks" clip-path="url(#cheek-clip)">'+path('M 92,318 C 130,283 181,270 256,270 C 331,270 382,283 420,318 L 420,428 L 92,428 Z','#F7DFC1')+ellipse(202,354,18,16,'#E5AE83')+ellipse(310,354,18,16,'#E5AE83')+'</g>'+eyes(205,307,247))
+add('seal','Foca',group('rear-flipper',path('M 151,346 C 125,343 83,359 78,378 C 73,397 109,407 139,401 C 157,397 174,387 184,376 Z','#929FB2'))+group('body',path('M 118,330 C 110,230 173,132 258,132 C 337,131 375,199 389,290 C 399,320 415,327 432,310 C 454,286 481,304 467,334 C 451,376 413,402 367,408 C 314,417 191,411 149,397 C 126,388 116,363 118,330 Z','#A3ADBC'))+group('front-flipper',path('M 277,366 C 301,366 332,384 347,404 C 361,423 343,431 321,426 C 297,421 278,408 264,394 C 253,383 258,369 277,366 Z','#929FB2'))+group('muzzle',path('M 214,270 C 225,250 243,248 256,251 C 272,249 288,257 295,275 C 303,296 284,307 257,300 C 229,309 208,297 214,270 Z','#F0E8D8')+ellipse(256,265,9,7,INK))+eyes(196,317,270))
+
+for slug,label,art in items:
+    text=f'''<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+<title id="title">{escape(label)}</title>
+<desc id="desc">Mascota animal minimalista. Recreación vectorial de la lámina de conceptos, con fondo transparente.</desc>
+{art}
+</svg>\n'''
+    ET.fromstring(text)
+    (root/f'{slug}.svg').write_text(text)
+
+sheet=['<svg xmlns="http://www.w3.org/2000/svg" width="1536" height="1152" viewBox="0 0 1536 1152">','<rect width="1536" height="1152" fill="#FCFAF4"/>']
+for i,(slug,label,art) in enumerate(items):
+    x=(i%4)*384; y=(i//4)*384
+    sheet.append(f'<g transform="translate({x+25} {y-3}) scale(.65)">{art}</g>')
+    sheet.append(f'<text x="{x+192}" y="{y+347}" text-anchor="middle" font-family="sans-serif" font-size="19" fill="#5B554C">{escape(label)}</text>')
+sheet.append('</svg>')
+(root/'preview.svg').write_text('\n'.join(sheet))
+(root/'README.md').write_text('''# Mascotas minimalistas — colección SVG
+
+12 recreaciones vectoriales de la imagen conceptual: cat.svg (gato), dog.svg (perro), rabbit.svg (conejo), bear.svg (oso), fox.svg (zorro), owl.svg (búho), penguin.svg (pingüino), frog.svg (rana), axolotl.svg (ajolote), turtle.svg (tortuga), hamster.svg (hámster) y seal.svg (foca).
+
+Cada mascota tiene un lienzo de 512 × 512, viewBox escalable, fondo transparente y colores planos editables. Todo el dibujo está compuesto por trazados, círculos y elipses SVG; no contiene imágenes rasterizadas, fuentes, scripts ni dependencias externas. Las partes están agrupadas y nombradas en inglés para facilitar su edición.
+
+Son recreaciones manuales de las formas y colores de la lámina, no un calco exacto de su textura. preview.svg permite comparar toda la colección; su fondo y rótulos pertenecen solo a la vista de conjunto.
+
+Revisión 2: uniones de patas y aletas depuradas; branquias del ajolote sin cruces; cabeza y manchas del caparazón de la tortuga suavizadas; orejas y patas del conejo reajustadas.
+
+create_library.py reproduce los archivos usando Python 3 y su biblioteca estándar. Esta entrega es independiente y no está integrada en la interfaz de Gennie.
+''')
+for slug,_,_ in items:
+    tree=ET.parse(root/f'{slug}.svg')
+    assert tree.getroot().attrib['viewBox']=='0 0 512 512'
+    for el in tree.iter():
+        assert el.tag.split('}')[-1] not in ('image','script','foreignObject')
+print(f'12 mascotas SVG verificadas en {root}')

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 362 362" role="img" aria-label="cat" aria-labelledby="cat-title"><title id="cat-title">Gato</title><defs><linearGradient id="cat-cream" x1="0" y1="0" x2="0.8" y2="1"><stop stop-color="#f9ead3" /><stop offset="1" stop-color="#f8e9d2" /></linearGradient><linearGradient id="cat-orange" x1="0" y1="0" x2="0.8" y2="1"><stop stop-color="#e8ae72" /><stop offset="1" stop-color="#e7ac71" /></linearGradient><linearGradient id="cat-taupe" x1="0" y1="0" x2="0.8" y2="1"><stop stop-color="#a5907a" /><stop offset="1" stop-color="#a7927c" /></linearGradient><linearGradient id="cat-tailtaupe" x1="0" y1="0" x2="0.8" y2="1"><stop stop-color="#af967f" /><stop offset="1" stop-color="#ae957e" /></linearGradient></defs><g transform="translate(-45 -65)">
+<path fill="url(#cat-tailtaupe)" d="M322 301C329 282 334 268 346 271C362 273 364 291 352 311L346 319Z" />
+<path fill="url(#cat-cream)" d="M280 340C295 321 308 306 321 299C334 302 342 309 346 319C333 338 312 347 287 348Z" />
+<path fill="url(#cat-cream)" d="M122 211C123 189 128 156 138 147C149 137 172 155 187 171C202 168 215 168 229 171C246 157 270 139 285 144C302 150 305 188 301 216C311 239 316 259 318 284C321 309 313 335 293 345C282 350 277 351 278 353C273 366 248 368 242 357C217 358 193 357 171 356C162 368 140 365 135 350C109 343 99 316 100 284C101 256 109 231 122 211Z" />
+<path fill="url(#cat-orange)" d="M122 211C123 189 128 156 138 147C149 137 172 155 187 171L199 169C195 198 163 226 114 225Z" />
+<path fill="url(#cat-taupe)" d="M229 171C246 157 270 139 285 144C302 150 305 188 301 217C272 217 243 196 229 171Z" />
+<path fill="url(#cat-orange)" d="M317 284C302 291 293 312 307 333C315 322 318 307 317 284Z" />
+<ellipse fill="#362a22" cx="171.5" cy="242.9" rx="6.7" ry="7.1" /><ellipse fill="#382b23" cx="247.8" cy="242.8" rx="6.8" ry="7.1" />
+</g></svg>

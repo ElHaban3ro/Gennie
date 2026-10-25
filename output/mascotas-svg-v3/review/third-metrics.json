@@ -1,0 +1,62 @@
+{
+  "axolotl": {
+    "source_bbox": [
+      22,
+      49,
+      341,
+      255
+    ],
+    "svg_bbox": [
+      23,
+      50,
+      340,
+      255
+    ],
+    "silhouette_iou_estimate": 0.979
+  },
+  "turtle": {
+    "source_bbox": [
+      39,
+      48,
+      299,
+      258
+    ],
+    "svg_bbox": [
+      39,
+      48,
+      299,
+      257
+    ],
+    "silhouette_iou_estimate": 0.9846
+  },
+  "hamster": {
+    "source_bbox": [
+      37,
+      46,
+      362,
+      260
+    ],
+    "svg_bbox": [
+      38,
+      46,
+      259,
+      259
+    ],
+    "silhouette_iou_estimate": 0.9784
+  },
+  "seal": {
+    "source_bbox": [
+      21,
+      49,
+      338,
+      254
+    ],
+    "svg_bbox": [
+      22,
+      49,
+      337,
+      254
+    ],
+    "silhouette_iou_estimate": 0.9799
+  }
+}

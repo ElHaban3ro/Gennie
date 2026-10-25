@@ -1,0 +1,179 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="360" height="300" viewBox="0 0 360 300">
+  <!-- Distribución irregular fija, con separación y continuidad en ambos ejes. -->
+  <g fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <path transform="translate(78.20 94.41) rotate(217)" d="M-8-5l4 4m0-4l-4 4m12-4l4 4m0-4l-4 4M-3 5q3 3 6 0"/>
+    <path transform="translate(264.61 242.71) rotate(205)" d="M-4.5-5v4M2-2q2.5-3 5 0M-3 4q3 4 6 0"/>
+    <path transform="translate(102.84 244.61) rotate(167)" d="M-4.5-5v4M4.5-5v4M-2 4q-2 4 2 4t2-4Z"/>
+    <path transform="translate(262.70 89.73) rotate(76)" d="M-4.5-5v4M4.5-5v4M-3 4q3 4 6 0"/>
+    <path transform="translate(166.59 157.70) rotate(163)" d="M-7-4l2 2 2-2M3-4l2 2 2-2M-2 5h4"/>
+    <path transform="translate(343.31 29.17) rotate(34)" d="M-7-3l2 2 2-2M3-3l2 2 2-2M-3 5q3-2 6 0"/>
+    <path transform="translate(170.11 28.67) rotate(286)" d="M-9-2l3-3 3 3m6 0l3-3 3 3M-3 5q3 3 6 0"/>
+    <path transform="translate(3.16 196.54) rotate(199)" d="M-8-5l4 4m0-4l-4 4m12-4l4 4m0-4l-4 4M-2 5h4"/>
+    <path transform="translate(363.16 196.54) rotate(199)" d="M-8-5l4 4m0-4l-4 4m12-4l4 4m0-4l-4 4M-2 5h4"/>
+    <path transform="translate(-8.60 115.94) rotate(189)" d="M-8-5l4 4m0-4l-4 4m12-4l4 4m0-4l-4 4M-3 5q3 3 6 0"/>
+    <path transform="translate(351.40 115.94) rotate(189)" d="M-8-5l4 4m0-4l-4 4m12-4l4 4m0-4l-4 4M-3 5q3 3 6 0"/>
+    <path transform="translate(184.01 245.45) rotate(92)" d="M-4.5-5v4M2-2q2.5-3 5 0M-3 4q3 4 6 0"/>
+    <path transform="translate(286.05 165.98) rotate(102)" d="M-4.5-5v4M4.5-5v4M-2 4q-2 4 2 4t2-4Z"/>
+    <path transform="translate(59.25 13.22) rotate(183)" d="M-4.5-5v4M4.5-5v4M-3 4q3 4 6 0"/>
+    <path transform="translate(59.25 313.22) rotate(183)" d="M-4.5-5v4M4.5-5v4M-3 4q3 4 6 0"/>
+    <path transform="translate(76.47 171.56) rotate(274)" d="M-7-4l2 2 2-2M3-4l2 2 2-2M-2 5h4"/>
+    <path transform="translate(246.41 10.99) rotate(215)" d="M-7-3l2 2 2-2M3-3l2 2 2-2M-3 5q3-2 6 0"/>
+    <path transform="translate(246.41 310.99) rotate(215)" d="M-7-3l2 2 2-2M3-3l2 2 2-2M-3 5q3-2 6 0"/>
+    <path transform="translate(189.50 92.54) rotate(15)" d="M-9-2l3-3 3 3m6 0l3-3 3 3M-3 5q3 3 6 0"/>
+    <path transform="translate(335.06 257.78) rotate(130)" d="M-8-5l4 4m0-4l-4 4m12-4l4 4m0-4l-4 4M-2 5h4"/>
+    <path transform="translate(230.51 190.11) rotate(23)" d="M-8-5l4 4m0-4l-4 4m12-4l4 4m0-4l-4 4M-3 5q3 3 6 0"/>
+    <path transform="translate(39.44 246.05) rotate(187)" d="M-4.5-5v4M2-2q2.5-3 5 0M-3 4q3 4 6 0"/>
+    <path transform="translate(106.28 44.20) rotate(154)" d="M-4.5-5v4M4.5-5v4M-2 4q-2 4 2 4t2-4Z"/>
+    <path transform="translate(133.57 101.58) rotate(93)" d="M-4.5-5v4M4.5-5v4M-3 4q3 4 6 0"/>
+    <path transform="translate(40.55 132.75) rotate(280)" d="M-7-4l2 2 2-2M3-4l2 2 2-2M-2 5h4"/>
+    <path transform="translate(229.58 132.67) rotate(231)" d="M-7-3l2 2 2-2M3-3l2 2 2-2M-3 5q3-2 6 0"/>
+    <path transform="translate(27.14 57.46) rotate(197)" d="M-9-2l3-3 3 3m6 0l3-3 3 3M-3 5q3 3 6 0"/>
+    <path transform="translate(133.17 198.54) rotate(137)" d="M-8-5l4 4m0-4l-4 4m12-4l4 4m0-4l-4 4M-2 5h4"/>
+    <path transform="translate(304.60 60.11) rotate(87)" d="M-8-5l4 4m0-4l-4 4m12-4l4 4m0-4l-4 4M-3 5q3 3 6 0"/>
+    <path transform="translate(140.87 283.77) rotate(124)" d="M-4.5-5v4M2-2q2.5-3 5 0M-3 4q3 4 6 0"/>
+    <path transform="translate(310.02 207.07) rotate(272)" d="M-4.5-5v4M4.5-5v4M-2 4q-2 4 2 4t2-4Z"/>
+    <path transform="translate(226.48 56.95) rotate(204)" d="M-4.5-5v4M4.5-5v4M-3 4q3 4 6 0"/>
+    <path transform="translate(300.83 -12.22) rotate(9)" d="M-7-4l2 2 2-2M3-4l2 2 2-2M-2 5h4"/>
+    <path transform="translate(300.83 287.78) rotate(9)" d="M-7-4l2 2 2-2M3-4l2 2 2-2M-2 5h4"/>
+    <path transform="translate(17.76 -12.75) rotate(171)" d="M-7-3l2 2 2-2M3-3l2 2 2-2M-3 5q3-2 6 0"/>
+    <path transform="translate(17.76 287.25) rotate(171)" d="M-7-3l2 2 2-2M3-3l2 2 2-2M-3 5q3-2 6 0"/>
+    <path transform="translate(115.73 148.85) rotate(123)" d="M-9-2l3-3 3 3m6 0l3-3 3 3M-3 5q3 3 6 0"/>
+    <path transform="translate(298.33 117.91) rotate(348)" d="M-8-5l4 4m0-4l-4 4m12-4l4 4m0-4l-4 4M-2 5h4"/>
+    <path transform="translate(202.31 -5.39) rotate(242)" d="M-8-5l4 4m0-4l-4 4m12-4l4 4m0-4l-4 4M-3 5q3 3 6 0"/>
+    <path transform="translate(202.31 294.61) rotate(242)" d="M-8-5l4 4m0-4l-4 4m12-4l4 4m0-4l-4 4M-3 5q3 3 6 0"/>
+    <path transform="translate(186.64 205.55) rotate(220)" d="M-4.5-5v4M2-2q2.5-3 5 0M-3 4q3 4 6 0"/>
+    <path transform="translate(330.48 160.62) rotate(82)" d="M-4.5-5v4M4.5-5v4M-2 4q-2 4 2 4t2-4Z"/>
+    <path transform="translate(63.18 214.72) rotate(84)" d="M-4.5-5v4M4.5-5v4M-3 4q3 4 6 0"/>
+    <path transform="translate(38.77 179.26) rotate(18)" d="M-7-4l2 2 2-2M3-4l2 2 2-2M-2 5h4"/>
+    <path transform="translate(91.12 -13.67) rotate(144)" d="M-7-3l2 2 2-2M3-3l2 2 2-2M-3 5q3-2 6 0"/>
+    <path transform="translate(91.12 286.33) rotate(144)" d="M-7-3l2 2 2-2M3-3l2 2 2-2M-3 5q3-2 6 0"/>
+    <path transform="translate(223.14 258.17) rotate(247)" d="M-9-2l3-3 3 3m6 0l3-3 3 3M-3 5q3 3 6 0"/>
+    <path transform="translate(146.07 235.15) rotate(281)" d="M-8-5l4 4m0-4l-4 4m12-4l4 4m0-4l-4 4M-2 5h4"/>
+    <path transform="translate(292.93 24.37) rotate(196)" d="M-8-5l4 4m0-4l-4 4m12-4l4 4m0-4l-4 4M-3 5q3 3 6 0"/>
+    <path transform="translate(-14.33 74.60) rotate(338)" d="M-4.5-5v4M2-2q2.5-3 5 0M-3 4q3 4 6 0"/>
+    <path transform="translate(345.67 74.60) rotate(338)" d="M-4.5-5v4M2-2q2.5-3 5 0M-3 4q3 4 6 0"/>
+    <path transform="translate(156.23 73.19) rotate(22)" d="M-4.5-5v4M4.5-5v4M-2 4q-2 4 2 4t2-4Z"/>
+    <path transform="translate(32.06 94.28) rotate(54)" d="M-4.5-5v4M4.5-5v4M-3 4q3 4 6 0"/>
+    <path transform="translate(133.98 18.34) rotate(306)" d="M-7-4l2 2 2-2M3-4l2 2 2-2M-2 5h4"/>
+    <path transform="translate(70.10 51.47) rotate(241)" d="M-7-3l2 2 2-2M3-3l2 2 2-2M-3 5q3-2 6 0"/>
+    <path transform="translate(266.03 200.59) rotate(104)" d="M-9-2l3-3 3 3m6 0l3-3 3 3M-3 5q3 3 6 0"/>
+    <path transform="translate(188.85 129.68) rotate(333)" d="M-8-5l4 4m0-4l-4 4m12-4l4 4m0-4l-4 4M-2 5h4"/>
+    <path transform="translate(8.82 150.18) rotate(103)" d="M-8-5l4 4m0-4l-4 4m12-4l4 4m0-4l-4 4M-3 5q3 3 6 0"/>
+    <path transform="translate(368.82 150.18) rotate(103)" d="M-8-5l4 4m0-4l-4 4m12-4l4 4m0-4l-4 4M-3 5q3 3 6 0"/>
+    <path transform="translate(299.47 244.06) rotate(227)" d="M-4.5-5v4M2-2q2.5-3 5 0M-3 4q3 4 6 0"/>
+    <path transform="translate(80.33 133.99) rotate(79)" d="M-4.5-5v4M4.5-5v4M-2 4q-2 4 2 4t2-4Z"/>
+    <path transform="translate(7.42 237.62) rotate(127)" d="M-4.5-5v4M4.5-5v4M-3 4q3 4 6 0"/>
+    <path transform="translate(367.42 237.62) rotate(127)" d="M-4.5-5v4M4.5-5v4M-3 4q3 4 6 0"/>
+    <path transform="translate(234.17 223.58) rotate(97)" d="M-7-4l2 2 2-2M3-4l2 2 2-2M-2 5h4"/>
+    <path transform="translate(265.38 281.05) rotate(30)" d="M-7-3l2 2 2-2M3-3l2 2 2-2M-3 5q3-2 6 0"/>
+    <path transform="translate(252.37 164.48) rotate(176)" d="M-9-2l3-3 3 3m6 0l3-3 3 3M-3 5q3 3 6 0"/>
+    <path transform="translate(58.67 279.52) rotate(68)" d="M-8-5l4 4m0-4l-4 4m12-4l4 4m0-4l-4 4M-2 5h4"/>
+    <path transform="translate(267.30 130.19) rotate(300)" d="M-8-5l4 4m0-4l-4 4m12-4l4 4m0-4l-4 4M-3 5q3 3 6 0"/>
+    <path transform="translate(261.56 53.25) rotate(267)" d="M-4.5-5v4M2-2q2.5-3 5 0M-3 4q3 4 6 0"/>
+    <path transform="translate(101.98 195.23) rotate(62)" d="M-4.5-5v4M4.5-5v4M-2 4q-2 4 2 4t2-4Z"/>
+    <path transform="translate(228.53 95.23) rotate(0)" d="M-4.5-5v4M4.5-5v4M-3 4q3 4 6 0"/>
+    <path transform="translate(214.69 26.21) rotate(202)" d="M-7-4l2 2 2-2M3-4l2 2 2-2M-2 5h4"/>
+    <path transform="translate(317.93 92.36) rotate(90)" d="M-7-3l2 2 2-2M3-3l2 2 2-2M-3 5q3-2 6 0"/>
+    <path transform="translate(198.39 169.93) rotate(44)" d="M-9-2l3-3 3 3m6 0l3-3 3 3M-3 5q3 3 6 0"/>
+    <path transform="translate(30.79 216.59) rotate(43)" d="M-8-5l4 4m0-4l-4 4m12-4l4 4m0-4l-4 4M-2 5h4"/>
+    <path transform="translate(187.59 55.15) rotate(148)" d="M-8-5l4 4m0-4l-4 4m12-4l4 4m0-4l-4 4M-3 5q3 3 6 0"/>
+    <path transform="translate(175.29 279.84) rotate(269)" d="M-4.5-5v4M2-2q2.5-3 5 0M-3 4q3 4 6 0"/>
+    <path transform="translate(18.07 21.68) rotate(250)" d="M-4.5-5v4M4.5-5v4M-2 4q-2 4 2 4t2-4Z"/>
+    <path transform="translate(94.90 18.01) rotate(29)" d="M-4.5-5v4M4.5-5v4M-3 4q3 4 6 0"/>
+    <path transform="translate(330.62 -0.36) rotate(217)" d="M-7-4l2 2 2-2M3-4l2 2 2-2M-2 5h4"/>
+    <path transform="translate(330.62 299.64) rotate(217)" d="M-7-4l2 2 2-2M3-4l2 2 2-2M-2 5h4"/>
+    <path transform="translate(105.84 89.58) rotate(220)" d="M-7-3l2 2 2-2M3-3l2 2 2-2M-3 5q3-2 6 0"/>
+    <path transform="translate(154.75 128.76) rotate(105)" d="M-9-2l3-3 3 3m6 0l3-3 3 3M-3 5q3 3 6 0"/>
+    <path transform="translate(335.83 224.02) rotate(330)" d="M-8-5l4 4m0-4l-4 4m12-4l4 4m0-4l-4 4M-2 5h4"/>
+    <path transform="translate(161.96 190.54) rotate(324)" d="M-8-5l4 4m0-4l-4 4m12-4l4 4m0-4l-4 4M-3 5q3 3 6 0"/>
+    <path transform="translate(72.51 239.60) rotate(8)" d="M-4.5-5v4M2-2q2.5-3 5 0M-3 4q3 4 6 0"/>
+    <path transform="translate(108.45 119.43) rotate(85)" d="M-4.5-5v4M4.5-5v4M-2 4q-2 4 2 4t2-4Z"/>
+    <path transform="translate(290.93 84.65) rotate(182)" d="M-4.5-5v4M4.5-5v4M-3 4q3 4 6 0"/>
+    <path transform="translate(50.43 72.66) rotate(86)" d="M-7-4l2 2 2-2M3-4l2 2 2-2M-2 5h4"/>
+    <path transform="translate(139.77 170.56) rotate(194)" d="M-7-3l2 2 2-2M3-3l2 2 2-2M-3 5q3-2 6 0"/>
+    <path transform="translate(125.80 64.15) rotate(314)" d="M-9-2l3-3 3 3m6 0l3-3 3 3M-3 5q3 3 6 0"/>
+    <path transform="translate(118.07 -3.19) rotate(194)" d="M-8-5l4 4m0-4l-4 4m12-4l4 4m0-4l-4 4M-2 5h4"/>
+    <path transform="translate(118.07 296.81) rotate(194)" d="M-8-5l4 4m0-4l-4 4m12-4l4 4m0-4l-4 4M-2 5h4"/>
+    <path transform="translate(305.60 146.74) rotate(40)" d="M-8-5l4 4m0-4l-4 4m12-4l4 4m0-4l-4 4M-3 5q3 3 6 0"/>
+    <path transform="translate(285.52 216.29) rotate(99)" d="M-4.5-5v4M2-2q2.5-3 5 0M-3 4q3 4 6 0"/>
+    <path transform="translate(330.20 187.69) rotate(302)" d="M-4.5-5v4M4.5-5v4M-2 4q-2 4 2 4t2-4Z"/>
+    <path transform="translate(120.35 264.18) rotate(79)" d="M-4.5-5v4M4.5-5v4M-3 4q3 4 6 0"/>
+    <path transform="translate(238.21 280.65) rotate(285)" d="M-7-4l2 2 2-2M3-4l2 2 2-2M-2 5h4"/>
+    <path transform="translate(146.30 42.42) rotate(263)" d="M-7-3l2 2 2-2M3-3l2 2 2-2M-3 5q3-2 6 0"/>
+    <path transform="translate(89.93 69.03) rotate(326)" d="M-9-2l3-3 3 3m6 0l3-3 3 3M-3 5q3 3 6 0"/>
+    <path transform="translate(19.20 116.47) rotate(15)" d="M-8-5l4 4m0-4l-4 4m12-4l4 4m0-4l-4 4M-2 5h4"/>
+    <path transform="translate(329.81 133.49) rotate(34)" d="M-8-5l4 4m0-4l-4 4m12-4l4 4m0-4l-4 4M-3 5q3 3 6 0"/>
+    <path transform="translate(60.75 113.11) rotate(125)" d="M-4.5-5v4M2-2q2.5-3 5 0M-3 4q3 4 6 0"/>
+    <path transform="translate(208.54 229.28) rotate(300)" d="M-4.5-5v4M4.5-5v4M-2 4q-2 4 2 4t2-4Z"/>
+    <path transform="translate(42.56 34.60) rotate(77)" d="M-4.5-5v4M4.5-5v4M-3 4q3 4 6 0"/>
+    <path transform="translate(7.43 91.21) rotate(305)" d="M-7-4l2 2 2-2M3-4l2 2 2-2M-2 5h4"/>
+    <path transform="translate(367.43 91.21) rotate(305)" d="M-7-4l2 2 2-2M3-4l2 2 2-2M-2 5h4"/>
+    <path transform="translate(330.68 54.32) rotate(285)" d="M-7-3l2 2 2-2M3-3l2 2 2-2M-3 5q3-2 6 0"/>
+    <path transform="translate(123.28 222.43) rotate(286)" d="M-9-2l3-3 3 3m6 0l3-3 3 3M-3 5q3 3 6 0"/>
+    <path transform="translate(-4.51 3.17) rotate(331)" d="M-8-5l4 4m0-4l-4 4m12-4l4 4m0-4l-4 4M-2 5h4"/>
+    <path transform="translate(-4.51 303.17) rotate(331)" d="M-8-5l4 4m0-4l-4 4m12-4l4 4m0-4l-4 4M-2 5h4"/>
+    <path transform="translate(355.49 3.17) rotate(331)" d="M-8-5l4 4m0-4l-4 4m12-4l4 4m0-4l-4 4M-2 5h4"/>
+    <path transform="translate(355.49 303.17) rotate(331)" d="M-8-5l4 4m0-4l-4 4m12-4l4 4m0-4l-4 4M-2 5h4"/>
+    <path transform="translate(149.85 261.51) rotate(150)" d="M-8-5l4 4m0-4l-4 4m12-4l4 4m0-4l-4 4M-3 5q3 3 6 0"/>
+    <path transform="translate(224.52 162.89) rotate(296)" d="M-4.5-5v4M2-2q2.5-3 5 0M-3 4q3 4 6 0"/>
+    <path transform="translate(272.34 9.49) rotate(139)" d="M-4.5-5v4M4.5-5v4M-2 4q-2 4 2 4t2-4Z"/>
+    <path transform="translate(272.34 309.49) rotate(139)" d="M-4.5-5v4M4.5-5v4M-2 4q-2 4 2 4t2-4Z"/>
+    <path transform="translate(91.47 221.19) rotate(247)" d="M-4.5-5v4M4.5-5v4M-3 4q3 4 6 0"/>
+    <path transform="translate(13.39 261.86) rotate(76)" d="M-7-4l2 2 2-2M3-4l2 2 2-2M-2 5h4"/>
+    <path transform="translate(373.39 261.86) rotate(76)" d="M-7-4l2 2 2-2M3-4l2 2 2-2M-2 5h4"/>
+    <path transform="translate(61.94 148.43) rotate(74)" d="M-7-3l2 2 2-2M3-3l2 2 2-2M-3 5q3-2 6 0"/>
+    <path transform="translate(206.94 108.44) rotate(155)" d="M-9-2l3-3 3 3m6 0l3-3 3 3M-3 5q3 3 6 0"/>
+    <path transform="translate(114.84 173.46) rotate(340)" d="M-8-5l4 4m0-4l-4 4m12-4l4 4m0-4l-4 4M-2 5h4"/>
+    <path transform="translate(165.92 99.71) rotate(20)" d="M-8-5l4 4m0-4l-4 4m12-4l4 4m0-4l-4 4M-3 5q3 3 6 0"/>
+    <path transform="translate(281.64 260.78) rotate(82)" d="M-4.5-5v4M2-2q2.5-3 5 0M-3 4q3 4 6 0"/>
+    <path transform="translate(13.62 173.92) rotate(295)" d="M-4.5-5v4M4.5-5v4M-2 4q-2 4 2 4t2-4Z"/>
+    <path transform="translate(373.62 173.92) rotate(295)" d="M-4.5-5v4M4.5-5v4M-2 4q-2 4 2 4t2-4Z"/>
+    <path transform="translate(-8.41 278.92) rotate(298)" d="M-4.5-5v4M4.5-5v4M-3 4q3 4 6 0"/>
+    <path transform="translate(351.59 278.92) rotate(298)" d="M-4.5-5v4M4.5-5v4M-3 4q3 4 6 0"/>
+    <path transform="translate(307.92 177.06) rotate(189)" d="M-7-4l2 2 2-2M3-4l2 2 2-2M-2 5h4"/>
+    <path transform="translate(157.52 5.03) rotate(333)" d="M-7-3l2 2 2-2M3-3l2 2 2-2M-3 5q3-2 6 0"/>
+    <path transform="translate(157.52 305.03) rotate(333)" d="M-7-3l2 2 2-2M3-3l2 2 2-2M-3 5q3-2 6 0"/>
+    <path transform="translate(242.03 36.24) rotate(321)" d="M-9-2l3-3 3 3m6 0l3-3 3 3M-3 5q3 3 6 0"/>
+    <path transform="translate(162.23 214.83) rotate(301)" d="M-8-5l4 4m0-4l-4 4m12-4l4 4m0-4l-4 4M-2 5h4"/>
+    <path transform="translate(316.80 18.64) rotate(160)" d="M-8-5l4 4m0-4l-4 4m12-4l4 4m0-4l-4 4M-3 5q3 3 6 0"/>
+    <path transform="translate(81.51 263.27) rotate(231)" d="M-4.5-5v4M2-2q2.5-3 5 0M-3 4q3 4 6 0"/>
+    <path transform="translate(6.23 43.81) rotate(51)" d="M-4.5-5v4M4.5-5v4M-2 4q-2 4 2 4t2-4Z"/>
+    <path transform="translate(366.23 43.81) rotate(51)" d="M-4.5-5v4M4.5-5v4M-2 4q-2 4 2 4t2-4Z"/>
+    <path transform="translate(206.83 195.29) rotate(155)" d="M-4.5-5v4M4.5-5v4M-3 4q3 4 6 0"/>
+    <path transform="translate(244.40 75.18) rotate(58)" d="M-7-4l2 2 2-2M3-4l2 2 2-2M-2 5h4"/>
+    <path transform="translate(250.55 114.41) rotate(313)" d="M-7-3l2 2 2-2M3-3l2 2 2-2M-3 5q3-2 6 0"/>
+    <path transform="translate(225.88 -0.20) rotate(116)" d="M-9-2l3-3 3 3m6 0l3-3 3 3M-3 5q3 3 6 0"/>
+    <path transform="translate(225.88 299.80) rotate(116)" d="M-9-2l3-3 3 3m6 0l3-3 3 3M-3 5q3 3 6 0"/>
+    <path transform="translate(192.28 16.80) rotate(76)" d="M-8-5l4 4m0-4l-4 4m12-4l4 4m0-4l-4 4M-2 5h4"/>
+    <path transform="translate(282.35 47.08) rotate(65)" d="M-8-5l4 4m0-4l-4 4m12-4l4 4m0-4l-4 4M-3 5q3 3 6 0"/>
+    <path transform="translate(287.07 192.74) rotate(159)" d="M-4.5-5v4M2-2q2.5-3 5 0M-3 4q3 4 6 0"/>
+    <path transform="translate(41.35 -3.69) rotate(160)" d="M-4.5-5v4M4.5-5v4M-2 4q-2 4 2 4t2-4Z"/>
+    <path transform="translate(41.35 296.31) rotate(160)" d="M-4.5-5v4M4.5-5v4M-2 4q-2 4 2 4t2-4Z"/>
+    <path transform="translate(206.96 76.55) rotate(316)" d="M-4.5-5v4M4.5-5v4M-3 4q3 4 6 0"/>
+    <path transform="translate(-13.36 146.73) rotate(130)" d="M-7-4l2 2 2-2M3-4l2 2 2-2M-2 5h4"/>
+    <path transform="translate(346.64 146.73) rotate(130)" d="M-7-4l2 2 2-2M3-4l2 2 2-2M-2 5h4"/>
+    <path transform="translate(328.08 110.14) rotate(51)" d="M-7-3l2 2 2-2M3-3l2 2 2-2M-3 5q3-2 6 0"/>
+    <path transform="translate(37.34 269.44) rotate(282)" d="M-9-2l3-3 3 3m6 0l3-3 3 3M-3 5q3 3 6 0"/>
+    <path transform="translate(195.28 267.11) rotate(57)" d="M-8-5l4 4m0-4l-4 4m12-4l4 4m0-4l-4 4M-2 5h4"/>
+    <path transform="translate(320.93 275.81) rotate(151)" d="M-8-5l4 4m0-4l-4 4m12-4l4 4m0-4l-4 4M-3 5q3 3 6 0"/>
+    <path transform="translate(130.69 126.88) rotate(296)" d="M-4.5-5v4M2-2q2.5-3 5 0M-3 4q3 4 6 0"/>
+    <path transform="translate(276.95 108.41) rotate(29)" d="M-4.5-5v4M4.5-5v4M-2 4q-2 4 2 4t2-4Z"/>
+    <path transform="translate(207.66 140.37) rotate(107)" d="M-4.5-5v4M4.5-5v4M-3 4q3 4 6 0"/>
+    <path transform="translate(-8.41 167.07) rotate(26)" d="M-7-4l2 2 2-2M3-4l2 2 2-2M-2 5h4"/>
+    <path transform="translate(351.59 167.07) rotate(26)" d="M-7-4l2 2 2-2M3-4l2 2 2-2M-2 5h4"/>
+    <path transform="translate(97.00 162.58) rotate(161)" d="M-7-3l2 2 2-2M3-3l2 2 2-2M-3 5q3-2 6 0"/>
+    <path transform="translate(248.04 257.08) rotate(244)" d="M-9-2l3-3 3 3m6 0l3-3 3 3M-3 5q3 3 6 0"/>
+    <path transform="translate(75.70 27.12) rotate(291)" d="M-8-5l4 4m0-4l-4 4m12-4l4 4m0-4l-4 4M-2 5h4"/>
+    <path transform="translate(49.86 53.67) rotate(183)" d="M-8-5l4 4m0-4l-4 4m12-4l4 4m0-4l-4 4M-3 5q3 3 6 0"/>
+    <path transform="translate(79.11 192.16) rotate(60)" d="M-4.5-5v4M2-2q2.5-3 5 0M-3 4q3 4 6 0"/>
+    <path transform="translate(75.52 0.07) rotate(115)" d="M-4.5-5v4M4.5-5v4M-2 4q-2 4 2 4t2-4Z"/>
+    <path transform="translate(75.52 300.07) rotate(115)" d="M-4.5-5v4M4.5-5v4M-2 4q-2 4 2 4t2-4Z"/>
+    <path transform="translate(-4.47 219.39) rotate(24)" d="M-4.5-5v4M4.5-5v4M-3 4q3 4 6 0"/>
+    <path transform="translate(355.53 219.39) rotate(24)" d="M-4.5-5v4M4.5-5v4M-3 4q3 4 6 0"/>
+    <path transform="translate(178.57 178.81) rotate(315)" d="M-7-4l2 2 2-2M3-4l2 2 2-2M-2 5h4"/>
+    <path transform="translate(6.20 67.60) rotate(257)" d="M-7-3l2 2 2-2M3-3l2 2 2-2M-3 5q3-2 6 0"/>
+    <path transform="translate(366.20 67.60) rotate(257)" d="M-7-3l2 2 2-2M3-3l2 2 2-2M-3 5q3-2 6 0"/>
+    <path transform="translate(258.63 222.05) rotate(256)" d="M-9-2l3-3 3 3m6 0l3-3 3 3M-3 5q3 3 6 0"/>
+    <path transform="translate(247.81 142.01) rotate(319)" d="M-8-5l4 4m0-4l-4 4m12-4l4 4m0-4l-4 4M-2 5h4"/>
+  </g>
+</svg>

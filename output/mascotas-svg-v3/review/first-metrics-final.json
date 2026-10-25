@@ -1,0 +1,62 @@
+{
+  "cat": {
+    "source_bbox": [
+      55,
+      78,
+      315,
+      299
+    ],
+    "svg_bbox": [
+      55,
+      78,
+      315,
+      299
+    ],
+    "silhouette_iou_estimate": 0.9819
+  },
+  "dog": {
+    "source_bbox": [
+      43,
+      82,
+      310,
+      299
+    ],
+    "svg_bbox": [
+      44,
+      83,
+      308,
+      298
+    ],
+    "silhouette_iou_estimate": 0.9815
+  },
+  "rabbit": {
+    "source_bbox": [
+      62,
+      37,
+      297,
+      307
+    ],
+    "svg_bbox": [
+      62,
+      37,
+      297,
+      307
+    ],
+    "silhouette_iou_estimate": 0.9831
+  },
+  "bear": {
+    "source_bbox": [
+      52,
+      47,
+      302,
+      303
+    ],
+    "svg_bbox": [
+      52,
+      48,
+      301,
+      303
+    ],
+    "silhouette_iou_estimate": 0.9806
+  }
+}

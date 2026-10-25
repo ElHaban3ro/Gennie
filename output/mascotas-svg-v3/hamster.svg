@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 362 362" role="img" aria-labelledby="hamster-title"><title id="hamster-title">Hámster</title><g transform="translate(-11 0)"><defs><linearGradient id="hamster-fur" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#e6b17e" /><stop offset="1" stop-color="#e4ad79" /></linearGradient><linearGradient id="hamster-cream" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#f5e1c9" /><stop offset="1" stop-color="#f7e5ce" /></linearGradient><linearGradient id="hamster-ear" x2="0" y2="1"><stop stop-color="#f3b1a2" /><stop offset="1" stop-color="#f5a798" /></linearGradient></defs>
+<path fill="url(#hamster-fur)" d="M85 94C73 79 76 58 86 50C98 40 116 49 123 63L116 92Z" />
+<path fill="url(#hamster-ear)" d="M83 55C77 62 74 78 84 90L106 73C102 61 92 55 83 55Z" />
+<path fill="url(#hamster-fur)" d="M192 70C198 48 214 43 225 47C242 53 244 75 232 92L208 98Z" />
+<path fill="url(#hamster-ear)" d="M211 72C218 57 225 54 234 55C244 65 240 81 232 90Z" />
+<path fill="#eaae7c" d="M91 241C91 255 101 259 113 259C123 259 130 254 131 247Z M186 247C188 256 196 259 207 259C218 259 225 254 226 242Z" />
+<path fill="url(#hamster-fur)" d="M49 182C51 157 65 115 80 94C98 67 127 57 157 57C192 55 216 67 234 91C252 115 267 152 270 184L261 211L59 213Z" />
+<path fill="url(#hamster-cream)" d="M49 181C66 154 111 138 155 138C208 136 253 153 270 184C272 207 260 231 242 240C221 250 184 251 160 251C131 251 97 248 78 240C58 232 47 207 49 181Z" />
+<g fill="#403020"><circle cx="121.3" cy="130.9" r="7" /><circle cx="195.9" cy="130.8" r="7" /></g>
+<path fill="#eab080" d="M115 193C120 187 129 187 135 193C142 200 139 208 133 211C126 215 115 211 113 205C112 201 112 196 115 193Z M181 194C187 188 195 187 201 192C208 198 205 207 199 211C192 215 183 212 180 208C177 204 179 197 181 194Z" /></g></svg>
