@@ -12,6 +12,8 @@ class ChatViewport extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (!enabled) return child;
+    const fadeHeight = 35.0;
+    const clearBottom = 12.0;
     return ShaderMask(
       blendMode: BlendMode.dstIn,
       shaderCallback: (bounds) =>
@@ -22,9 +24,9 @@ class ChatViewport extends StatelessWidget {
           ).createShader(
             Rect.fromLTWH(
               0,
-              math.max(0, bounds.height - 56),
+              math.max(0, bounds.height - clearBottom - fadeHeight),
               bounds.width,
-              math.min(56, bounds.height),
+              math.min(fadeHeight, math.max(0, bounds.height - clearBottom)),
             ),
           ),
       child: Stack(
