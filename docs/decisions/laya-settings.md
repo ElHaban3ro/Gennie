@@ -2,7 +2,7 @@
 
 > Contexto histórico: la UI descrita aquí fue retirada al migrar a Flutter. La cara, presencia flotante, globos y sus sondas no forman parte del producto vigente. Para arquitectura y verificación actuales, consultar los documentos de arquitectura y reglas del índice. Las migraciones y los datos conservan su historia.
 
-Estado vigente desde 2026-10-16: Laya permanece en `gennie-decisions` para herramientas independientes; Presence ya no muestra la pestaña ni crea su Controller. Las referencias a UI y precarga de sesión a continuación describen la integración anterior.
+Estado vigente desde 2026-10-25: Laya permanece en `gennie-decisions` para herramientas independientes; Presence no muestra una pestaña ni crea su Controller. Bootstrap conecta un Controller manual para los controles de carga/liberación y estado de la barra vertical Flutter, sin precarga al conectar ni integración con el chat. Las referencias a UI y precarga de sesión a continuación describen la integración anterior.
 
 2026-10-12. El usuario observa liberación temprana y pide configuración independiente para Laya. No se ha medido el intervalo de su incidente concreto. El código anterior fijaba 600 s y cerraba el helper también ante error/cancelación; la UI atribuía Unloaded a inactividad sin conocer la causa.
 
