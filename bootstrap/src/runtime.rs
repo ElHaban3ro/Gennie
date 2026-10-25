@@ -266,6 +266,7 @@ impl Backend {
                 id: c.id.to_string(),
                 title: c.title,
                 updated_at: c.updated_at,
+                last_message: c.last_message,
             })
             .collect();
         self.snapshot.messages = history
@@ -445,6 +446,7 @@ impl Backend {
     }
     fn tick(&mut self) {
         let mut dirty = false;
+        let mut refresh_history = false;
         if let Some(c) = &mut self.dictation {
             for event in c.tick() {
                 use gennie_transcription::Event::*;
@@ -510,6 +512,7 @@ impl Backend {
                     NewChatReady => {
                         self.snapshot.selected_id = None;
                         self.snapshot.confirmation = Some("Nuevo chat preparado".into());
+                        refresh_history = true;
                     }
                     SettingsSaved(_) => {
                         self.snapshot.confirmation = Some("Ajustes del asistente guardados".into())
@@ -563,7 +566,7 @@ impl Backend {
             self.observed != self.revision.load(std::sync::atomic::Ordering::Acquire);
         dirty |= history_changed;
         if dirty {
-            if history_changed {
+            if history_changed || refresh_history {
                 if let Err(e) = self.refresh() {
                     self.snapshot.error = Some(e.to_string());
                 }

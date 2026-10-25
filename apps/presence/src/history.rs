@@ -15,6 +15,15 @@ pub(crate) struct Journal {
 }
 
 impl gennie_llm::ConversationJournal for Journal {
+    fn is_empty(&self, provider: &str, thread_id: &str) -> Result<bool> {
+        self.db.with_connection(|connection| {
+            Ok(connection.query_row(
+                "SELECT EXISTS(SELECT 1 FROM presence_conversations c JOIN presence_current_conversation active ON active.conversation_id=c.id WHERE c.provider=?1 AND c.provider_thread_id=?2 AND c.deleted=0 AND NOT EXISTS(SELECT 1 FROM presence_history h WHERE h.conversation_id=c.id))",
+                params![provider, thread_id],
+                |row| row.get(0),
+            )?)
+        })
+    }
     fn activate(
         &self,
         connection: &SqliteConnection,
@@ -101,6 +110,7 @@ pub struct Conversation {
     pub id: i64,
     pub title: String,
     pub updated_at: String,
+    pub last_message: Option<String>,
 }
 pub struct Snapshot {
     pub messages: Vec<Message>,
@@ -234,8 +244,10 @@ fn messages(connection: &SqliteConnection, id: Option<i64>) -> Result<Vec<Messag
 }
 pub fn load(db: &Database, selected: Option<i64>) -> Result<Snapshot> {
     db.with_connection(|connection| {
-        let mut statement = connection.prepare("SELECT id,coalesce(local_title,provider_title,title),updated_at FROM presence_conversations WHERE deleted=0 ORDER BY updated_at DESC,id DESC")?;
-        let rows = statement.query_map([], |row| Ok(Conversation {id:row.get(0)?,title:row.get(1)?,updated_at:row.get(2)?}))?;
+        // El índice (conversation_id,id) resuelve el último mensaje sin cargar
+        // todos los historiales. El límite afecta solo a la vista previa.
+        let mut statement = connection.prepare("SELECT c.id,coalesce(c.local_title,c.provider_title,c.title),c.updated_at,(SELECT substr(h.text,1,512) FROM presence_history h WHERE h.conversation_id=c.id ORDER BY h.id DESC LIMIT 1) FROM presence_conversations c WHERE c.deleted=0 ORDER BY c.updated_at DESC,c.id DESC")?;
+        let rows = statement.query_map([], |row| Ok(Conversation {id:row.get(0)?,title:row.get(1)?,updated_at:row.get(2)?,last_message:row.get(3)?}))?;
         let conversations: Vec<_> = rows.collect::<std::result::Result<_,_>>()?;
         let active = connection.prepare("SELECT c.id FROM presence_current_conversation a JOIN presence_conversations c ON c.id=a.conversation_id WHERE a.id=1 AND c.deleted=0")?.query_map([], |row|row.get::<_,i64>(0))?.next().transpose()?;
         let selected_id = selected.filter(|id| conversations.iter().any(|chat|chat.id==*id)).or(active).or_else(|| conversations.first().map(|chat| chat.id));
@@ -270,6 +282,78 @@ mod tests {
     fn migrate(db: &Database) {
         let module = crate::PresenceModule::default();
         db.migrate(module.name(), module.migrations()).unwrap();
+    }
+    #[test]
+    fn only_visible_active_chats_without_any_messages_can_be_reused() {
+        let db = Database::memory().unwrap();
+        migrate(&db);
+        let journal = journal(&db);
+        assert!(!journal.is_empty("codex", "missing").unwrap());
+        activate(&journal, "first");
+        assert!(journal.is_empty("codex", "first").unwrap());
+        let first = load(&db, None).unwrap().active_id.unwrap();
+        rename(&db, first, "Nombre propio").unwrap();
+        assert!(journal.is_empty("codex", "first").unwrap());
+        activate(&journal, "second");
+        assert!(!journal.is_empty("codex", "first").unwrap());
+        // Consultar otra conversación no debe alterar cuál se reutiliza.
+        load(&db, Some(first)).unwrap();
+        assert!(journal.is_empty("codex", "second").unwrap());
+        assert!(!journal.is_empty("other", "second").unwrap());
+        for speaker in ["user", "assistant", "system"] {
+            activate(&journal, speaker);
+            journal
+                .append("codex", speaker, speaker, "Contenido")
+                .unwrap();
+            assert!(!journal.is_empty("codex", speaker).unwrap());
+        }
+        activate(&journal, "deleted");
+        let deleted = load(&db, None).unwrap().active_id.unwrap();
+        delete(&db, deleted).unwrap();
+        assert!(!journal.is_empty("codex", "deleted").unwrap());
+        db.close().unwrap();
+        assert!(journal.is_empty("codex", "deleted").is_err());
+    }
+
+    #[test]
+    fn catalog_preview_tracks_last_message_of_every_speaker_without_switching_chats() {
+        let db = Database::memory().unwrap();
+        migrate(&db);
+        let journal = journal(&db);
+        activate(&journal, "first");
+        let first = load(&db, None).unwrap().active_id.unwrap();
+        for speaker in ["user", "assistant", "system"] {
+            journal.append("codex", "first", speaker, speaker).unwrap();
+            let snapshot = load(&db, None).unwrap();
+            assert_eq!(
+                snapshot.conversations[0].last_message.as_deref(),
+                Some(speaker)
+            );
+        }
+        let text = "🦀á".repeat(400);
+        journal
+            .append("codex", "first", "assistant", &text)
+            .unwrap();
+        activate(&journal, "second");
+        let snapshot = load(&db, Some(first)).unwrap();
+        let empty = snapshot
+            .conversations
+            .iter()
+            .find(|c| c.id != first)
+            .unwrap();
+        assert!(empty.last_message.is_none());
+        let preview = snapshot
+            .conversations
+            .iter()
+            .find(|c| c.id == first)
+            .unwrap()
+            .last_message
+            .as_ref()
+            .unwrap();
+        assert_eq!(preview.chars().count(), 512);
+        assert!(text.starts_with(preview));
+        assert_eq!(snapshot.selected_messages.last().unwrap().text, text);
+        assert_eq!(snapshot.active_id, Some(empty.id));
     }
     #[test]
     fn migration_keeps_legacy_rows_without_inventing_a_provider_link() {

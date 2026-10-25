@@ -894,12 +894,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   Conversation dco_decode_conversation(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 3)
-      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
+    if (arr.length != 4)
+      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
     return Conversation(
       id: dco_decode_String(arr[0]),
       title: dco_decode_String(arr[1]),
       updatedAt: dco_decode_String(arr[2]),
+      lastMessage: dco_decode_opt_String(arr[3]),
     );
   }
 
@@ -1133,7 +1134,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_id = sse_decode_String(deserializer);
     var var_title = sse_decode_String(deserializer);
     var var_updatedAt = sse_decode_String(deserializer);
-    return Conversation(id: var_id, title: var_title, updatedAt: var_updatedAt);
+    var var_lastMessage = sse_decode_opt_String(deserializer);
+    return Conversation(
+      id: var_id,
+      title: var_title,
+      updatedAt: var_updatedAt,
+      lastMessage: var_lastMessage,
+    );
   }
 
   @protected
@@ -1448,6 +1455,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.id, serializer);
     sse_encode_String(self.title, serializer);
     sse_encode_String(self.updatedAt, serializer);
+    sse_encode_opt_String(self.lastMessage, serializer);
   }
 
   @protected

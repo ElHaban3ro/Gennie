@@ -111,18 +111,21 @@ class Conversation {
   final String id;
   final String title;
   final String updatedAt;
+  final String? lastMessage;
 
   const Conversation({
     required this.id,
     required this.title,
     required this.updatedAt,
+    this.lastMessage,
   });
 
   static Future<Conversation> default_() =>
       RustLib.instance.api.crateApiConversationDefault();
 
   @override
-  int get hashCode => id.hashCode ^ title.hashCode ^ updatedAt.hashCode;
+  int get hashCode =>
+      id.hashCode ^ title.hashCode ^ updatedAt.hashCode ^ lastMessage.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -131,7 +134,8 @@ class Conversation {
           runtimeType == other.runtimeType &&
           id == other.id &&
           title == other.title &&
-          updatedAt == other.updatedAt;
+          updatedAt == other.updatedAt &&
+          lastMessage == other.lastMessage;
 }
 
 class DictationSettings {

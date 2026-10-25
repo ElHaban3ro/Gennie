@@ -891,10 +891,12 @@ impl SseDecode for crate::api::Conversation {
         let mut var_id = <String>::sse_decode(deserializer);
         let mut var_title = <String>::sse_decode(deserializer);
         let mut var_updatedAt = <String>::sse_decode(deserializer);
+        let mut var_lastMessage = <Option<String>>::sse_decode(deserializer);
         return crate::api::Conversation {
             id: var_id,
             title: var_title,
             updated_at: var_updatedAt,
+            last_message: var_lastMessage,
         };
     }
 }
@@ -1198,6 +1200,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::Conversation {
             self.id.into_into_dart().into_dart(),
             self.title.into_into_dart().into_dart(),
             self.updated_at.into_into_dart().into_dart(),
+            self.last_message.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -1342,6 +1345,7 @@ impl SseEncode for crate::api::Conversation {
         <String>::sse_encode(self.id, serializer);
         <String>::sse_encode(self.title, serializer);
         <String>::sse_encode(self.updated_at, serializer);
+        <Option<String>>::sse_encode(self.last_message, serializer);
     }
 }
 

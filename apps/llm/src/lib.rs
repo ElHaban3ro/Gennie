@@ -24,12 +24,27 @@ pub trait ConversationJournal: Send + Sync {
         title: Option<&str>,
     ) -> Result<()>;
     fn append(&self, provider: &str, thread_id: &str, speaker: &str, text: &str) -> Result<()>;
+    /// Solo reutilizar un chat visible, activo y sin mensajes persistidos.
+    fn is_empty(&self, provider: &str, thread_id: &str) -> Result<bool> {
+        let _ = (provider, thread_id);
+        Ok(false)
+    }
     fn update_title(&self, provider: &str, thread_id: &str, title: &str) -> Result<()> {
         let _ = (provider, thread_id, title);
         Ok(())
     }
     /// Se emite después del commit de activación.
     fn committed(&self);
+}
+
+fn reuse_empty_chat(
+    db: &gennie_db::Database,
+    journal: Option<&dyn ConversationJournal>,
+) -> Result<bool> {
+    match (journal, codex::load_thread(db)?) {
+        (Some(journal), Some(thread_id)) => journal.is_empty("codex", &thread_id),
+        _ => Ok(false),
+    }
 }
 
 pub struct LlmModule {
@@ -173,6 +188,11 @@ impl AppModule for LlmModule {
                         .expect("Ajustes de conversación inválidos")
                         .clone();
                     let result = (|| -> Result<Option<Event>> {
+                        if matches!(&command, Command::NewChat)
+                            && reuse_empty_chat(&db, journal.as_deref())?
+                        {
+                            return Ok(Some(Event::NewChatReady));
+                        }
                         if session.is_none() {
                             let _ = event_sender.send(Event::Connecting);
                             session = Some(if matches!(&command, Command::NewChat) {
@@ -353,6 +373,88 @@ mod tests {
     use gennie_core::Shutdown;
     use gennie_db::Database;
     use std::{path::PathBuf, sync::Arc};
+
+    struct EmptyJournal;
+    impl ConversationJournal for EmptyJournal {
+        fn activate(
+            &self,
+            _: &gennie_db::SqliteConnection,
+            _: &str,
+            _: &str,
+            _: Option<&str>,
+        ) -> Result<()> {
+            unreachable!()
+        }
+        fn append(&self, _: &str, _: &str, _: &str, _: &str) -> Result<()> {
+            unreachable!()
+        }
+        fn is_empty(&self, provider: &str, thread_id: &str) -> Result<bool> {
+            assert_eq!(provider, "codex");
+            assert_eq!(thread_id, "empty-thread");
+            Ok(true)
+        }
+        fn committed(&self) {
+            unreachable!()
+        }
+    }
+
+    #[test]
+    fn repeated_new_chat_reuses_persisted_empty_thread_without_connecting() {
+        let module = LlmModule::default();
+        let db = Database::memory().unwrap();
+        db.migrate(module.name(), module.migrations()).unwrap();
+        assert!(!reuse_empty_chat(&db, Some(&EmptyJournal)).unwrap());
+        save_thread(&db, "empty-thread").unwrap();
+        for _ in 0..10 {
+            assert!(reuse_empty_chat(&db, Some(&EmptyJournal)).unwrap());
+            assert_eq!(load_thread(&db).unwrap().as_deref(), Some("empty-thread"));
+        }
+        assert!(!reuse_empty_chat(&db, None).unwrap());
+    }
+
+    #[test]
+    fn new_chat_worker_reuses_empty_thread_even_without_a_session() {
+        let module = LlmModule::with_journal(Arc::new(EmptyJournal));
+        let state = AppState {
+            config: Arc::new(Config {
+                database_path: PathBuf::from("unused.sqlite3"),
+                db_busy_timeout_ms: 500,
+            }),
+            db: Database::memory().unwrap(),
+            shutdown: Shutdown::default(),
+        };
+        state
+            .db
+            .migrate(module.name(), module.migrations())
+            .unwrap();
+        save_thread(&state.db, "empty-thread").unwrap();
+        module.start(&state).unwrap();
+        let controller = module.controller().unwrap();
+        // La cola real procesa cada pulsación: ninguna debe intentar conectar.
+        let sender = module
+            .worker
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .sender
+            .clone();
+        for _ in 0..10 {
+            sender.send(Command::NewChat).unwrap();
+            let event = controller
+                .events
+                .lock()
+                .unwrap()
+                .recv_timeout(std::time::Duration::from_secs(1))
+                .unwrap();
+            assert!(matches!(event, Event::NewChatReady));
+            assert_eq!(
+                load_thread(&state.db).unwrap().as_deref(),
+                Some("empty-thread")
+            );
+        }
+        module.stop(&state).unwrap();
+    }
 
     #[test]
     fn stop_wakes_idle_worker_while_controller_is_still_held() {

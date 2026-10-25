@@ -2,7 +2,7 @@ use super::*;
 use gennie_config::Config;
 use std::path::PathBuf;
 
-// Solo presencia activa: ninguna prueba abre audio, red, modelos ni servicios OS.
+// Sin audio, red, modelos ni servicios OS; LLM solo se activa para reutilizar un chat local.
 struct Fixture {
     directory: PathBuf,
     config: Config,
@@ -93,6 +93,70 @@ fn append_conversation(backend: &Backend, thread: &str, text: &str) -> String {
         .active_id
         .unwrap()
         .to_string()
+}
+
+#[test]
+fn new_chat_reuses_empty_active_chat_and_returns_from_reading_after_reopen() {
+    let fixture = Fixture::new();
+    fixture.seed_selection();
+    let mut backend = fixture.open();
+    let older = append_conversation(&backend, "older", "Mensaje anterior");
+    let journal = PresenceModule::default().conversation_journal(backend.state.db.clone());
+    backend
+        .state
+        .db
+        .with_connection(|connection| {
+            let tx = connection.transaction()?;
+            journal.activate(&tx, "codex", "empty", None)?;
+            tx.execute(
+                "INSERT INTO codex_conversation(id,thread_id) VALUES(1,'empty')",
+                [],
+            )?;
+            tx.execute("UPDATE modules SET active=1 WHERE name='llm'", [])?;
+            tx.commit()?;
+            Ok(())
+        })
+        .unwrap();
+    backend.close().unwrap();
+    drop(backend);
+
+    let mut backend = fixture.open();
+    let empty = backend.snapshot.active_id.clone().unwrap();
+    for _ in 0..10 {
+        backend
+            .apply(Operation::Select(Some(older.clone())))
+            .unwrap();
+        backend.refresh().unwrap();
+        assert!(!backend.snapshot.messages.is_empty());
+        let revision = backend.revision.load(std::sync::atomic::Ordering::Acquire);
+        backend.snapshot.confirmation = None;
+        backend.apply(Operation::NewChat).unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        while (backend.snapshot.confirmation.is_none() || backend.snapshot.busy)
+            && std::time::Instant::now() < deadline
+        {
+            backend.tick();
+            std::thread::yield_now();
+        }
+        assert_eq!(
+            backend.snapshot.confirmation.as_deref(),
+            Some("Nuevo chat preparado")
+        );
+        assert_eq!(
+            backend.snapshot.selected_id.as_deref(),
+            Some(empty.as_str())
+        );
+        assert_eq!(backend.snapshot.active_id.as_deref(), Some(empty.as_str()));
+        assert!(backend.snapshot.messages.is_empty());
+        assert_eq!(backend.snapshot.conversations.len(), 2);
+        assert_eq!(
+            backend.revision.load(std::sync::atomic::Ordering::Acquire),
+            revision
+        );
+        assert!(!backend.snapshot.busy);
+        assert!(backend.snapshot.error.is_none());
+    }
+    backend.close().unwrap();
 }
 
 #[test]

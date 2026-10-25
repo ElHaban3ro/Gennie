@@ -33,6 +33,7 @@ pub struct Conversation {
     pub id: String,
     pub title: String,
     pub updated_at: String,
+    pub last_message: Option<String>,
 }
 #[derive(Clone, Debug, Default)]
 pub struct Message {
