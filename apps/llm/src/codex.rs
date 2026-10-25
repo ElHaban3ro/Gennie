@@ -35,7 +35,6 @@ fn turn_start_request(thread_id: &str, cwd: &Path, model: &str, effort: &str, te
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum StreamEvent {
     UserSaved(String),
-    HistoryWarning(String),
     Delta(String),
     Completed(String),
 }
@@ -162,6 +161,7 @@ pub struct Session {
     cwd: PathBuf,
     model: String,
     effort: String,
+    title_effort: Option<String>,
     settings: Settings,
 }
 
@@ -226,6 +226,10 @@ impl Session {
             "-c",
             "permissions.gennie_voice.network.enabled=false",
             "-c",
+            "permissions.gennie_title.filesystem={\":root\"=\"deny\",\":minimal\"=\"read\"}",
+            "-c",
+            "permissions.gennie_title.network.enabled=false",
+            "-c",
             "features.plugins=false",
             "-c",
             "features.apps=false",
@@ -280,6 +284,7 @@ impl Session {
             cwd,
             model: String::new(),
             effort: settings.effort.clone(),
+            title_effort: None,
             settings: settings.clone(),
         };
         session.send(json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"Gennie","title":"Gennie","version":env!("CARGO_PKG_VERSION")},"capabilities":{"experimentalApi":true}}}))?;
@@ -320,6 +325,7 @@ impl Session {
         if !supports_effort {
             return Err("El modelo elegido no admite el esfuerzo configurado".into());
         }
+        session.title_effort = crate::title::minimum_effort(selected);
         session.model = settings.model.clone();
         let saved = if new_chat { None } else { load_thread(db)? };
         let instructions = instructions(settings);
@@ -455,12 +461,61 @@ impl Session {
             on_message(event);
             Ok(())
         })?;
-        if let Err(error) = self.refresh_title() {
-            on_message(StreamEvent::HistoryWarning(format!(
-                "No se pudo actualizar el título del chat: {error}"
-            )));
-        }
+        // El título es opcional: sus fallos no interrumpen ni ensucian el chat.
+        let _ = self.refresh_title();
+        let _ = self.generate_title();
         Ok(())
+    }
+
+    fn generate_title(&mut self) -> Result<()> {
+        let Some(effort) = self.title_effort.clone() else {
+            return Ok(());
+        };
+        let Some(journal) = self.journal.clone() else {
+            return Ok(());
+        };
+        let Some((user, assistant)) = journal.claim_title_input("codex", &self.thread_id)? else {
+            return Ok(());
+        };
+        self.send(crate::title::start_request(&self.cwd, &self.model))?;
+        let response = self.response(8, Duration::from_secs(10))?;
+        let temporary = response
+            .pointer("/thread/id")
+            .and_then(Value::as_str)
+            .filter(|id| *id != self.thread_id)
+            .ok_or("Codex no creó una conversación temporal distinta")?
+            .to_owned();
+        let result = (|| -> Result<String> {
+            let mut output = String::new();
+            self.run_turn(
+                crate::title::turn_request(
+                    &temporary,
+                    &self.cwd,
+                    &self.model,
+                    &effort,
+                    &user,
+                    &assistant,
+                ),
+                Duration::from_secs(10),
+                &mut |event| {
+                    if let StreamEvent::Completed(text) = event {
+                        if !output.is_empty() {
+                            output.push('\n');
+                        }
+                        output.push_str(&text);
+                    }
+                    Ok(())
+                },
+            )?;
+            crate::title::validate(&output)
+        })();
+        // Liberar la suscripción incluso si la generación o validación fallan.
+        self.send(json!({"jsonrpc":"2.0","id":10,"method":"thread/unsubscribe","params":{"threadId":temporary}}))?;
+        self.response(10, Duration::from_secs(3))?;
+        let title = result?;
+        self.send(json!({"jsonrpc":"2.0","id":11,"method":"thread/name/set","params":{"threadId":self.thread_id,"name":title}}))?;
+        self.response(11, Duration::from_secs(3))?;
+        journal.update_title("codex", &self.thread_id, &title)
     }
 
     fn turn(
@@ -468,19 +523,47 @@ impl Session {
         text: &str,
         on_message: &mut impl FnMut(StreamEvent) -> Result<()>,
     ) -> Result<()> {
-        self.send(turn_start_request(
-            &self.thread_id,
-            &self.cwd,
-            &self.model,
-            &self.effort,
-            text,
-        ))?;
-        let turn = self.response(4, HANDSHAKE_TIMEOUT)?;
+        self.run_turn(
+            turn_start_request(&self.thread_id, &self.cwd, &self.model, &self.effort, text),
+            TURN_TIMEOUT,
+            on_message,
+        )
+    }
+
+    fn run_turn(
+        &mut self,
+        request: Value,
+        timeout: Duration,
+        on_message: &mut impl FnMut(StreamEvent) -> Result<()>,
+    ) -> Result<()> {
+        let id = request["id"]
+            .as_i64()
+            .ok_or("Falta identificador de petición")?;
+        let thread_id = request["params"]["threadId"]
+            .as_str()
+            .ok_or("Falta hilo de petición")?
+            .to_owned();
+        self.send(request)?;
+        let turn = self.response(id, timeout.min(HANDSHAKE_TIMEOUT))?;
         let turn_id = turn
             .pointer("/turn/id")
             .and_then(Value::as_str)
             .ok_or("El proveedor no inició el turno")?;
-        let deadline = Instant::now() + TURN_TIMEOUT;
+        let result = self.receive_turn(turn_id, timeout, on_message);
+        if result.is_err() && id == 9 {
+            self.send(json!({"jsonrpc":"2.0","id":12,"method":"turn/interrupt","params":{"threadId":thread_id,"turnId":turn_id}}))?;
+            self.response(12, Duration::from_secs(3))?;
+        }
+        result
+    }
+
+    fn receive_turn(
+        &mut self,
+        turn_id: &str,
+        timeout: Duration,
+        on_message: &mut impl FnMut(StreamEvent) -> Result<()>,
+    ) -> Result<()> {
+        let deadline = Instant::now() + timeout;
         let mut messages = MessageCollector::default();
         loop {
             let event = self.next(deadline)?;
@@ -523,17 +606,7 @@ impl Session {
         loop {
             let value = self.next(deadline)?;
             if value.get("id").and_then(Value::as_i64) == Some(id) {
-                if let Some(error) = value.get("error") {
-                    let code = error
-                        .get("code")
-                        .and_then(Value::as_i64)
-                        .unwrap_or_default();
-                    return Err(format!("El proveedor rechazó la operación (código {code})").into());
-                }
-                return value
-                    .get("result")
-                    .cloned()
-                    .ok_or_else(|| "El proveedor devolvió una respuesta incompleta".into());
+                return response_result(&value);
             }
             if value.get("id").is_some() && value.get("method").is_some() {
                 return Err("El proveedor solicitó una acción no disponible".into());
@@ -566,6 +639,29 @@ impl Session {
         Ok(event)
     }
 }
+fn response_result(value: &Value) -> Result<Value> {
+    if let Some(error) = value.get("error") {
+        let code = error
+            .get("code")
+            .and_then(Value::as_i64)
+            .unwrap_or_default();
+        // Clasificar solo el fallo conocido; no mostrar ni persistir detalles libres del proveedor.
+        if code == -32600
+            && error
+                .get("message")
+                .and_then(Value::as_str)
+                .is_some_and(|message| message.starts_with("no rollout found for thread id "))
+        {
+            return Err("Codex no encuentra el historial de esta conversación y no puede reanudarla. Pulsa «Nuevo chat» para continuar. El historial local de Gennie se conserva.".into());
+        }
+        return Err(format!("El proveedor rechazó la operación (código {code})").into());
+    }
+    value
+        .get("result")
+        .cloned()
+        .ok_or_else(|| "El proveedor devolvió una respuesta incompleta".into())
+}
+
 fn notification_title<'a>(event: &'a Value, thread_id: &str) -> Option<&'a str> {
     if event.get("method").and_then(Value::as_str) == Some("thread/name/updated")
         && event.pointer("/params/threadId").and_then(Value::as_str) == Some(thread_id)
@@ -678,6 +774,29 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn missing_rollout_explains_recovery_without_exposing_provider_details() {
+        let error = super::response_result(&json!({"id":3,"error":{
+            "code":-32600,"message":"no rollout found for thread id private-thread-id"
+        }}))
+        .unwrap_err()
+        .to_string();
+        assert_eq!(
+            error,
+            "Codex no encuentra el historial de esta conversación y no puede reanudarla. Pulsa «Nuevo chat» para continuar. El historial local de Gennie se conserva."
+        );
+    }
+
+    #[test]
+    fn unrelated_rejection_does_not_expose_provider_message() {
+        let error = super::response_result(&json!({"id":3,"error":{
+            "code":-32600,"message":"other failure with private content"
+        }}))
+        .unwrap_err()
+        .to_string();
+        assert_eq!(error, "El proveedor rechazó la operación (código -32600)");
+    }
+
+    #[test]
     fn separate_agent_messages_are_emitted_without_joining_their_text() {
         let mut messages = MessageCollector::default();
         let events = [
@@ -754,6 +873,184 @@ mod journal_tests {
     }
     use super::*;
     use gennie_core::AppModule;
+    #[derive(Default)]
+    struct TitleJournal {
+        messages: Mutex<Vec<(String, String)>>,
+        title: Mutex<Option<String>>,
+        attempted: std::sync::atomic::AtomicBool,
+    }
+    impl ConversationJournal for TitleJournal {
+        fn activate(
+            &self,
+            _: &gennie_db::SqliteConnection,
+            _: &str,
+            _: &str,
+            _: Option<&str>,
+        ) -> Result<()> {
+            Ok(())
+        }
+        fn append(&self, _: &str, _: &str, speaker: &str, text: &str) -> Result<()> {
+            self.messages
+                .lock()
+                .unwrap()
+                .push((speaker.into(), text.into()));
+            Ok(())
+        }
+        fn claim_title_input(&self, _: &str, _: &str) -> Result<Option<(String, String)>> {
+            if self
+                .attempted
+                .swap(true, std::sync::atomic::Ordering::SeqCst)
+            {
+                return Ok(None);
+            }
+            let messages = self.messages.lock().unwrap();
+            Ok(Some((messages[0].1.clone(), messages[1].1.clone())))
+        }
+        fn update_title(&self, _: &str, _: &str, title: &str) -> Result<()> {
+            *self.title.lock().unwrap() = Some(title.into());
+            Ok(())
+        }
+        fn committed(&self) {}
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn optional_title_failure_is_silent_and_uses_minimum_effort_without_changing_chat_effort() {
+        for fail in [false, true] {
+            // Proveedor IPC aislado: reproduce el flujo completo sin red ni modelos.
+            let script = r#"
+while IFS= read -r request; do
+  case "$request" in
+    *'"id":4,'*)
+      case "$request" in *'"effort":"high"'*) ;; *) exit 1 ;; esac
+      printf '%s\n' '{"id":4,"result":{"turn":{"id":"reply"}}}' '{"method":"item/completed","params":{"turnId":"reply","item":{"type":"agentMessage","text":"¡Qué onda! ¿Cómo vas?"}}}' '{"method":"turn/completed","params":{"turn":{"id":"reply","status":"completed"}}}' ;;
+    *'"id":7,'*) printf '%s\n' '{"id":7,"result":{"thread":{"id":"active","name":null}}}' ;;
+    *'"id":8,'*) printf '%s\n' '{"id":8,"result":{"thread":{"id":"temporary"}}}' ;;
+    *'"id":9,'*)
+      case "$request" in *'"effort":"none"'*) ;; *) exit 1 ;; esac
+      if [ "$TITLE_FAIL" = true ]; then
+        printf '%s\n' '{"id":9,"error":{"code":-1,"message":"private detail"}}'
+      else
+        printf '%s\n' '{"id":9,"result":{"turn":{"id":"title"}}}' '{"method":"item/completed","params":{"turnId":"title","item":{"type":"agentMessage","text":"Saludo informal"}}}' '{"method":"turn/completed","params":{"turn":{"id":"title","status":"completed"}}}'
+      fi ;;
+    *'"id":10,'*) printf '%s\n' '{"id":10,"result":{}}' ;;
+    *'"id":11,'*) printf '%s\n' '{"id":11,"result":{}}' ;;
+    *) exit 1 ;;
+  esac
+done
+"#;
+            let mut child = Command::new("sh")
+                .args(["-c", script])
+                .env("TITLE_FAIL", fail.to_string())
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .spawn()
+                .unwrap();
+            let stdin = child.stdin.take().unwrap();
+            let stdout = child.stdout.take().unwrap();
+            let process = ProcessHandle::default();
+            *process.0.lock().unwrap() = Some(child);
+            let (sender, lines) = mpsc::channel();
+            let reader = std::thread::spawn(move || {
+                for line in BufReader::new(stdout).lines() {
+                    if sender.send(line.unwrap()).is_err() {
+                        break;
+                    }
+                }
+            });
+            let journal = Arc::new(TitleJournal::default());
+            let mut session = Session {
+                stdin,
+                lines,
+                reader: Some(reader),
+                process,
+                thread_id: "active".into(),
+                journal: Some(journal.clone()),
+                cwd: PathBuf::from("/tmp"),
+                model: "chosen-model".into(),
+                effort: "high".into(),
+                title_effort: Some("none".into()),
+                settings: Settings::default(),
+            };
+            let mut events = Vec::new();
+            session
+                .speak_stream("Qué onda pa", |event| events.push(event))
+                .unwrap();
+            assert_eq!(
+                journal.messages.lock().unwrap().as_slice(),
+                &[
+                    ("user".into(), "Qué onda pa".into()),
+                    ("assistant".into(), "¡Qué onda! ¿Cómo vas?".into())
+                ]
+            );
+            assert_eq!(session.thread_id, "active");
+            assert_eq!(events.len(), 2);
+            assert!(matches!(&events[0], StreamEvent::UserSaved(text) if text == "Qué onda pa"));
+            assert_eq!(
+                events
+                    .iter()
+                    .filter(|e| matches!(e, StreamEvent::Completed(_)))
+                    .count(),
+                1
+            );
+            if !fail {
+                assert_eq!(
+                    journal.title.lock().unwrap().as_deref(),
+                    Some("Saludo informal")
+                );
+            }
+            session.generate_title().unwrap();
+        }
+    }
+
+    #[test]
+    #[ignore = "consume una consulta real para titular un saludo con Codex en un directorio temporal"]
+    fn real_title_generation_uses_an_ephemeral_thread_and_preserves_active_thread() {
+        let db = Database::memory().unwrap();
+        let module = crate::LlmModule::default();
+        db.migrate(module.name(), module.migrations()).unwrap();
+        let base =
+            std::env::temp_dir().join(format!("gennie-title-provider-{}", std::process::id()));
+        let journal = Arc::new(TitleJournal::default());
+        journal.append("codex", "", "user", "Qué onda pa").unwrap();
+        journal
+            .append("codex", "", "assistant", "¡Qué onda! ¿Cómo vas?")
+            .unwrap();
+        let result = (|| -> Result<()> {
+            let mut session = Session::connect_in_with_mode(
+                &db,
+                ProcessHandle::default(),
+                base.clone(),
+                true,
+                &Settings::default(),
+                Some(journal.clone()),
+            )?;
+            let active = session.thread_id.clone();
+            session.generate_title()?;
+            assert_eq!(session.thread_id, active);
+            assert_eq!(load_thread(&db)?.as_deref(), Some(active.as_str()));
+            assert_eq!(journal.messages.lock().unwrap().len(), 2);
+            let title = journal
+                .title
+                .lock()
+                .unwrap()
+                .clone()
+                .ok_or("No se guardó título")?;
+            crate::title::validate(&title)?;
+            eprintln!("Título real de Codex: {title}");
+            session.refresh_title()?;
+            assert_eq!(
+                journal.title.lock().unwrap().as_deref(),
+                Some(title.as_str())
+            );
+            session.generate_title()?;
+            Ok(())
+        })();
+        db.close().unwrap();
+        let _ = std::fs::remove_dir_all(&base);
+        result.unwrap();
+    }
+
     struct FailingJournal;
     impl ConversationJournal for FailingJournal {
         fn activate(

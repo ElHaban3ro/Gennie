@@ -67,6 +67,10 @@ impl AppModule for PresenceModule {
                 version: 9,
                 sql: include_str!("../migrations/0009_conversation_actions.sql"),
             },
+            Migration {
+                version: 10,
+                sql: include_str!("../migrations/0010_title_generation.sql"),
+            },
         ]
     }
     fn start(&self, _: &AppState) -> Result<()> {

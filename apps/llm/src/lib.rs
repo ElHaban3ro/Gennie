@@ -1,5 +1,6 @@
 mod codex;
 mod settings;
+mod title;
 
 pub use settings::Settings;
 
@@ -28,6 +29,15 @@ pub trait ConversationJournal: Send + Sync {
     fn is_empty(&self, provider: &str, thread_id: &str) -> Result<bool> {
         let _ = (provider, thread_id);
         Ok(false)
+    }
+    /// Reserva una sola generación y devuelve el primer intercambio ya persistido.
+    fn claim_title_input(
+        &self,
+        provider: &str,
+        thread_id: &str,
+    ) -> Result<Option<(String, String)>> {
+        let _ = (provider, thread_id);
+        Ok(None)
     }
     fn update_title(&self, provider: &str, thread_id: &str, title: &str) -> Result<()> {
         let _ = (provider, thread_id, title);
@@ -223,9 +233,6 @@ impl AppModule for LlmModule {
                                     &text,
                                     |event| {
                                         let event = match event {
-                                            codex::StreamEvent::HistoryWarning(text) => {
-                                                Event::HistoryWarning(text)
-                                            }
                                             codex::StreamEvent::UserSaved(text) => {
                                                 Event::UserMessageSaved(text)
                                             }
