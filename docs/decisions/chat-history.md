@@ -4,7 +4,19 @@
 
 2026-10-24. Gennie conserva y consulta su historial local. La sidebar no lee los archivos grandes de Codex ni requiere conectar con el proveedor para mostrar mensajes guardados.
 
-## Alcance
+## Filas Flutter — 2026-10-25
+
+«Nuevo chat» reutiliza el chat activo si sigue visible y sin mensajes persistidos de ningún emisor, incluso después de desconectar o reiniciar. El worker serial de llm consulta el diario de presence antes de conectar o solicitar otro hilo al proveedor; devuelve la confirmación habitual para que el escritorio muestre ese chat aunque se estuviera consultando otro. Un título editado no convierte un chat vacío en uno con contenido. Chats eliminados o con mensajes permiten crear uno nuevo. No se borran duplicados anteriores ni se modifican migraciones.
+
+Verificación local: 27 pruebas de llm/presence y cinco del coordinador correctas, con tres pruebas reales de Codex omitidas. La regresión del coordinador reabre SQLite temporal y procesa diez solicitudes desde la lectura de otro chat, conservando catálogo, hilo y contador de escrituras. No abre la interfaz, modelos ni una conexión al proveedor; no verifica el binario de la instancia en uso.
+
+La fuente vigente del diseño es [UI.md](../../UI.md). `ChatHistoryTile` presenta título seminegrita, fecha local relativa y vista previa de una línea; ambas líneas están limitadas por el ancho y la fila mide 64 px. El menú de acciones locales se abre con clic derecho o teclado, sin seleccionar la conversación; desaparece el botón de tres puntos.
+
+El catálogo incluye `last_message: Option<String>` mediante una subconsulta de presence sobre el índice existente `(conversation_id,id)`: toma el último mensaje por orden de inserción, sin filtrar emisor. Entrega como máximo 512 caracteres Unicode para la vista previa y conserva íntegro el historial. La UI normaliza espacios y aplica elipsis. No se añaden tablas ni migraciones, consultas al proveedor, escrituras o cambios de selección; la fecha procede de `updated_at`, que renombrar no modifica. El contrato se propaga por API/runtime y puente FRB regenerado.
+
+Los apartados siguientes conservan la evolución histórica de la interfaz anterior; sus referencias a filas de una línea, puntos y Slint no describen este diseño.
+
+## Alcance histórico
 
 Cada conversación tiene un ID local, fechas UTC y un vínculo opcional de proveedor/hilo. El nombre visible prioriza una edición local, después el nombre de Codex y finalmente un título provisional del primer mensaje (espacios normalizados y máximo de 72 caracteres Unicode). La sidebar ordena por última actividad e ID descendentes. Los chats nuevos empiezan con «Nuevo chat» hasta recibir el primer mensaje. Se guardan texto escrito o dictado enviado al bot, cada respuesta final por separado y los errores nuevos como actividad de sistema. No se guardan deltas, razonamiento, herramientas, estados temporales ni audio; el Markdown y las referencias del mensaje final se conservan íntegros.
 

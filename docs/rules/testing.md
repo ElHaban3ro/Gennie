@@ -8,6 +8,8 @@ Desde la raíz: `python3 scripts/check_invariants.py`, `cargo fmt --all -- --che
 
 ## Escritorio Flutter
 
+Tooltips: `scripts/check_invariants.py` rechaza `Tooltip` y propiedades `tooltip` ajenas a `AppTooltip` (salvo el valor vacío que desactiva el tooltip interno de menús). Los widgets verifican hover y cierre tanto en navegación como en acciones, y el mismo canal nativo macOS con colocación según el control. Esta cobertura no sustituye la comprobación visual del material nativo.
+
 Comprobar con widgets navegación, selección de lectura, estados pendientes, errores con borrador conservado, nombre local, eliminación y datos recibidos por API. Los fixtures no prueban backend real. No se ejecutan las sondas visuales de la interfaz retirada ni sus ejemplos eliminados.
 
 Para evidencia nativa se requiere Xcode completo y una instancia propia con DB temporal: abrir, redimensionar al mínimo, navegar por teclado, revisar claro/oscuro, scroll, composición Markdown, enlaces, errores y ajustes. Cerrar ventana debe ocultarla y mantener servicios; Salir debe cerrar coordinador, hijos y SQLite mediante el canal `gennie/lifecycle` (`requestQuit`). No reiniciar una instancia del usuario. El paquete release debe contener dylib, helper y licencia Inter. Build correcto no prueba Dock, Stage Manager, foco, vidrio ni permisos físicos.
@@ -31,6 +33,10 @@ Narración progresiva: enviar una frase dividida en varios `delta`, confirmar qu
 
 ## Historial por conversación
 
+Nuevo chat: verificar que solicitudes repetidas reutilizan el hilo activo vacío sin conectar con el proveedor, también sin sesión en memoria. El diario debe distinguir chat vacío visible de uno con mensajes de cualquier emisor, eliminado, ausente o de otro proveedor; consultar otro chat y renombrar el vacío no alteran esta condición. Los errores de consulta deben propagarse.
+
+Filas Flutter: verificar fechas por días locales (incluidos medianoche, cambio de mes/año y datos inválidos), Hoy/Ayer/Antier, días 3–6 y fecha corta desde 7 días. Probar título y vista previa largos con saltos/Unicode al ancho mínimo, altura fija y elipsis; menú por clic derecho/Shift+F10 sin seleccionar, renombrado con error y borrador conservado. En SQLite, el último mensaje puede ser de usuario, asistente o sistema, pertenece a su propio chat, es opcional y se limita solo para la vista previa; leer el catálogo conserva el activo y el mensaje completo.
+
 Para D-024, probar con DB propia migración desde mensajes anteriores (IDs/texto/fechas intactos y sin vínculo inventado), FK obligatoria, catálogo vacío en instalación nueva, aislamiento entre chats, título del primer usuario con Unicode, reapertura del chat activo, consulta de otro chat sin activarlo, errores como sistema y ausencia de aviso de commit al fallar. En llm, un fallo del diario durante la activación debe hacer rollback del catálogo y conservar el ID previo de proveedor. Los mensajes del usuario se guardan antes del turno y los finales del asistente antes del evento; conservar el borrador si falla el guardado.
 
 ## Evidencia de la migración
@@ -38,3 +44,9 @@ Para D-024, probar con DB propia migración desde mensajes anteriores (IDs/texto
 Verificación completada durante esta migración: tests Rust del workspace, compilación de biblioteca y helper con `scripts/dev.sh --build-only`, análisis Flutter sin incidencias y once tests de widgets Flutter. Se verificó el override `CARGO_TARGET_DIR=/tmp/gennie-flutter-target`. El host Swift pasó comprobación de tipos con un registrador de plugins de prueba; esto no compila ni ejecuta el runner Flutter real. El build macOS release y la firma local se verificaron posteriormente con Xcode 27.1; la interacción física sigue pendiente.
 
 La comprobación real del puente con SQLite temporal pasó: stream, consulta, nombre, error de validación, movimiento reducido y reapertura sin pérdida de mensajes. La suite de widgets incluye una regresión del cierre: comenzar la cancelación del stream, cerrar Rust y después esperar esa cancelación; esperar primero el stream bloqueaba Salir. Resultado final: 88 tests Rust correctos (6 pruebas externas omitidas), 11 tests de widgets, 1 prueba real FRB, Clippy con `-D warnings` y análisis Dart sin incidencias. Las nueve migraciones de presence se compararon byte a byte con el estado previo y permanecen intactas.
+
+## Presentación del lector Flutter
+
+`chat_message_test.dart` comprueba días locales, fechas relativas y largas en español, año distinto, hora HH:mm y ausencia de fechas inválidas. Comprueba texto sin rótulos de emisor y hora debajo a la derecha al ancho mínimo. `widget_test.dart` verifica un badge por cambio de día, acceso a Configuración desde los puntos en claro/oscuro y ausencia de overflow en escritorio y ventana mínima. Con `--dart-define=CAPTURE_UI=true` guarda capturas software con fixtures en `.verification/flutter-ui/chat-{light,dark}.png`; no prueban la composición nativa ni una conversación con el proveedor.
+
+Cabecera de sidebar: comprobar alineación y altura de 56 px respecto al chat, título y acción centrados, sin overflow a 1100 × 720 ni 640 × 420. Los controles AppKit necesitan comprobar por separado centro vertical y área interactiva; las capturas Flutter no incluyen esos controles. Una sonda de ventana oculta verificó centros a 28 pt y hit testing de los tres controles en ambos tamaños; no equivale a interacción física en Gennie. El cambio del runner requiere recompilación.
