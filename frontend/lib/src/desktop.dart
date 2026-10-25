@@ -35,6 +35,7 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
   void initState() {
     super.initState();
     state.addListener(_changed);
+    _changed();
     windowManager.addListener(this);
     _lifecycle.setMethodCallHandler((call) async {
       if (call.method != 'requestQuit') throw MissingPluginException();
@@ -72,15 +73,20 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
     _messageCount = s.messages.length;
     _reply = s.reply;
     if (changedSelection || changedContent && wasAtEnd) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!_scroll.hasClients) return;
-        if (changedSelection) {
-          _scroll.jumpTo(0);
-        } else {
-          _scroll.jumpTo(_scroll.position.maxScrollExtent);
-        }
-      });
+      _scrollToEnd();
     }
+  }
+
+  void _scrollToEnd() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scroll.hasClients) return;
+      final end = _scroll.position.maxScrollExtent;
+      if ((_scroll.offset - end).abs() < 1) return;
+      _scroll.jumpTo(end);
+      // La lista estima alturas: volver a comprobar tras construir el destino.
+      _scrollToEnd();
+      WidgetsBinding.instance.scheduleFrame();
+    });
   }
 
   @override

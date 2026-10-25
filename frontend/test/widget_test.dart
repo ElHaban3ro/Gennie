@@ -174,12 +174,14 @@ class ClosingBackend extends FakeBackend {
 Future<(FakeBackend, DesktopState)> mount(
   WidgetTester tester, {
   Size size = const Size(1100, 720),
+  Snapshot? initialSnapshot,
 }) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
   final fake = FakeBackend();
+  if (initialSnapshot != null) fake.value = initialSnapshot;
   final state = DesktopState(fake);
   await state.start();
   await tester.pumpWidget(
@@ -216,6 +218,87 @@ void main() {
       ..addFont(rootBundle.load('fonts/MaterialIcons-Regular.otf'));
     await icons.load();
   });
+  for (final initiallyLoaded in [true, false]) {
+    testWidgets(
+      'Abrir historial largo muestra el último mensaje (inicial: $initiallyLoaded)',
+      (tester) async {
+        final messages = List.generate(
+          80,
+          (index) => Message(
+            speaker: index.isEven ? 'user' : 'assistant',
+            text:
+                'Mensaje $index\n${List.filled(index % 7 + 1, 'Contenido de altura variable.').join('\n')}',
+            createdAt: '2026-10-25T12:00:00Z',
+          ),
+        );
+        final (_, state) = await mount(
+          tester,
+          initialSnapshot: initiallyLoaded
+              ? snapshot(messages: messages)
+              : null,
+        );
+        if (!initiallyLoaded) {
+          state.accept(snapshot(selected: 'older', messages: messages));
+          await tester.pumpAndSettle();
+        }
+        final last = find.byWidgetPredicate(
+          (widget) =>
+              widget is ChatMessage &&
+              widget.message.text == messages.last.text,
+        );
+        expect(last.hitTestable(), findsOneWidget);
+        final chatList = find.ancestor(
+          of: last,
+          matching: find.byType(ListView),
+        );
+        final controller = tester.widget<ListView>(chatList).controller!;
+        expect(controller.position.extentAfter, lessThan(1));
+
+        // Cambiar entre historiales con igual cantidad también debe ir al final.
+        state.accept(snapshot(selected: 'another', messages: messages));
+        await tester.pumpAndSettle();
+        expect(last.hitTestable(), findsOneWidget);
+        expect(controller.position.extentAfter, lessThan(1));
+
+        final withNewMessage = [
+          ...messages,
+          const Message(
+            speaker: 'user',
+            text: 'Último mensaje enviado',
+            createdAt: '',
+          ),
+        ];
+        state.accept(snapshot(selected: 'another', messages: withNewMessage));
+        await tester.pumpAndSettle();
+        expect(
+          find.text('Último mensaje enviado').hitTestable(),
+          findsOneWidget,
+        );
+        expect(controller.position.extentAfter, lessThan(1));
+
+        // Leer mensajes anteriores no debe perderse por nuevas entradas.
+        controller.jumpTo(controller.position.maxScrollExtent / 2);
+        await tester.pumpAndSettle();
+        final readingOffset = controller.offset;
+        state.accept(
+          snapshot(
+            selected: 'another',
+            messages: [
+              ...withNewMessage,
+              const Message(
+                speaker: 'assistant',
+                text: 'Nueva respuesta',
+                createdAt: '',
+              ),
+            ],
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(controller.offset, closeTo(readingOffset, 1));
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
   test(
     'Cierre apaga Rust antes de esperar cancelación del stream retenido',
     () async {

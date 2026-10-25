@@ -41,3 +41,5 @@ Cabecera de 56 px con el tinte de la sidebar y línea inferior discreta. Present
 Mensajes de usuario a la derecha, con texto literal y tinte gris suave; respuestas a la izquierda, conservando Markdown y enlaces. Se retiran los rótulos de emisor. Ambos muestran únicamente la hora local HH:mm debajo a la derecha, en 10 px; fechas inválidas o ausentes no inventan hora. Los errores de sistema conservan su texto en el lado izquierdo. Las respuestas parciales no llevan hora hasta recibir su fecha persistida.
 
 Dentro del scroll, antes del primer mensaje de cada día, un badge centrado indica Hoy, Ayer o Antier. Las demás fechas usan «viernes, 16 de octubre», con año si es distinto al actual. La agrupación compara días locales de calendario; no repite el badge entre mensajes consecutivos del mismo día.
+
+Al cargar el historial inicial o abrir otra conversación, el lector se posiciona al final para mostrar los mensajes más recientes. Las entradas nuevas mantienen el seguimiento si el lector ya estaba al final; si el usuario se desplazó hacia mensajes anteriores, conserva su posición.

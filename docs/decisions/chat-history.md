@@ -16,6 +16,8 @@ El catálogo incluye `last_message: Option<String>` mediante una subconsulta de 
 
 Los apartados siguientes conservan la evolución histórica de la interfaz anterior; sus referencias a filas de una línea, puntos y Slint no describen este diseño.
 
+Desde el 25 de octubre de 2026, el lector Flutter abre el historial al final, tanto en la carga inicial como al cambiar de conversación. Sustituye el inicio arriba descrito en el alcance histórico. Las entradas nuevas siguen el final solo si el usuario no se desplazó para leer mensajes anteriores; ver [UI.md](../../UI.md).
+
 ## Alcance histórico
 
 Cada conversación tiene un ID local, fechas UTC y un vínculo opcional de proveedor/hilo. El nombre visible prioriza una edición local, después el nombre de Codex y finalmente un título provisional del primer mensaje (espacios normalizados y máximo de 72 caracteres Unicode). La sidebar ordena por última actividad e ID descendentes. Los chats nuevos empiezan con «Nuevo chat» hasta recibir el primer mensaje. Se guardan texto escrito o dictado enviado al bot, cada respuesta final por separado y los errores nuevos como actividad de sistema. No se guardan deltas, razonamiento, herramientas, estados temporales ni audio; el Markdown y las referencias del mensaje final se conservan íntegros.

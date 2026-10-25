@@ -47,6 +47,8 @@ La comprobación real del puente con SQLite temporal pasó: stream, consulta, no
 
 ## Presentación del lector Flutter
 
+`widget_test.dart` comprueba con un historial largo de alturas variables que la primera carga y el cambio entre conversaciones muestran el último mensaje y llegan al final del scroll, incluso con igual cantidad de mensajes. Comprueba seguimiento de entradas nuevas desde el final y conservación de la posición al leer mensajes anteriores. Son fixtures Flutter sin proveedor ni ventana nativa.
+
 `chat_message_test.dart` comprueba días locales, fechas relativas y largas en español, año distinto, hora HH:mm y ausencia de fechas inválidas. Comprueba texto sin rótulos de emisor y hora debajo a la derecha al ancho mínimo. `widget_test.dart` verifica un badge por cambio de día, acceso a Configuración desde los puntos en claro/oscuro y ausencia de overflow en escritorio y ventana mínima. Con `--dart-define=CAPTURE_UI=true` guarda capturas software con fixtures en `.verification/flutter-ui/chat-{light,dark}.png`; no prueban la composición nativa ni una conversación con el proveedor.
 
 Cabecera de sidebar: comprobar alineación y altura de 56 px respecto al chat, título y acción centrados, sin overflow a 1100 × 720 ni 640 × 420. Los controles AppKit necesitan comprobar por separado centro vertical y área interactiva; las capturas Flutter no incluyen esos controles. Una sonda de ventana oculta verificó centros a 28 pt y hit testing de los tres controles en ambos tamaños; no equivale a interacción física en Gennie. El cambio del runner requiere recompilación.
