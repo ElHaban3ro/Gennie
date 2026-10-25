@@ -8,23 +8,30 @@ import 'src/glass.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   if (Platform.isMacOS || Platform.isWindows || Platform.isLinux) {
-    await windowManager.ensureInitialized();
-    await windowManager.waitUntilReadyToShow(
-      const WindowOptions(
-        size: Size(1100, 720),
-        minimumSize: Size(640, 420),
-        title: 'Gennie',
-        center: true,
-        backgroundColor: Colors.transparent,
-        titleBarStyle: TitleBarStyle.hidden,
-      ),
-    );
-    await windowManager.setPreventClose(true);
-    await windowManager.show();
+    await configureDesktopWindow();
   }
   final state = DesktopState(RustBackend());
   runApp(GennieApp(state: state));
   await state.start();
+}
+
+/// Configura la ventana antes de iniciar el backend.
+Future<void> configureDesktopWindow() async {
+  await windowManager.ensureInitialized();
+  await windowManager.waitUntilReadyToShow(
+    const WindowOptions(
+      size: Size(1100, 720),
+      minimumSize: Size(640, 420),
+      title: 'Gennie',
+      center: true,
+      backgroundColor: Colors.transparent,
+      titleBarStyle: TitleBarStyle.hidden,
+    ),
+  );
+  await windowManager.setPreventClose(true);
+  // setTitleBarStyle reactiva hasShadow después de la configuración Swift.
+  if (Platform.isMacOS) await windowManager.setHasShadow(false);
+  await windowManager.show();
 }
 
 class GennieApp extends StatelessWidget {
