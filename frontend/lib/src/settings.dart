@@ -163,10 +163,12 @@ class _SettingsDialogState extends State<SettingsDialog> {
                       ),
                     ),
                   ),
-                  IconButton(
-                    tooltip: 'Cerrar configuración',
-                    onPressed: saving ? null : () => Navigator.pop(context),
-                    icon: const Icon(Icons.close, size: 19),
+                  AppTooltip(
+                    label: 'Cerrar configuración',
+                    child: IconButton(
+                      onPressed: saving ? null : () => Navigator.pop(context),
+                      icon: const Icon(Icons.close, size: 19),
+                    ),
                   ),
                 ],
               ),

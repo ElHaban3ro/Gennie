@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
 import 'src/backend.dart';
 import 'src/desktop.dart';
+import 'src/glass.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -40,7 +41,6 @@ class GennieApp extends StatelessWidget {
         brightness: brightness,
       ),
       scaffoldBackgroundColor: Colors.transparent,
-      tooltipTheme: const TooltipThemeData(waitDuration: Duration.zero),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: Colors.grey.withValues(alpha: .07),
@@ -61,7 +61,7 @@ class GennieApp extends StatelessWidget {
           data: MediaQuery.of(
             context,
           ).copyWith(disableAnimations: state.snapshot?.reducedMotion ?? false),
-          child: child!,
+          child: GlassCanvas(child: child!),
         ),
       ),
       home: DesktopScreen(state: state),
