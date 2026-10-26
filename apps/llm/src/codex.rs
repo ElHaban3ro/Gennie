@@ -688,6 +688,8 @@ fn filesystem_config(settings: &Settings, binary_rule: &str) -> String {
 }
 fn instructions(settings: &Settings) -> String {
     let mut text = VOICE_INSTRUCTIONS.to_owned();
+    text.push_str("\n\n");
+    text.push_str(include_str!("web-research-instructions.md"));
     if settings.local_actions {
         text.push_str(" Puedes controlar la interfaz de aplicaciones locales mediante comandos de macOS, por ejemplo osascript/System Events, cuando el usuario lo pida. Respeta los permisos del sistema y no afirmes que una acción ocurrió sin comprobarla.");
     } else {
