@@ -17,6 +17,19 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 const LIMIT: usize = 128 * 1024;
+const RESPONSE_LIMIT: usize = 4 * 1024 * 1024;
+
+/// Sobre interno para resultados multimodales de herramientas propias, separado de sus datos.
+pub fn with_image(data: Value, image: String, mime_type: &str) -> Result<Value> {
+    if !matches!(mime_type, "image/png" | "image/jpeg" | "image/webp")
+        || image.len() > 3 * 1024 * 1024
+    {
+        return Err("Imagen MCP no válida o demasiado grande".into());
+    }
+    Ok(
+        json!({"__gennie_mcp_output_v1":{"data":data,"image":{"type":"image","data":image,"mimeType":mime_type}}}),
+    )
+}
 
 pub struct Tool {
     pub definition: Value,
@@ -78,7 +91,12 @@ impl Registry {
                         .unwrap_or(json!({})),
                 ) {
                     Ok(value) => {
-                        json!({"content":[{"type":"text","text":value.to_string()}],"structuredContent":value,"isError":false})
+                        if let Some(output) = value.get("__gennie_mcp_output_v1") {
+                            let data = &output["data"];
+                            json!({"content":[{"type":"text","text":data.to_string()},output["image"]],"structuredContent":data,"isError":false})
+                        } else {
+                            json!({"content":[{"type":"text","text":value.to_string()}],"structuredContent":value,"isError":false})
+                        }
                     }
                     Err(e) => {
                         json!({"content":[{"type":"text","text":e.to_string()}],"isError":true})
@@ -233,8 +251,11 @@ impl Drop for Server {
     }
 }
 fn serve(mut stream: UnixStream, registry: &Registry, stopping: &AtomicBool) -> Result<()> {
+    // En macOS los sockets aceptados pueden heredar O_NONBLOCK del listener.
+    // write_all debe poder esperar al consumidor de una imagen grande.
+    stream.set_nonblocking(false)?;
     stream.set_read_timeout(Some(Duration::from_millis(50)))?;
-    stream.set_write_timeout(Some(Duration::from_millis(200)))?;
+    stream.set_write_timeout(Some(Duration::from_secs(2)))?;
     let mut pending = Vec::new();
     let mut buffer = [0; 4096];
     while !stopping.load(Ordering::Acquire) {
@@ -263,7 +284,11 @@ fn serve(mut stream: UnixStream, registry: &Registry, stopping: &AtomicBool) -> 
                 ),
             };
             if let Some(response) = response {
-                serde_json::to_writer(&mut stream, &response)?;
+                let response = serde_json::to_vec(&response)?;
+                if response.len() > RESPONSE_LIMIT {
+                    return Err("Respuesta MCP demasiado grande".into());
+                }
+                stream.write_all(&response)?;
                 stream.write_all(b"\n")?;
             }
         }
@@ -303,9 +328,9 @@ pub fn bridge(socket: &Path) -> Result<()> {
             let mut line = Vec::new();
             let n = response
                 .by_ref()
-                .take((LIMIT + 1) as u64)
+                .take((RESPONSE_LIMIT + 1) as u64)
                 .read_until(b'\n', &mut line)?;
-            if n == 0 || n > LIMIT {
+            if n == 0 || n > RESPONSE_LIMIT || line.last() != Some(&b'\n') {
                 return Err("Respuesta MCP incompleta o demasiado grande".into());
             }
             output.write_all(&line)?;
@@ -318,6 +343,35 @@ pub fn bridge(socket: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn image_results_are_multimodal_without_duplicating_binary_in_structured_data() {
+        let mut registry = Registry::default();
+        registry
+            .register([Tool {
+                definition: json!({"name":"image"}),
+                call: Box::new(|_| {
+                    with_image(
+                        json!({"artifact":"private.jpg"}),
+                        "aA==".into(),
+                        "image/jpeg",
+                    )
+                }),
+            }])
+            .unwrap();
+        let result = registry
+            .respond(
+                json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"image"}}),
+            )
+            .unwrap();
+        assert_eq!(result["result"]["content"][1]["type"], "image");
+        assert_eq!(result["result"]["content"][1]["mimeType"], "image/jpeg");
+        assert_eq!(
+            result["result"]["structuredContent"],
+            json!({"artifact":"private.jpg"})
+        );
+        assert!(with_image(json!({}), "data".into(), "text/html").is_err());
+        assert!(with_image(json!({}), "a".repeat(RESPONSE_LIMIT), "image/jpeg").is_err());
+    }
     #[test]
     fn multiple_clients_are_served_and_idle_connections_do_not_block_shutdown() {
         let mut server =
