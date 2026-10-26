@@ -1,5 +1,8 @@
 //! Registro de planes del usuario; no ejecuta trabajos ni entrega notificaciones.
 mod follow_up;
+mod method;
+pub use method::{Authorization, Method, Route, resolve as resolve_method};
+pub type PluginCatalogue = Arc<dyn Fn() -> Result<Vec<serde_json::Value>> + Send + Sync>;
 mod tools;
 pub use follow_up::FollowUpPolicy;
 use gennie_core::{AppModule, AppState, Migration, Result};
@@ -98,9 +101,14 @@ pub struct Document {
     // Ausente en registros anteriores; no cambia su representación canónica/idempotencia.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub follow_up: Option<FollowUpPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub method: Option<Method>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authorization: Option<Authorization>,
 }
 #[derive(Clone, Debug, Serialize)]
 pub struct Record {
+    pub method_resolution: Option<serde_json::Value>,
     pub id: i64,
     pub revision: u32,
     pub document: Document,
@@ -142,15 +150,40 @@ impl AppModule for AssignmentsModule {
 }
 #[derive(Clone)]
 pub struct Store {
+    catalogue: Option<PluginCatalogue>,
     db: Database,
     revision: Arc<AtomicU64>,
 }
 impl Store {
     pub fn new(db: Database) -> Self {
         Self {
+            catalogue: None,
             db,
             revision: Arc::new(AtomicU64::new(0)),
         }
+    }
+    pub fn with_catalogue(mut self, catalogue: PluginCatalogue) -> Self {
+        self.catalogue = Some(catalogue);
+        self
+    }
+    fn resolve(&self, mut records: Vec<Record>) -> Vec<Record> {
+        if records.iter().any(|r| r.document.method.is_some()) {
+            let catalogue = self
+                .catalogue
+                .as_ref()
+                .map(|f| f())
+                .unwrap_or_else(|| Err("Catálogo no disponible".into()));
+            for record in &mut records {
+                record.method_resolution = match &catalogue {
+                    Ok(catalogue) => resolve_method(&record.document, catalogue),
+                    Err(_) if record.document.method.is_some() => Some(
+                        serde_json::json!({"status":"catalogue_unavailable","execution_enabled":false}),
+                    ),
+                    Err(_) => None,
+                };
+            }
+        }
+        records
     }
     pub fn clock_context(&self) -> Result<serde_json::Value> {
         self.db.with_connection(|c| {
@@ -187,7 +220,7 @@ impl Store {
             Ok(record)
         })?;
         self.revision.fetch_add(1, Ordering::Release);
-        Ok(record)
+        Ok(self.resolve(vec![record]).remove(0))
     }
     pub fn update(&self, id: i64, revision: u32, mut document: Document) -> Result<Record> {
         self.validate(&mut document)?;
@@ -200,16 +233,40 @@ impl Store {
             Ok(record)
         })?;
         self.revision.fetch_add(1, Ordering::Release);
-        Ok(record)
+        Ok(self.resolve(vec![record]).remove(0))
+    }
+    pub fn delete(&self, id: i64, revision: u32) -> Result<()> {
+        self.db.with_connection(|c| {
+            let tx = c.transaction()?;
+            let changed = tx.execute(
+                "DELETE FROM assignments WHERE id=?1 AND revision=?2",
+                params![id, revision],
+            )?;
+            if changed != 1 {
+                return Err(
+                    "El encargo cambió o no existe. Vuelve a consultarlo antes de eliminarlo"
+                        .into(),
+                );
+            }
+            tx.commit()?;
+            Ok(())
+        })?;
+        self.revision.fetch_add(1, Ordering::Release);
+        Ok(())
     }
     pub fn get(&self, id: i64) -> Result<Record> {
-        self.db.with_connection(|c| read(c, id))
+        let record = self.db.with_connection(|c| read(c, id))?;
+        Ok(self.resolve(vec![record]).remove(0))
     }
     pub fn list(&self, offset: u32, limit: u32) -> Result<Vec<Record>> {
+        Ok(self.resolve(self.list_unresolved(offset, limit)?))
+    }
+    /// Lectura sin consultar el navegador para trabajos en segundo plano.
+    pub fn list_unresolved(&self, offset: u32, limit: u32) -> Result<Vec<Record>> {
         if !(1..=100).contains(&limit) {
             return Err("Límite entre 1 y 100".into());
         }
-        self.db.with_connection(|c| {
+        let records = self.db.with_connection(|c| {
             let mut q = c.prepare(
                 "SELECT id FROM assignments ORDER BY updated_at DESC,id DESC LIMIT ?1 OFFSET ?2",
             )?;
@@ -217,9 +274,11 @@ impl Store {
                 .query_map(params![limit, offset], |r| r.get::<_, i64>(0))?
                 .collect::<std::result::Result<Vec<_>, _>>()?;
             ids.into_iter().map(|id| read(c, id)).collect()
-        })
+        })?;
+        Ok(records)
     }
     fn validate(&self, d: &mut Document) -> Result<()> {
+        method::validate(d)?;
         text(&d.title, 200, "Título")?;
         if d.title.chars().any(char::is_control) {
             return Err("El título debe ocupar una sola línea".into());
@@ -257,6 +316,9 @@ impl Store {
                 return Err("La zona horaria no contiene reglas IANA válidas".into());
             }
         }
+        if d.kind == Kind::Recurring && d.notify_at.is_some() {
+            return Err("Un encargo recurrente usa recurrence para la hora local; elimina notify_at o usa null. No conviertas esa hora en una fecha UTC".into());
+        }
         if let Some(at) = &d.notify_at {
             let valid = self.db.with_connection(|c| {
                 Ok(c.query_row(
@@ -276,9 +338,10 @@ impl Store {
                     "Un encargo puntual necesita fecha de aviso y no admite recurrencia".into(),
                 );
             }
-            Kind::Recurring if d.recurrence.is_none() || d.notify_at.is_some() => {
+            Kind::Recurring if d.recurrence.is_none() => {
                 return Err(
-                    "Un encargo recurrente necesita recurrencia local y no fecha puntual".into(),
+                    "Un encargo recurrente necesita recurrence con frecuencia y hora local HH:mm"
+                        .into(),
                 );
             }
             Kind::Goal if d.recurrence.is_some() => return Err(
@@ -337,7 +400,7 @@ impl Store {
                     );
                 }
             }
-            // No hay catálogo de plugins todavía: el agente no puede inventar disponibilidad.
+            // Indicadores históricos: no prueban conexión; la evidencia vigente vive en method_resolution.
             app.plugin_available = false;
             app.manual_required = true;
         }
@@ -368,6 +431,7 @@ fn read(c: &gennie_db::SqliteConnection, id: i64) -> Result<Record> {
         },
     )?;
     Ok(Record {
+        method_resolution: None,
         id,
         revision,
         document: serde_json::from_str(&document)?,

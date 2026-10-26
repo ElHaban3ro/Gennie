@@ -1,0 +1,19 @@
+[package]
+name = "gennie-plugins"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+gennie-core.workspace = true
+gennie-db.workspace = true
+gennie-browser.workspace = true
+gennie-llm.workspace = true
+gennie-mcp.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+reqwest.workspace = true
+
+[dev-dependencies]
+gennie-config.workspace = true

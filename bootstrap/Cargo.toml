@@ -6,7 +6,9 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+gennie-proactivity.workspace = true
 gennie-browser.workspace = true
+gennie-plugins.workspace = true
 gennie-mcp.workspace = true
 gennie-assignments.workspace = true
 gennie-config.workspace = true

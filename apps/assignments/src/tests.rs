@@ -384,3 +384,101 @@ fn conflicting_destination_rolls_back_the_rename_without_losing_legacy_data() {
     })
     .unwrap();
 }
+
+#[test]
+fn method_and_authorization_preserve_legacy_idempotency_and_reject_invented_evidence() {
+    let store = store();
+    let legacy = store.create("legacy-method", document()).unwrap();
+    assert!(legacy.document.method.is_none());
+    assert!(legacy.method_resolution.is_none());
+    let value = serde_json::to_value(&legacy.document).unwrap();
+    assert!(value.get("method").is_none());
+    assert!(value.get("authorization").is_none());
+    assert_eq!(
+        store.create("legacy-method", legacy.document).unwrap().id,
+        legacy.id
+    );
+    let mut d = document();
+    d.method = Some(Method {
+        plugin_id: "mail".into(),
+        functions: vec!["list_http".into(), "list_web".into()],
+    });
+    assert!(store.create("missing-permission", d.clone()).is_err());
+    d.authorization = Some(Authorization {
+        scope: "Consultar pendientes de mi cuenta, sin modificar mensajes".into(),
+        allowed_routes: vec![Route::Web],
+    });
+    let saved = store.create("scoped-method", d.clone()).unwrap();
+    assert_eq!(store.get(saved.id).unwrap().document.method, d.method);
+    assert_eq!(
+        store.get(saved.id).unwrap().document.authorization,
+        d.authorization
+    );
+    assert_eq!(
+        saved.method_resolution.unwrap()["status"],
+        "catalogue_unavailable"
+    );
+    let mut invalid = serde_json::to_value(&d).unwrap();
+    invalid["method"]["verified"] = json!(true);
+    assert!(serde_json::from_value::<Document>(invalid).is_err());
+    d.authorization
+        .as_mut()
+        .unwrap()
+        .allowed_routes
+        .push(Route::Web);
+    assert!(store.update(saved.id, saved.revision, d).is_err());
+    assert_eq!(store.get(saved.id).unwrap().revision, saved.revision);
+}
+
+#[test]
+fn method_resolution_uses_current_evidence_and_permission_without_mutating_the_plan() {
+    let mut d = document();
+    d.method = Some(Method {
+        plugin_id: "mail".into(),
+        functions: vec!["list_http".into(), "list_web".into(), "missing".into()],
+    });
+    d.authorization = Some(Authorization {
+        scope: "Solo consultar".into(),
+        allowed_routes: vec![Route::Web],
+    });
+    let original = d.clone();
+    let mut plugin = json!({"manifest":{"id":"mail","functions":[{"name":"list_http","transport":"http"},{"name":"list_web","transport":"page"}]},"revision":2,"verified":{"list_http":{"revision":2,"verified_at":"2026-10-26T12:00:00Z"},"list_web":{"revision":2,"verified_at":"2026-10-26T12:00:00Z"}}});
+    let resolved = resolve_method(&d, &[plugin.clone()]).unwrap();
+    assert_eq!(resolved["selected"]["function"], "list_web");
+    assert_eq!(resolved["routes"][0]["status"], "not_authorized");
+    assert_eq!(resolved["routes"][2]["status"], "function_missing");
+    assert_eq!(resolved["execution_enabled"], false);
+    plugin["revision"] = json!(3);
+    assert_eq!(
+        resolve_method(&d, &[plugin.clone()]).unwrap()["status"],
+        "unresolved"
+    );
+    assert_eq!(resolve_method(&d, &[]).unwrap()["status"], "plugin_missing");
+    assert_eq!(d, original);
+    let store = store().with_catalogue(Arc::new(move || Ok(vec![plugin.clone()])));
+    let saved = store.create("resolved", d).unwrap();
+    assert_eq!(saved.method_resolution.unwrap()["status"], "unresolved");
+    assert_eq!(
+        store.list(0, 100).unwrap()[0]
+            .method_resolution
+            .as_ref()
+            .unwrap()["status"],
+        "unresolved"
+    );
+}
+
+#[test]
+fn deletion_requires_current_revision_and_only_commits_on_success() {
+    let store = store();
+    let record = store.create("delete", document()).unwrap();
+    let changed = store
+        .update(record.id, record.revision, document())
+        .unwrap();
+    let version = store.revision();
+    assert!(store.delete(record.id, record.revision).is_err());
+    assert_eq!(store.revision(), version);
+    assert_eq!(store.get(record.id).unwrap().revision, changed.revision);
+    store.delete(record.id, changed.revision).unwrap();
+    assert!(store.get(record.id).is_err());
+    assert!(store.list(0, 100).unwrap().is_empty());
+}

@@ -297,6 +297,41 @@ pub fn record_system_message(
     })
 }
 
+/// Destino explícito e idempotente para avances de trabajos; nunca cambia el chat activo.
+pub fn deliver_message(
+    db: &Database,
+    conversation: i64,
+    event_key: &str,
+    text: &str,
+) -> Result<()> {
+    if event_key.is_empty() || event_key.len() > 200 || text.is_empty() || text.len() > 4000 {
+        return Err("Mensaje de trabajo inválido".into());
+    }
+    db.with_connection(|c| {
+        let tx=c.transaction()?;
+        let visible:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM presence_conversations WHERE id=?1 AND deleted=0)",[conversation],|r|r.get(0))?;
+        if !visible {return Ok(());}
+        let inserted=tx.execute("INSERT OR IGNORE INTO presence_message_deliveries(event_key,conversation_id) VALUES(?1,?2)",params![event_key,conversation])?;
+        if inserted>0 {
+            tx.execute("INSERT INTO presence_history(conversation_id,speaker,text) VALUES(?1,'system',?2)",params![conversation,text])?;
+            tx.execute("UPDATE presence_conversations SET updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?1",[conversation])?;
+        }
+        tx.commit()?;Ok(())
+    })
+}
+pub fn conversation_for_thread(db: &Database, thread: &str) -> Result<i64> {
+    db.with_connection(|c|Ok(c.query_row("SELECT id FROM presence_conversations WHERE provider='codex' AND provider_thread_id=?1 AND deleted=0",[thread],|r|r.get(0))?))
+}
+pub fn conversation_exists(db: &Database, id: i64) -> Result<bool> {
+    db.with_connection(|c| {
+        Ok(c.query_row(
+            "SELECT EXISTS(SELECT 1 FROM presence_conversations WHERE id=?1 AND deleted=0)",
+            [id],
+            |r| r.get(0),
+        )?)
+    })
+}
+
 pub fn load(db: &Database, selected: Option<i64>) -> Result<Snapshot> {
     db.with_connection(|connection| {
         // El índice (conversation_id,id) resuelve el último mensaje sin cargar
@@ -337,6 +372,44 @@ mod tests {
     fn migrate(db: &Database) {
         let module = crate::PresenceModule::default();
         db.migrate(module.name(), module.migrations()).unwrap();
+    }
+    #[test]
+    fn plugin_messages_keep_the_origin_and_are_idempotent_after_chat_changes() {
+        let db = Database::memory().unwrap();
+        migrate(&db);
+        let journal = journal(&db);
+        activate(&journal, "first");
+        let first = conversation_for_thread(&db, "first").unwrap();
+        activate(&journal, "second");
+        let second = conversation_for_thread(&db, "second").unwrap();
+        deliver_message(&db, first, "build:1", "Primer avance").unwrap();
+        deliver_message(&db, first, "build:1", "Primer avance").unwrap();
+        deliver_message(&db, second, "build:2", "Segundo avance").unwrap();
+        let one = load(&db, Some(first)).unwrap();
+        assert_eq!(one.active_id, Some(second));
+        assert_eq!(one.selected_messages.len(), 1);
+        assert_eq!(one.selected_messages[0].text, "Primer avance");
+        delete(&db, first).unwrap();
+        deliver_message(&db, first, "build:3", "Respuesta tardía").unwrap();
+        assert!(!conversation_exists(&db, first).unwrap());
+        assert_eq!(load(&db, None).unwrap().conversations.len(), 1);
+    }
+    #[test]
+    fn failed_plugin_message_rolls_back_delivery_receipt() {
+        let db = Database::memory().unwrap();
+        migrate(&db);
+        let journal = journal(&db);
+        activate(&journal, "first");
+        let id = conversation_for_thread(&db, "first").unwrap();
+        db.with_connection(|c|{c.execute_batch("CREATE TRIGGER reject_plugin_message BEFORE INSERT ON presence_history BEGIN SELECT RAISE(ABORT,'blocked'); END;")?;Ok(())}).unwrap();
+        assert!(deliver_message(&db, id, "build:1", "Avance").is_err());
+        db.with_connection(|c| {
+            c.execute_batch("DROP TRIGGER reject_plugin_message")?;
+            Ok(())
+        })
+        .unwrap();
+        deliver_message(&db, id, "build:1", "Avance").unwrap();
+        assert_eq!(load(&db, Some(id)).unwrap().selected_messages.len(), 1);
     }
     #[test]
     fn system_notices_rollback_on_failure_and_do_not_revive_deleted_chats() {

@@ -67,6 +67,8 @@ pub struct ModelInfo {
 
 #[derive(Clone, Debug)]
 pub struct AssignmentRecord {
+    /// Resolución técnica actual; no forma parte del documento editable ni prueba ejecución.
+    pub method_resolution: Option<String>,
     pub id: String,
     pub revision: u32,
     /// Documento JSON validado por el módulo assignments; el frontend solo lo presenta/edita.
@@ -181,4 +183,14 @@ pub fn save_assignment(
         request_key,
         document,
     ))
+}
+
+/// Elimina el encargo únicamente si su revisión sigue vigente.
+pub fn delete_assignment(id: String, expected_revision: u32) -> Result<Snapshot, String> {
+    runtime::request(Operation::DeleteAssignment(id, expected_revision))
+}
+
+/// Catálogo, constructor aislado y pruebas manuales; sin ejecución periódica.
+pub fn plugin_request(request: String) -> Result<String, String> {
+    runtime::plugin_request(request)
 }

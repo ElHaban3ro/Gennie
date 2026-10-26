@@ -89,7 +89,22 @@ Future<Snapshot> saveAssignment({
   document: document,
 );
 
+/// Elimina el encargo únicamente si su revisión sigue vigente.
+Future<Snapshot> deleteAssignment({
+  required String id,
+  required int expectedRevision,
+}) => RustLib.instance.api.crateApiDeleteAssignment(
+  id: id,
+  expectedRevision: expectedRevision,
+);
+
+/// Catálogo, constructor aislado y pruebas manuales; sin ejecución periódica.
+Future<String> pluginRequest({required String request}) =>
+    RustLib.instance.api.crateApiPluginRequest(request: request);
+
 class AssignmentRecord {
+  /// Resolución técnica actual; no forma parte del documento editable ni prueba ejecución.
+  final String? methodResolution;
   final String id;
   final int revision;
 
@@ -99,6 +114,7 @@ class AssignmentRecord {
   final String updatedAt;
 
   const AssignmentRecord({
+    this.methodResolution,
     required this.id,
     required this.revision,
     required this.document,
@@ -108,6 +124,7 @@ class AssignmentRecord {
 
   @override
   int get hashCode =>
+      methodResolution.hashCode ^
       id.hashCode ^
       revision.hashCode ^
       document.hashCode ^
@@ -119,6 +136,7 @@ class AssignmentRecord {
       identical(this, other) ||
       other is AssignmentRecord &&
           runtimeType == other.runtimeType &&
+          methodResolution == other.methodResolution &&
           id == other.id &&
           revision == other.revision &&
           document == other.document &&

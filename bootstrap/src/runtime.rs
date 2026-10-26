@@ -17,6 +17,7 @@ type Reply = Sender<std::result::Result<Snapshot, String>>;
 pub(crate) enum Operation {
     Select(Option<String>),
     SaveAssignment(Option<String>, Option<u32>, String, String),
+    DeleteAssignment(String, u32),
     Send(String),
     NewChat,
     Connect,
@@ -39,6 +40,7 @@ struct Handle {
     sender: SyncSender<(Operation, Reply)>,
     thread: JoinHandle<()>,
 }
+static PLUGINS: Mutex<Option<gennie_plugins::Controller>> = Mutex::new(None);
 static HANDLE: Mutex<Option<Handle>> = Mutex::new(None);
 static CURRENT: Mutex<Option<Snapshot>> = Mutex::new(None);
 static SINKS: Mutex<Vec<StreamSink<Snapshot>>> = Mutex::new(Vec::new());
@@ -64,6 +66,9 @@ pub(crate) fn start(env: String, helper: String) -> std::result::Result<Snapshot
                     return;
                 }
             };
+            if let Ok(mut slot) = PLUGINS.lock() {
+                *slot = Some(backend.plugins.clone());
+            }
             backend.publish();
             let _ = ready_tx.send(Ok(backend.snapshot.clone()));
             loop {
@@ -172,6 +177,7 @@ pub(crate) fn stop() -> std::result::Result<(), String> {
             .thread
             .join()
             .map_err(|_| "El coordinador terminó inesperadamente")?;
+        *PLUGINS.lock().map_err(|_| "Estado de plugins inválido")? = None;
         SINKS.lock().map_err(|_| "Canal inválido")?.clear();
         *CURRENT.lock().map_err(|_| "Estado inválido")? = None;
         outcome?;
@@ -179,7 +185,66 @@ pub(crate) fn stop() -> std::result::Result<(), String> {
     Ok(())
 }
 
+pub(crate) fn plugin_request(request: String) -> std::result::Result<String, String> {
+    if request.len() > 128 * 1024 {
+        return Err("Petición de plugins demasiado grande".into());
+    }
+    let controller = PLUGINS
+        .lock()
+        .map_err(|_| "Estado de plugins inválido")?
+        .clone()
+        .ok_or("Backend de plugins no iniciado")?;
+    let request = serde_json::from_str(&request).map_err(|_| "Petición JSON no válida")?;
+    controller
+        .request(request)
+        .and_then(|result| Ok(serde_json::to_string(&result)?))
+        .map_err(|error| error.to_string())
+}
+/// Enlaza el commit con la preparación técnica sin convertir un fallo posterior en fallo de guardado.
+fn assignment_tool_with_preparation(
+    tool: &mut gennie_mcp::Tool,
+    prepare: impl Fn(&serde_json::Value) -> Result<serde_json::Value> + Send + Sync + 'static,
+) {
+    let previous = std::mem::replace(
+        &mut tool.call,
+        Box::new(|_| Err("Herramienta en preparación".into())),
+    );
+    tool.call = Box::new(move |args| {
+        let mut response = previous(args)?;
+        if response["assignment"].is_object() {
+            response["plugin_preparation"] = match prepare(&response["assignment"]) {
+                Ok(value) => value,
+                Err(error) => {
+                    serde_json::json!({"status":"not_started","message":error.to_string()})
+                }
+            };
+        }
+        Ok(response)
+    });
+}
+struct PluginJournal {
+    db: Database,
+    invocation: Arc<Mutex<Option<String>>>,
+    revision: Arc<std::sync::atomic::AtomicU64>,
+}
+impl gennie_plugins::BuildJournal for PluginJournal {
+    fn origin(&self) -> Result<i64> {
+        let thread=self.invocation.lock().map_err(|_|"Contexto emisor inválido")?.clone().ok_or("No hay un turno emisor para este trabajo. Selecciona un chat de origen desde Plugins")?;
+        history::conversation_for_thread(&self.db, &thread)
+    }
+    fn exists(&self, id: i64) -> Result<bool> {
+        history::conversation_exists(&self.db, id)
+    }
+    fn deliver(&self, id: i64, key: &str, text: &str) -> Result<()> {
+        history::deliver_message(&self.db, id, key, text)?;
+        self.revision
+            .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+        Ok(())
+    }
+}
 struct Backend {
+    plugins: gennie_plugins::Controller,
+    plugins_observed: u64,
     state: AppState,
     assignments: gennie_assignments::Store,
     assignments_observed: u64,
@@ -204,7 +269,8 @@ struct Backend {
 impl Backend {
     fn open(env: &str, helper: &str) -> Result<Self> {
         let config = desktop_config(env)?;
-        let mut backend = Self::open_config(config, helper)?;
+        let secrets = gennie_config::Secrets::load(Path::new(env))?;
+        let mut backend = Self::open_config_with_secrets(config, helper, secrets)?;
         // Adelantar conexión y descubrimiento al arranque, fuera del hilo Flutter.
         if let Some(controller) = &backend.llm {
             controller.connect()?;
@@ -213,7 +279,15 @@ impl Backend {
         }
         Ok(backend)
     }
+    #[cfg(test)]
     fn open_config(config: gennie_config::Config, helper: &str) -> Result<Self> {
+        Self::open_config_with_secrets(config, helper, gennie_config::Secrets::default())
+    }
+    fn open_config_with_secrets(
+        config: gennie_config::Config,
+        helper: &str,
+        secrets: gennie_config::Secrets,
+    ) -> Result<Self> {
         gennie_transcription::configure_helper(helper.into())?;
         let db = Database::open(&config.database_path, config.db_busy_timeout_ms)?;
         let state = AppState {
@@ -221,7 +295,7 @@ impl Backend {
             db,
             shutdown: Shutdown::default(),
         };
-        let assignments = gennie_assignments::Store::new(state.db.clone());
+
         let mut mcp = None;
         let presence = Arc::new(PresenceModule::default());
         let revision = presence.revision();
@@ -234,7 +308,34 @@ impl Backend {
         let reminders = Arc::new(gennie_reminders_plugin::RemindersPluginModule::default());
         let browser_module = Arc::new(gennie_browser::BrowserModule::default());
         let browser = browser_module.controller();
-        let modules = registry::build(
+        let catalogue_browser = browser.clone();
+        let assignments =
+            gennie_assignments::Store::new(state.db.clone()).with_catalogue(Arc::new(move || {
+                let result = catalogue_browser
+                    .call(serde_json::json!({"method":"plugins","action":"list"}))?;
+                Ok(result["plugins"]
+                    .as_array()
+                    .ok_or("Catálogo de plugins inválido")?
+                    .clone())
+            }));
+        let provider_llm = llm.clone();
+        let plugins_module = Arc::new(gennie_plugins::PluginsModule::new(
+            state.db.clone(),
+            browser.clone(),
+            Arc::new(PluginJournal {
+                db: state.db.clone(),
+                invocation: llm.invocation_context(),
+                revision: revision.clone(),
+            }),
+            Arc::new(move || Ok(provider_llm.controller()?.settings())),
+            Path::new(helper).to_path_buf(),
+            std::env::var_os("HOME")
+                .map(std::path::PathBuf::from)
+                .unwrap_or_default()
+                .join("Library/Application Support/Gennie/plugins/builds"),
+        ));
+        let plugins = plugins_module.controller();
+        let mut modules = registry::build(
             presence,
             transcription.clone(),
             decisions.clone(),
@@ -243,6 +344,10 @@ impl Backend {
             reminders,
             browser_module,
         );
+        modules.push(plugins_module);
+        modules.push(Arc::new(gennie_proactivity::ProactivityModule::new(
+            secrets.openrouter_api_key,
+        )));
         let setup = (|| {
             let order = registry::order(&modules)?;
             let active = startup::register(&state.db, &modules)?;
@@ -254,10 +359,56 @@ impl Backend {
             }
             let mut tools = gennie_mcp::Registry::default();
             if active.contains("assignments") {
-                tools.register(gennie_assignments::tools(assignments.clone()))?;
+                let mut assignment_tools = gennie_assignments::tools(assignments.clone());
+                for tool in &mut assignment_tools {
+                    if matches!(
+                        tool.definition["name"].as_str(),
+                        Some("assignments_create" | "assignments_update")
+                    ) {
+                        let plugins = plugins.clone();
+                        let available = active.contains("plugins")
+                            && active.contains("browser")
+                            && active.contains("llm");
+                        assignment_tool_with_preparation(tool, move |assignment| {
+                            if available {
+                                plugins.prepare_assignment(assignment, None)
+                            } else {
+                                Ok(
+                                    serde_json::json!({"status":"not_started","message":"El constructor de plugins no está disponible"}),
+                                )
+                            }
+                        });
+                    }
+                }
+                tools.register(assignment_tools)?;
             }
             if active.contains("browser") {
-                tools.register(gennie_browser::tools(browser.clone()))?;
+                let mut browser_tools = gennie_browser::tools(browser.clone());
+                if active.contains("plugins") {
+                    for tool in &mut browser_tools {
+                        if tool.definition["name"] == "browser_plugins" {
+                            let previous = std::mem::replace(
+                                &mut tool.call,
+                                Box::new(|_| Err("Herramienta en preparación".into())),
+                            );
+                            let plugins = plugins.clone();
+                            let schema = tool.definition["inputSchema"].clone();
+                            tool.call = Box::new(move |args| {
+                                if args["action"] == "delete" {
+                                    gennie_browser::validate_arguments(&schema, &args)?;
+                                    return plugins.request(args);
+                                }
+                                let response = previous(args.clone())?;
+                                plugins.catalogue_changed(&args, &response)?;
+                                Ok(response)
+                            });
+                        }
+                    }
+                }
+                tools.register(browser_tools)?;
+            }
+            if active.contains("plugins") && active.contains("browser") && active.contains("llm") {
+                tools.register(gennie_plugins::tools(plugins.clone()))?;
             }
             let server = gennie_mcp::Server::start(tools, Path::new(helper))?;
             llm.configure_tools(server.launch())?;
@@ -275,6 +426,8 @@ impl Backend {
             }
         };
         let mut backend = Self {
+            plugins,
+            plugins_observed: 0,
             state,
             assignments,
             assignments_observed: 0,
@@ -314,6 +467,31 @@ impl Backend {
             backend.decisions = Some(decisions.manual_controller()?);
         }
         backend.refresh()?;
+        if active.contains("assignments")
+            && active.contains("plugins")
+            && active.contains("browser")
+            && active.contains("llm")
+        {
+            let assignments = backend.assignments.clone();
+            let db = backend.state.db.clone();
+            backend.plugins.reconcile_assignments(Arc::new(move || {
+                let mut records = Vec::new();
+                let mut offset = 0;
+                loop {
+                    let page = assignments.list_unresolved(offset, 100)?;
+                    let len = page.len();
+                    for record in page {
+                        records.push(serde_json::to_value(record)?);
+                    }
+                    if len < 100 {
+                        break;
+                    }
+                    offset += 100;
+                }
+                let chat = history::load(&db, None)?.active_id;
+                Ok((records, chat))
+            }))?;
+        }
         Ok(backend)
     }
     fn refresh(&mut self) -> Result<()> {
@@ -353,10 +531,23 @@ impl Backend {
             .list(0, 100)?
             .into_iter()
             .map(|r| {
+                let mut resolution = r
+                    .method_resolution
+                    .clone()
+                    .unwrap_or_else(|| serde_json::json!({}));
+                resolution["sources"] = serde_json::to_value(
+                    self.plugins
+                        .assignment_sources(&serde_json::to_value(&r)?)?,
+                )?;
                 Ok(AssignmentRecord {
                     id: r.id.to_string(),
                     revision: r.revision,
                     document: serde_json::to_string(&r.document)?,
+                    method_resolution: if resolution.as_object().is_some_and(|v| !v.is_empty()) {
+                        Some(serde_json::to_string(&resolution)?)
+                    } else {
+                        None
+                    },
                     created_at: r.created_at,
                     updated_at: r.updated_at,
                 })
@@ -424,6 +615,7 @@ impl Backend {
         ]
     }
     fn refresh_controls(&mut self) {
+        self.plugins.cancel_if_disallowed();
         self.browser
             .set_file_access_allowed(self.llm.as_ref().is_some_and(|c| c.settings().read_files));
         self.browser
@@ -488,16 +680,42 @@ impl Backend {
                     return Err("El módulo de encargos está desactivado".into());
                 }
                 let document = serde_json::from_str(&document)?;
-                match (id, revision) {
-                    (None, None) => {
-                        self.assignments.create(&key, document)?;
-                    }
+                let record = match (id, revision) {
+                    (None, None) => self.assignments.create(&key, document)?,
                     (Some(id), Some(revision)) => {
-                        self.assignments.update(id.parse()?, revision, document)?;
+                        self.assignments.update(id.parse()?, revision, document)?
                     }
                     _ => return Err("Edición de encargo incompleta".into()),
+                };
+                let has_web = record
+                    .document
+                    .applications
+                    .iter()
+                    .any(|a| a.kind == gennie_assignments::AppKind::Web);
+                let confirmation = if has_web {
+                    let chat = self
+                        .snapshot
+                        .selected_id
+                        .as_deref()
+                        .and_then(|s| s.parse::<i64>().ok());
+                    match chat {
+                        None => "Encargo guardado. Selecciona un chat para delegar la preparación del plugin.".to_owned(),
+                        Some(chat) => match self.plugins.prepare_assignment(&serde_json::to_value(record)?, Some(chat)) {
+                            Ok(result) if result["sources"].as_array().is_some_and(|s| s.iter().all(|v| v["status"] == "started")) => "Encargo guardado. Delegué la preparación del plugin; sus avances llegarán al chat seleccionado.".to_owned(),
+                            Ok(_) => "Encargo guardado. La preparación del plugin necesita atención; revisa Plugins.".to_owned(),
+                            Err(e) => format!("Encargo guardado. No pude iniciar el plugin: {e}"),
+                        },
+                    }
+                } else {
+                    "Encargo guardado.".to_owned()
+                };
+                self.snapshot.confirmation = Some(confirmation);
+            }
+            Operation::DeleteAssignment(id, revision) => {
+                if !self.assignments_enabled {
+                    return Err("El módulo de encargos está desactivado".into());
                 }
-                self.snapshot.confirmation = Some("Encargo guardado.".into());
+                self.assignments.delete(id.parse()?, revision)?;
             }
             Operation::Select(id) => {
                 if self.snapshot.selected_id != id {
@@ -803,9 +1021,11 @@ impl Backend {
         let history_changed =
             self.observed != self.revision.load(std::sync::atomic::Ordering::Acquire);
         let assignments_changed = self.assignments_observed != self.assignments.revision();
-        dirty |= history_changed || assignments_changed;
+        let plugins_changed = self.plugins_observed != self.plugins.revision();
+        self.plugins_observed = self.plugins.revision();
+        dirty |= history_changed || assignments_changed || plugins_changed;
         if dirty {
-            if history_changed || assignments_changed || refresh_history {
+            if history_changed || assignments_changed || refresh_history || plugins_changed {
                 if let Err(e) = self.refresh() {
                     self.snapshot.error = Some(e.to_string());
                     self.snapshot.error_recorded = false;

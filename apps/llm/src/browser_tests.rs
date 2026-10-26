@@ -19,6 +19,24 @@ fn capabilities_distinguish_missing_tools_from_disabled_permissions() {
         false
     );
 
+    assert_eq!(ready["web_plugins"]["available"], false);
+    let mut with_plugins = tools.clone();
+    with_plugins.extend(["browser_plugins".into(), "browser_plugin_run".into()]);
+    let plugin_ready = session_capabilities(&settings, &with_plugins);
+    assert_eq!(plugin_ready["web_plugins"]["available"], true);
+    assert_eq!(
+        plugin_ready["web_plugins"]["background_builder_available"],
+        false
+    );
+    assert_eq!(
+        plugin_ready["web_plugins"]["scheduled_execution_available"],
+        false
+    );
+    with_plugins.push("plugin_build_start".into());
+    assert_eq!(
+        session_capabilities(&settings, &with_plugins)["web_plugins"]["background_builder_available"],
+        true
+    );
     let absent = session_capabilities(&settings, &[]);
     assert_eq!(absent["gennie_web"]["available"], false);
     assert_eq!(absent["gennie_web"]["tools_registered"], false);
@@ -29,6 +47,10 @@ fn capabilities_distinguish_missing_tools_from_disabled_permissions() {
     settings.local_actions = false;
     let disabled = session_capabilities(&settings, &tools);
     assert_eq!(disabled["gennie_web"]["available"], false);
+    assert_eq!(
+        session_capabilities(&settings, &with_plugins)["web_plugins"]["available"],
+        false
+    );
     assert_eq!(disabled["gennie_web"]["tools_registered"], true);
     assert_eq!(disabled["gennie_web"]["permission_enabled"], false);
     assert_eq!(disabled["computer_control"]["permission_enabled"], false);

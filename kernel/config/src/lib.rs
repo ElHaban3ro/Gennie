@@ -11,12 +11,35 @@ pub struct Config {
     pub database_path: PathBuf,
     pub db_busy_timeout_ms: u64,
 }
-// Ningún secreto requerido en esta base; nunca se incluye en AppState.
-pub struct Secrets;
+// Secreto opcional, separado de Config y nunca incluido en AppState o Debug.
+#[derive(Default)]
+pub struct Secrets {
+    pub openrouter_api_key: Option<String>,
+}
+impl Secrets {
+    pub fn load(env_file: &Path) -> Result<Self> {
+        let mut key = None;
+        if env_file.exists() {
+            for entry in dotenvy::from_path_iter(env_file).map_err(|_| "No se pudo leer .env")? {
+                let (name, value) = entry.map_err(|_| "Sintaxis inválida en .env")?;
+                if name == "GENNIE_OPENROUTER_API_KEY" {
+                    key = Some(value);
+                }
+            }
+        }
+        if let Ok(value) = std::env::var("GENNIE_OPENROUTER_API_KEY") {
+            key = Some(value);
+        }
+        Ok(Self {
+            openrouter_api_key: key.filter(|s| !s.trim().is_empty()),
+        })
+    }
+}
 
 pub const VARIABLES: &[(&str, Option<&str>)] = &[
     ("GENNIE_DATABASE_PATH", None),
     ("GENNIE_DB_BUSY_TIMEOUT_MS", Some("500")),
+    ("GENNIE_OPENROUTER_API_KEY", None),
 ];
 
 impl Config {
@@ -45,7 +68,15 @@ impl Config {
                 values.insert((*key).into(), value);
             }
         }
-        Ok((Self::from_values(&values)?, Secrets))
+        Ok((
+            Self::from_values(&values)?,
+            Secrets {
+                openrouter_api_key: values
+                    .get("GENNIE_OPENROUTER_API_KEY")
+                    .filter(|s| !s.trim().is_empty())
+                    .cloned(),
+            },
+        ))
     }
 
     pub fn from_values(values: &BTreeMap<String, String>) -> Result<Self> {
@@ -102,6 +133,21 @@ mod tests {
                 assert_eq!(entries[key], *default);
             }
         }
+    }
+    #[test]
+    fn optional_openrouter_secret_obeys_environment_precedence() {
+        let path = std::env::temp_dir().join(format!("gennie-secret-test-{}", std::process::id()));
+        std::fs::write(
+            &path,
+            "GENNIE_DATABASE_PATH=file.sqlite3\nGENNIE_OPENROUTER_API_KEY=file-key\n",
+        )
+        .unwrap();
+        let (_, secrets) = Config::load_with(&path, |key| {
+            (key == "GENNIE_OPENROUTER_API_KEY").then(|| "env-key".into())
+        })
+        .unwrap();
+        assert_eq!(secrets.openrouter_api_key.as_deref(), Some("env-key"));
+        std::fs::remove_file(path).unwrap();
     }
     #[test]
     fn environment_overrides_file_without_global_mutation() {

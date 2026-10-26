@@ -4,10 +4,12 @@ use gennie_db::Database;
 use serde_json::{Value, json};
 use std::{
     io::{BufRead, BufReader, Write},
+    os::unix::process::CommandExt,
     path::{Path, PathBuf},
     process::{Child, ChildStdin, Command, Stdio},
     sync::{
         Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
         mpsc::{self, Receiver, RecvTimeoutError},
     },
     thread::JoinHandle,
@@ -143,16 +145,36 @@ fn save_recorded_thread(
 }
 
 #[derive(Clone, Default)]
-pub struct ProcessHandle(Arc<Mutex<Option<Child>>>);
+pub struct ProcessHandle(Arc<Mutex<Option<Child>>>, Arc<AtomicBool>);
 impl ProcessHandle {
+    pub fn cancel(&self) {
+        self.1.store(true, Ordering::Release);
+        self.kill();
+    }
     pub fn kill(&self) {
         if let Ok(mut guard) = self.0.lock()
             && let Some(mut child) = guard.take()
         {
+            let _ = Command::new("/bin/kill")
+                .args(["-KILL", "--", &format!("-{}", child.id())])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status();
             let _ = child.kill();
             let _ = child.wait();
         }
     }
+}
+
+enum ConnectionMode {
+    Conversation {
+        db: Database,
+        new_chat: bool,
+    },
+    Builder {
+        instructions: String,
+        saved_thread: Option<String>,
+    },
 }
 
 pub struct Session {
@@ -216,7 +238,28 @@ impl Session {
         journal: Option<Arc<dyn ConversationJournal>>,
         tools: Option<gennie_mcp::Launch>,
     ) -> Result<Self> {
+        Self::connect_scoped(
+            process,
+            base,
+            settings,
+            journal,
+            tools,
+            ConnectionMode::Conversation {
+                db: db.clone(),
+                new_chat,
+            },
+        )
+    }
+    fn connect_scoped(
+        process: ProcessHandle,
+        base: PathBuf,
+        settings: &Settings,
+        journal: Option<Arc<dyn ConversationJournal>>,
+        tools: Option<gennie_mcp::Launch>,
+        mode: ConnectionMode,
+    ) -> Result<Self> {
         settings.validate()?;
+        let builder = matches!(&mode, ConnectionMode::Builder { .. });
         let cwd = base.join("workspace");
         std::fs::create_dir_all(&cwd)?;
         let codex_home = prepare_codex_home(&base)?;
@@ -265,11 +308,20 @@ impl Session {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
+            .process_group(0)
             .spawn()
             .map_err(|_| "No se pudo abrir Codex CLI. Instálalo o comprueba su ruta")?;
         let stdin = child.stdin.take().ok_or("Codex no abrió stdin")?;
         let stdout = child.stdout.take().ok_or("Codex no abrió stdout")?;
-        *process.0.lock().map_err(|_| "Proceso de Codex inválido")? = Some(child);
+        {
+            let mut handle = process.0.lock().map_err(|_| "Proceso de Codex inválido")?;
+            if process.1.load(Ordering::Acquire) {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err("Constructor cancelado".into());
+            }
+            *handle = Some(child);
+        }
         let (sender, lines) = mpsc::channel();
         let reader = std::thread::Builder::new()
             .name("codex-output".into())
@@ -342,8 +394,20 @@ impl Session {
         }
         session.title_effort = crate::title::minimum_effort(selected);
         session.model = settings.model.clone();
-        let saved = if new_chat { None } else { load_thread(db)? };
-        let instructions = instructions(settings, &session.tool_names);
+        let saved = match &mode {
+            ConnectionMode::Conversation { db, new_chat } => {
+                if *new_chat {
+                    None
+                } else {
+                    load_thread(db)?
+                }
+            }
+            ConnectionMode::Builder { saved_thread, .. } => saved_thread.clone(),
+        };
+        let instructions = match &mode {
+            ConnectionMode::Conversation { .. } => instructions(settings, &session.tool_names),
+            ConnectionMode::Builder { instructions, .. } => instructions.clone(),
+        };
         let (method, params) = match saved.as_deref() {
             Some(thread_id) => (
                 "thread/resume",
@@ -366,14 +430,17 @@ impl Session {
         {
             return Err("El proveedor reanudó una conversación distinta".into());
         }
-        save_recorded_thread(
-            db,
-            thread_id,
-            thread
-                .pointer("/thread/name")
-                .map(|value| value.as_str().unwrap_or("")),
-            session.journal.as_deref(),
-        )?;
+        if let ConnectionMode::Conversation { db, .. } = &mode {
+            save_recorded_thread(
+                db,
+                thread_id,
+                thread
+                    .pointer("/thread/name")
+                    .map(|value| value.as_str().unwrap_or("")),
+                session.journal.as_deref(),
+            )?;
+        }
+        debug_assert!(!builder || session.journal.is_none());
         session.thread_id = thread_id.into();
         if let Some(tools) = &tools {
             session.discover_tools(tools)?;
@@ -381,6 +448,43 @@ impl Session {
         Ok(session)
     }
 
+    pub(crate) fn connect_builder(
+        process: ProcessHandle,
+        base: PathBuf,
+        settings: &Settings,
+        tools: gennie_mcp::Launch,
+        instructions: String,
+        saved_thread: Option<String>,
+    ) -> Result<Self> {
+        let restricted = Settings {
+            model: settings.model.clone(),
+            effort: settings.effort.clone(),
+            read_files: false,
+            write_files: false,
+            run_commands: false,
+            local_actions: false,
+        };
+        Self::connect_scoped(
+            process,
+            base,
+            &restricted,
+            None,
+            Some(tools),
+            ConnectionMode::Builder {
+                instructions,
+                saved_thread,
+            },
+        )
+    }
+    pub(crate) fn thread_id(&self) -> &str {
+        &self.thread_id
+    }
+    pub(crate) fn build_turn(&mut self, text: &str, seconds: u64) -> Result<()> {
+        let mut request =
+            turn_start_request(&self.thread_id, &self.cwd, &self.model, &self.effort, text);
+        request["id"] = json!(9); // Activa el drenaje de turn/interrupt en errores del constructor.
+        self.run_turn(request, Duration::from_secs(seconds), &mut |_| Ok(()))
+    }
     fn discover_tools(&mut self, tools: &gennie_mcp::Launch) -> Result<()> {
         self.send(
             json!({"jsonrpc":"2.0","id":13,"method":"mcpServerStatus/list","params":{
@@ -732,6 +836,12 @@ fn session_capabilities(settings: &Settings, tool_names: &[String]) -> Value {
             "file_read_permission_enabled":settings.read_files,
             "upload_available":has_browser && local_control && settings.read_files && tool_names.iter().any(|name| name == "browser_upload")
         },
+        "web_plugins": {
+            "available": local_control && ["browser_plugins", "browser_plugin_run"].iter().all(|required| tool_names.iter().any(|name| name == required)),
+            "background_builder_available":local_control && tool_names.iter().any(|name| name == "plugin_build_start"),
+            "scheduled_execution_available":false,
+            "authentication":"solo cuando la operación requiere acceso y la sesión existente no basta"
+        },
         "computer_control": {"permission_enabled":local_control,"system_permission_verified":false},
         "commands": {"permission_enabled":settings.run_commands,"network_enabled":false}
     })
@@ -741,6 +851,7 @@ fn instructions(settings: &Settings, tool_names: &[String]) -> String {
     text.push_str(" Si el MCP local gennie ofrece herramientas assignments_*, úsalas para registrar, consultar y actualizar encargos a petición del usuario o cuando acepte claramente una propuesta tuya. No escribas directamente sus archivos ni SQLite. Hay encargos puntuales, recurrentes y objetivos. Antes de crear, consulta assignments_list para obtener fecha UTC, zona horaria del sistema y encargos existentes; usa esa referencia salvo que el usuario indique otra zona. Separa estrictamente el horario de aviso al usuario de la cadencia de preparación interna; revisiones frecuentes no implican avisos frecuentes. Elige prioridad, pasos e intervalo según el objetivo y justifica la cadencia. Usa la referencia horaria de assignments_list sin preguntar la zona salvo contradicción. Completa tú título, descripción, tipo, prioridad, pasos y seguimiento a partir de la necesidad aceptada; no conviertas los campos del registro en preguntas. Pregunta solo por el principal dato indispensable que siga faltando, como un horario obligatorio o una fuente ambigua. No inventes horarios ni cuentas. El motivo y otros campos opcionales pueden quedar vacíos. Conserva el contexto e identifica las inferencias. No inventes plugins ni acceso a cuentas. Si hay herramientas browser_*, el navegador de Gennie permite trabajo web autorizado sobre sesiones verificadas; no implica conexión nativa de esas aplicaciones ni ejecución autónoma de encargos. Registrar un encargo solo acredita su guardado. Confirma los datos acordados, sin añadir avisos de implementación o integración pendiente. No deduzcas del registro que una revisión se ejecutó o una conexión quedó activada. Confirma el guardado únicamente cuando assignments_create/assignments_update devuelva éxito; ante errores corrige datos o pide lo que falte. Antes de editar consulta assignments_get y usa su revision. Reutiliza request_key solo para repetir la misma creación; una solicitud nueva necesita otra clave. Estas herramientas registran datos propios de Gennie y son independientes de los permisos de archivos/comandos del ordenador. No hay herramientas de memoria todavía.");
     text.push_str("\n\n");
     text.push_str(include_str!("web-research-instructions.md"));
+    text.push_str(include_str!("web-plugin-instructions.md"));
     text.push_str("\n\nCapacidades de esta sesión, derivadas de las herramientas registradas y los permisos vigentes; no son una autorización general para actuar:\n");
     text.push_str(&session_capabilities(settings, tool_names).to_string());
     text.push_str("\nUsa esta disponibilidad actual, aunque un mensaje anterior tuyo haya negado acceso. No confundas la ausencia de plugins o conectores nativos con la ausencia del navegador por MCP. Si gennie_web.available es true, tienes Gennie Web y debes intentar su API antes de afirmar que no puedes acceder a ese navegador. Si es false, distingue herramienta ausente de permiso desactivado y no intentes eludir esa restricción. La red de los comandos está desactivada; un fallo de curl/wget no implica que la búsqueda web o Playwright estén bloqueados. No gastes intentos equivalentes contra la misma restricción.");

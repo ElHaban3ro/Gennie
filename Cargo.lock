@@ -647,7 +647,9 @@ dependencies = [
  "gennie-decisions",
  "gennie-llm",
  "gennie-mcp",
+ "gennie-plugins",
  "gennie-presence",
+ "gennie-proactivity",
  "gennie-reminders-plugin",
  "gennie-transcription",
  "gennie-tts",
@@ -728,6 +730,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "gennie-plugins"
+version = "0.1.0"
+dependencies = [
+ "gennie-browser",
+ "gennie-config",
+ "gennie-core",
+ "gennie-db",
+ "gennie-llm",
+ "gennie-mcp",
+ "reqwest",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "gennie-presence"
 version = "0.1.0"
 dependencies = [
@@ -735,6 +752,16 @@ dependencies = [
  "gennie-db",
  "gennie-llm",
  "pulldown-cmark",
+]
+
+[[package]]
+name = "gennie-proactivity"
+version = "0.1.0"
+dependencies = [
+ "gennie-core",
+ "reqwest",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

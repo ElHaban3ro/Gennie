@@ -49,6 +49,8 @@ impl Fixture {
                 "tts",
                 "reminders_plugin",
                 "browser",
+                "plugins",
+                "proactivity",
             ] {
                 tx.execute(
                     "INSERT INTO modules(name,active) VALUES(?1,?2)",
@@ -537,4 +539,109 @@ fn assignment_commit_refreshes_snapshot_and_survives_reopen_without_provider() {
     assert_eq!(reopened.snapshot.assignments.len(), 1);
     assert!(reopened.snapshot.assignments[0].document.contains("paused"));
     reopened.close().unwrap();
+}
+
+#[test]
+fn plugin_origin_comes_from_the_emitting_turn_not_the_active_or_selected_chat() {
+    use gennie_plugins::BuildJournal;
+    let fixture = Fixture::new();
+    fixture.seed_selection();
+    let mut backend = fixture.open();
+    let first = append_conversation(&backend, "plugin-first", "Petición inicial");
+    let second = append_conversation(&backend, "plugin-second", "Otra conversación");
+    let invocation = Arc::new(Mutex::new(Some("plugin-first".into())));
+    let journal = PluginJournal {
+        db: backend.state.db.clone(),
+        invocation: invocation.clone(),
+        revision: backend.revision.clone(),
+    };
+    backend.snapshot.selected_id = Some(second.clone());
+    let origin = journal.origin().unwrap();
+    assert_eq!(origin.to_string(), first);
+    *invocation.lock().unwrap() = Some("plugin-second".into());
+    journal
+        .deliver(origin, "plugin-origin-test:1", "Avance del primer trabajo")
+        .unwrap();
+    let history = history::load(&backend.state.db, Some(origin)).unwrap();
+    assert_eq!(history.active_id.unwrap().to_string(), second);
+    assert_eq!(
+        history.selected_messages.last().unwrap().text,
+        "Avance del primer trabajo"
+    );
+    *invocation.lock().unwrap() = None;
+    assert!(journal.origin().is_err());
+    backend.close().unwrap();
+}
+
+#[test]
+fn assignment_creation_delegates_after_commit_and_keeps_success_when_preparation_fails() {
+    use gennie_mcp::{Registry, Tool};
+    use serde_json::json;
+    let saved = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let observed = saved.clone();
+    let mut tool = Tool {
+        definition: json!({"name":"assignments_create"}),
+        call: Box::new(move |_| {
+            observed.store(true, std::sync::atomic::Ordering::SeqCst);
+            Ok(
+                json!({"assignment":{"id":9,"document":{"applications":[{"kind":"web","name":"Correo","url":"https://example.com"}]}},"execution_enabled":false}),
+            )
+        }),
+    };
+    let observed = saved.clone();
+    assignment_tool_with_preparation(&mut tool, move |assignment| {
+        assert!(observed.load(std::sync::atomic::Ordering::SeqCst));
+        assert_eq!(assignment["id"], 9);
+        Err("Constructor no disponible".into())
+    });
+    let mut registry = Registry::default();
+    registry.register([tool]).unwrap();
+    let result=registry.respond(json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"assignments_create","arguments":{}}})).unwrap();
+    let data = &result["result"]["structuredContent"];
+    assert_eq!(result["result"]["isError"], false);
+    assert_eq!(data["assignment"]["id"], 9);
+    assert_eq!(data["plugin_preparation"]["status"], "not_started");
+    assert_eq!(
+        data["plugin_preparation"]["message"],
+        "Constructor no disponible"
+    );
+}
+
+#[test]
+fn assignment_update_reports_queued_preparation_and_does_not_trigger_after_failed_save() {
+    use gennie_mcp::{Registry, Tool};
+    use serde_json::json;
+    let count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let mut tool = Tool {
+        definition: json!({"name":"assignments_update"}),
+        call: Box::new(|args| {
+            if args["expected_revision"] != 3 {
+                return Err("Conflicto de revisión".into());
+            }
+            Ok(
+                json!({"assignment":{"id":9,"revision":4,"document":{"applications":[{"kind":"web","name":"Correo","url":"https://example.com"}]}},"execution_enabled":false}),
+            )
+        }),
+    };
+    let observed = count.clone();
+    assignment_tool_with_preparation(&mut tool, move |assignment| {
+        observed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        assert_eq!(assignment["revision"], 4);
+        Ok(json!({"sources":[{"status":"started","job_id":8,"state":"queued"}]}))
+    });
+    let mut registry = Registry::default();
+    registry.register([tool]).unwrap();
+    let call = |revision| {
+        registry.respond(json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"assignments_update","arguments":{"expected_revision":revision}}})).unwrap()
+    };
+    let failed = call(2);
+    assert_eq!(failed["result"]["isError"], true);
+    assert_eq!(count.load(std::sync::atomic::Ordering::SeqCst), 0);
+    let success = call(3);
+    assert_eq!(success["result"]["isError"], false);
+    assert_eq!(
+        success["result"]["structuredContent"]["plugin_preparation"]["sources"][0]["state"],
+        "queued"
+    );
+    assert_eq!(count.load(std::sync::atomic::Ordering::SeqCst), 1);
 }

@@ -1,3 +1,4 @@
+pub mod builder;
 mod codex;
 mod settings;
 mod title;
@@ -58,6 +59,7 @@ fn reuse_empty_chat(
 }
 
 pub struct LlmModule {
+    invocation: Arc<Mutex<Option<String>>>,
     journal: Option<Arc<dyn ConversationJournal>>,
     tools: Mutex<Option<gennie_mcp::Launch>>,
     worker: Mutex<Option<Worker>>,
@@ -103,6 +105,7 @@ pub enum Event {
 impl Default for LlmModule {
     fn default() -> Self {
         Self {
+            invocation: Arc::default(),
             journal: None,
             tools: Mutex::new(None),
             worker: Mutex::new(None),
@@ -110,6 +113,10 @@ impl Default for LlmModule {
     }
 }
 impl LlmModule {
+    /// Hilo emisor del turno en curso; no sigue la selección de lectura de la UI.
+    pub fn invocation_context(&self) -> Arc<Mutex<Option<String>>> {
+        self.invocation.clone()
+    }
     /// Composición antes de start; no se modifica una sesión en marcha.
     pub fn configure_tools(&self, tools: gennie_mcp::Launch) -> Result<()> {
         if self.worker.lock().map_err(|_| "Worker inválido")?.is_some() {
@@ -174,6 +181,7 @@ impl AppModule for LlmModule {
             .map_err(|_| "Configuración MCP inválida")?
             .clone();
         let settings = Arc::new(Mutex::new(settings::load(&db)?));
+        let invocation = self.invocation.clone();
         let worker_settings = settings.clone();
         let worker_pending = pending.clone();
         let worker_stopping = stopping.clone();
@@ -249,6 +257,15 @@ impl AppModule for LlmModule {
                         }
                         match command {
                             Command::Speak(text) => {
+                                *invocation
+                                    .lock()
+                                    .map_err(|_| "Contexto de turno inválido")? = Some(
+                                    session
+                                        .as_ref()
+                                        .expect("sesión creada")
+                                        .thread_id()
+                                        .to_owned(),
+                                );
                                 session.as_mut().expect("sesión creada").speak_stream(
                                     &text,
                                     |event| {
@@ -277,6 +294,9 @@ impl AppModule for LlmModule {
                             }
                         }
                     })();
+                    if let Ok(mut origin) = invocation.lock() {
+                        *origin = None;
+                    }
                     match result {
                         Ok(Some(event)) => {
                             let _ = event_sender.send(event);
