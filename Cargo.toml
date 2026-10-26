@@ -1,5 +1,5 @@
 [workspace]
-members = ["kernel/config", "kernel/db", "kernel/core", "apps/presence", "apps/transcription", "apps/decisions", "apps/llm", "apps/tts", "apps/reminders-plugin", "bootstrap"]
+members = ["kernel/config", "kernel/db", "kernel/core", "kernel/mcp", "apps/assignments", "apps/presence", "apps/transcription", "apps/decisions", "apps/llm", "apps/tts", "apps/reminders-plugin", "bootstrap"]
 resolver = "3"
 
 [workspace.package]
@@ -9,6 +9,8 @@ rust-version = "1.92"
 publish = false
 
 [workspace.dependencies]
+gennie-mcp = { path = "kernel/mcp" }
+gennie-assignments = { path = "apps/assignments" }
 gennie-config = { path = "kernel/config" }
 gennie-db = { path = "kernel/db" }
 gennie-core = { path = "kernel/core" }

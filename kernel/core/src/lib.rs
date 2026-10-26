@@ -24,6 +24,10 @@ impl Shutdown {
 }
 pub trait AppModule: Send + Sync {
     fn name(&self) -> &'static str;
+    /// Identidad persistida de migraciones; puede conservarse al renombrar un módulo.
+    fn migration_namespace(&self) -> &'static str {
+        self.name()
+    }
     fn active_by_default(&self) -> bool {
         true
     }

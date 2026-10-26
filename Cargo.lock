@@ -639,15 +639,28 @@ name = "gennie"
 version = "0.1.0"
 dependencies = [
  "flutter_rust_bridge",
+ "gennie-assignments",
  "gennie-config",
  "gennie-core",
  "gennie-db",
  "gennie-decisions",
  "gennie-llm",
+ "gennie-mcp",
  "gennie-presence",
  "gennie-reminders-plugin",
  "gennie-transcription",
  "gennie-tts",
+ "serde_json",
+]
+
+[[package]]
+name = "gennie-assignments"
+version = "0.1.0"
+dependencies = [
+ "gennie-core",
+ "gennie-db",
+ "gennie-mcp",
+ "serde",
  "serde_json",
 ]
 
@@ -692,6 +705,15 @@ dependencies = [
  "gennie-config",
  "gennie-core",
  "gennie-db",
+ "gennie-mcp",
+ "serde_json",
+]
+
+[[package]]
+name = "gennie-mcp"
+version = "0.1.0"
+dependencies = [
+ "gennie-core",
  "serde_json",
 ]
 
