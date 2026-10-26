@@ -135,7 +135,7 @@ impl Launch {
     pub fn config(&self) -> Result<String> {
         // Las cadenas JSON de rutas también son cadenas básicas TOML válidas.
         Ok(format!(
-            "mcp_servers.gennie={{command={},args=[\"--mcp\",{}],required=true,startup_timeout_sec=10,tool_timeout_sec=15,default_tools_approval_mode=\"approve\"}}",
+            "mcp_servers.gennie={{command={},args=[\"--mcp\",{}],required=true,startup_timeout_sec=10,tool_timeout_sec=30,default_tools_approval_mode=\"approve\"}}",
             serde_json::to_string(&self.helper.to_string_lossy())?,
             serde_json::to_string(&self.socket.to_string_lossy())?
         ))
@@ -301,7 +301,7 @@ fn serve(mut stream: UnixStream, registry: &Registry, stopping: &AtomicBool) -> 
 /// Helper stdio sin SQLite ni acceso a recursos de las apps. El host ejecuta las herramientas.
 pub fn bridge(socket: &Path) -> Result<()> {
     let mut stream = UnixStream::connect(socket)?;
-    stream.set_read_timeout(Some(Duration::from_secs(20)))?;
+    stream.set_read_timeout(Some(Duration::from_secs(30)))?;
     let mut response = BufReader::new(stream.try_clone()?);
     let stdin = std::io::stdin();
     let mut input = stdin.lock();

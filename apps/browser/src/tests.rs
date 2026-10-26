@@ -56,7 +56,7 @@ fn mcp_rejects_invalid_arguments_before_touching_the_browser() {
 fn expanded_inventory_validates_structured_arguments_without_side_effects() {
     let controller = Controller::new("/missing/gennie-browser-test".into());
     let tools = tools(controller.clone());
-    assert_eq!(tools.len(), 21);
+    assert_eq!(tools.len(), 24);
     for (name, invalid) in [
         ("browser_wait_for", json!({"kind":"element"})),
         (
@@ -102,4 +102,47 @@ fn expanded_inventory_validates_structured_arguments_without_side_effects() {
             .contains("lectura de archivos")
     );
     assert!(controller.inner.session.lock().unwrap().is_none());
+}
+
+#[test]
+fn plugin_operations_share_permissions_and_validate_before_start() {
+    let controller = Controller::new("/missing/gennie-browser-test".into());
+    let inventory = tools(controller.clone());
+    for (name, arguments) in [
+        (
+            "browser_plugins",
+            json!({"action":"save","expected_revision":0}),
+        ),
+        ("browser_plugins", json!({"action":"get"})),
+        ("browser_network", json!({"action":"start"})),
+        (
+            "browser_plugin_run",
+            json!({"action":"run","plugin_id":"demo","function_name":"read","expected_revision":1,"arguments":[]}),
+        ),
+    ] {
+        let tool = inventory
+            .iter()
+            .find(|tool| tool.definition["name"] == name)
+            .unwrap();
+        assert!(
+            !(tool.call)(arguments)
+                .unwrap_err()
+                .to_string()
+                .contains("desactivado")
+        );
+    }
+    assert!(
+        controller
+            .run_web_plugin("demo", "read", 1, json!({}))
+            .unwrap_err()
+            .to_string()
+            .contains("control de aplicaciones")
+    );
+    assert!(controller.inner.session.lock().unwrap().is_none());
+}
+
+#[test]
+fn plugin_schema_accepts_the_builder_manifest_without_browser_access() {
+    let schema = crate::tools::plugin_schema();
+    crate::validate_arguments(&schema,&json!({"id":"fixture","name":"Prueba local","origin":"http://127.0.0.1:1234","description":"Consulta local de prueba","capabilities":["Listar elementos"],"limitations":["Solo lectura local"],"functions":[{"name":"list_items","description":"Consultar elementos","parameters":{},"transport":"http","path":"/items","result_type":"array","result_pointer":"/items","fields":{"id":"/id","subject":"/subject"}}]})).unwrap();
 }

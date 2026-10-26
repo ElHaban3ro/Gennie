@@ -10,7 +10,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
 };
-pub use tools::tools;
+pub use tools::{tools, validate as validate_arguments};
 
 #[derive(Clone)]
 pub struct Controller {
@@ -48,7 +48,7 @@ impl Controller {
             .file_access_allowed
             .store(allowed, Ordering::Release);
     }
-    pub(crate) fn automate(&self, request: Value) -> Result<Value> {
+    pub fn automate(&self, request: Value) -> Result<Value> {
         if !self.inner.automation_allowed.load(Ordering::Acquire) {
             return Err(
                 "El control de aplicaciones está desactivado en los ajustes del asistente".into(),
@@ -66,6 +66,19 @@ impl Controller {
             );
         }
         self.call(request)
+    }
+    /// Invoca la misma función verificada que MCP, con los permisos del navegador.
+    /// Es bloqueante: consumir desde un worker, nunca desde el hilo visual.
+    pub fn run_web_plugin(
+        &self,
+        plugin_id: &str,
+        function_name: &str,
+        revision: u64,
+        arguments: Value,
+    ) -> Result<Value> {
+        self.automate(json!({"method":"plugin_run", "action":"run",
+            "plugin_id":plugin_id, "function_name":function_name,
+            "expected_revision":revision, "arguments":arguments}))
     }
     pub fn call(&self, request: Value) -> Result<Value> {
         let mut guard = self
@@ -125,6 +138,11 @@ impl Default for BrowserModule {
     }
 }
 impl BrowserModule {
+    pub fn new(root: PathBuf) -> Self {
+        Self {
+            controller: Controller::new(root),
+        }
+    }
     pub fn controller(&self) -> Controller {
         self.controller.clone()
     }

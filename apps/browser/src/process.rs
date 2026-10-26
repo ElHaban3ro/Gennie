@@ -9,6 +9,13 @@ use std::{
     thread::JoinHandle,
     time::Duration,
 };
+// El mismo código se importa desde Node en sondas y se embebe en el helper release.
+fn worker_source() -> String {
+    include_str!("worker.mjs").replace(
+        "import { createWebPlugins } from './plugins.mjs';",
+        include_str!("plugins.mjs"),
+    )
+}
 const LIMIT: usize = 128 * 1024;
 const RESPONSE_LIMIT: usize = 4 * 1024 * 1024;
 pub struct Session {
@@ -35,12 +42,7 @@ impl Session {
             return Err("Falta preparar Playwright. Ejecuta scripts/setup_browser.sh y vuelve a abrir el navegador".into());
         }
         let mut child = Command::new(runtime.join("node"))
-            .args([
-                "--input-type=module",
-                "--eval",
-                include_str!("worker.mjs"),
-                "--",
-            ])
+            .args(["--input-type=module", "--eval", &worker_source(), "--"])
             .arg(&runtime)
             .arg(root.join("profile"))
             .arg("--gennie-browser-worker")
@@ -104,10 +106,10 @@ impl Session {
         input.write_all(&line)?;
         input.write_all(b"\n")?;
         input.flush()?;
-        let response = self.replies.recv_timeout(Duration::from_secs(12))
+        let response = self.replies.recv_timeout(Duration::from_secs(if value["method"] == "plugin_run" || value["method"] == "candidate" { 24 } else { 12 }))
             .map_err(|_| "Playwright dejó de responder; el resultado de la acción es incierto. Comprueba el navegador antes de repetirla")?;
         if let Some(error) = response["error"].as_str() {
-            return Ok(serde_json::json!({"error":error,"ok":false}));
+            return Ok(serde_json::json!({"error":error,"code":response["code"],"ok":false}));
         }
         Ok(response)
     }

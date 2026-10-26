@@ -4,6 +4,7 @@ import { mkdir, chmod, writeFile, stat, realpath, rename, unlink } from 'node:fs
 import { randomUUID } from 'node:crypto';
 import { createInterface } from 'node:readline';
 import path from 'node:path';
+import { createWebPlugins } from './plugins.mjs';
 
 const TEXT_LIMIT = 20000;
 const RESPONSE_LIMIT = 4 * 1024 * 1024;
@@ -34,6 +35,19 @@ export function createBrowserSession({ runtime, profile, headless = false, homep
   const downloads = new Map();
   const downloadWaiters = new Set();
   let context, selected, nextPage = 0, nextSnapshot = 0, closing = false;
+  let backgroundMode = headless, switchingMode = false, network;
+  const plugins = createWebPlugins({
+    directory: path.join(path.dirname(profile), 'plugins'),
+    getContext: async () => { if (!context) await open({ background: true }); return context; },
+  });
+  function observeNetwork(response) {
+    if (!network || Date.now() > network.expires_at) { network = undefined; return; }
+    const url = new URL(response.url());
+    if (url.origin !== network.origin || !['xhr', 'fetch', 'document'].includes(response.request().resourceType())) return;
+    // Sin headers, cookies, cuerpos ni valores de query. Solo descubrimiento temporal.
+    network.entries.push({ method: response.request().method(), origin: url.origin, path: url.pathname.slice(0, 2000), query_keys: [...url.searchParams.keys()].slice(0, 20), status: response.status(), content_type: (response.headers()['content-type'] || '').slice(0, 200) });
+    if (network.entries.length > 100) { network.entries.shift(); network.truncated = true; }
+  }
 
   function remember(page) {
     for (const state of pages.values()) if (state.page === page) return state;
@@ -72,7 +86,7 @@ export function createBrowserSession({ runtime, profile, headless = false, homep
   function stateFor(request) {
     const state = request.page_id ? pages.get(request.page_id) : selected || pages.values().next().value;
     if (!state || state.page.isClosed()) fail('closed');
-    selected = state;
+    if (!request.background_scope) selected = state;
     return state;
   }
   function modal(state) {
@@ -141,13 +155,19 @@ export function createBrowserSession({ runtime, profile, headless = false, homep
     await writeFile(filename, bytes, { flag: 'wx', mode: 0o600 });
     return { path: filename, bytes: bytes.length };
   }
-  async function open() {
+  async function open(options = {}) {
+    if (context && backgroundMode && !options.background && !headless) {
+      if ([...downloads.values()].some(item => item.status === 'pending') || [...pages.values()].some(state => state.pendingAction || modal(state))) fail('action_pending');
+      switchingMode = true;
+      try { await context.close(); } finally { switchingMode = false; }
+    }
     const started = Date.now();
     if (!context) {
       await mkdir(profile, { recursive: true, mode: 0o700 });
       await chmod(profile, 0o700);
+      backgroundMode = headless || options.background === true;
       const launched = await chromium.launchPersistentContext(profile, {
-        headless, viewport: headless ? { width: 1280, height: 800 } : null, timeout: 9000,
+        headless: backgroundMode, viewport: backgroundMode ? { width: 1280, height: 800 } : null, timeout: 9000,
         executablePath: path.join(runtime, 'Gennie Web.app/Contents/MacOS/Google Chrome for Testing'),
         chromiumSandbox: true, acceptDownloads: true,
         ignoreDefaultArgs: ['--unsafely-disable-devtools-self-xss-warnings'], args: ['--restore-last-session'],
@@ -156,19 +176,20 @@ export function createBrowserSession({ runtime, profile, headless = false, homep
       context.setDefaultTimeout(6000);
       context.setDefaultNavigationTimeout(8000);
       context.on('page', remember);
+      context.on('response', observeNetwork);
       context.on('close', () => {
-        if (context === launched) { context = undefined; selected = undefined; pages.clear(); onBrowserClose(); }
+        if (context === launched) { context = undefined; selected = undefined; pages.clear(); if (!switchingMode) onBrowserClose(); }
       });
       context.pages().forEach(remember);
       const page = context.pages().find(p => [homepage, 'https://www.gennie.io/'].includes(p.url()))
         || context.pages().find(p => p.url() === 'about:blank') || await context.newPage();
       selected = remember(page);
-      try { await page.goto(httpUrl(homepage), { waitUntil: 'domcontentloaded', timeout: Math.max(1, Math.min(8000, 11000 - (Date.now() - started))) }); }
+      try { if (!options.background) await page.goto(httpUrl(homepage), { waitUntil: 'domcontentloaded', timeout: Math.max(1, Math.min(8000, 11000 - (Date.now() - started))) }); }
       catch { fail('homepage'); }
     }
     selected = selected && !selected.page.isClosed() ? selected : pages.values().next().value || remember(await context.newPage());
-    await selected.page.bringToFront();
-    return { open: true, page_id: selected.id };
+    if (!options.background) await selected.page.bringToFront();
+    return { open: true, page_id: selected.id, background: backgroundMode };
   }
   async function tabList() {
     const result = [];
@@ -218,7 +239,35 @@ export function createBrowserSession({ runtime, profile, headless = false, homep
   }
   async function execute(request) {
     if (!request || typeof request !== 'object') fail('invalid_arguments');
-    if (request.method === 'open') return open();
+    if (request.method === 'open') return open(request);
+    if (request.method === 'task_page') {
+      if (request.action === 'create') {
+        if (!context) await open({ background: true });
+        const state = remember(await context.newPage());
+        return { page_id: state.id };
+      }
+      const state = pages.get(request.page_id);
+      if (state) { await clearRefs(state); await state.page.close(); }
+      return { status: 'closed' };
+    }
+    if (request.method === 'candidate') {
+      if (!/^job_[0-9]+$/.test(request.candidate_id || '')) fail('invalid_arguments');
+      const candidate = createWebPlugins({ directory: path.join(path.dirname(profile), 'plugins', 'candidates', request.candidate_id), getContext: async () => { if (!context) await open({ background: true }); return context; } });
+      return candidate.dispatch(request);
+    }
+    if (request.method === 'plugins' || request.method === 'plugin_run') return plugins.dispatch(request);
+    if (request.method === 'network') {
+      if (request.action === 'start') {
+        const url = new URL(httpUrl(request.origin));
+        if (url.origin !== request.origin) fail('invalid_arguments');
+        network = { origin: url.origin, expires_at: Date.now() + 120000, entries: [], truncated: false };
+        return { status: 'observing', origin: url.origin, expires_in_seconds: 120 };
+      }
+      const result = network && Date.now() <= network.expires_at ? { status: 'observing', origin: network.origin, entries: network.entries.slice(), truncated: network.truncated } : { status: 'inactive', entries: [] };
+      if (request.action === 'stop' || result.status === 'inactive') network = undefined;
+      if (!['read', 'stop'].includes(request.action)) fail('invalid_arguments');
+      return result;
+    }
     if (request.method === 'snapshot') return snapshot(request);
     if (request.method === 'tabs') {
       const operation = request.action || 'list';
@@ -429,6 +478,9 @@ function errorMessage(error) {
     invalid_file: 'Selecciona hasta ocho archivos regulares con rutas absolutas existentes, de hasta 25 MiB cada uno.',
     image_limit: 'La captura excede el límite. Captura un elemento o una región visible más pequeña.',
     content_limit: 'El contenido excede el límite de esta operación. Acota la extracción o exportación.',
+    invalid_plugin: 'La receta web no cumple el formato o los límites permitidos.',
+    invalid_plugin_arguments: 'Los argumentos no corresponden a los parámetros de la función web.',
+    plugin_storage_error: 'No se pudo leer o guardar el catálogo de plugins web de forma segura.',
     invalid_arguments: 'Los argumentos no corresponden a esta operación de navegador.',
   };
   if (messages[error.code]) return messages[error.code];
