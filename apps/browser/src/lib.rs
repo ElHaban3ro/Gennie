@@ -20,6 +20,7 @@ struct Inner {
     root: PathBuf,
     enabled: AtomicBool,
     automation_allowed: AtomicBool,
+    file_access_allowed: AtomicBool,
     session: Mutex<Option<process::Session>>,
 }
 impl Controller {
@@ -29,6 +30,7 @@ impl Controller {
                 root,
                 enabled: AtomicBool::new(false),
                 automation_allowed: AtomicBool::new(false),
+                file_access_allowed: AtomicBool::new(false),
                 session: Mutex::new(None),
             }),
         }
@@ -41,10 +43,26 @@ impl Controller {
             .automation_allowed
             .store(allowed, Ordering::Release);
     }
+    pub fn set_file_access_allowed(&self, allowed: bool) {
+        self.inner
+            .file_access_allowed
+            .store(allowed, Ordering::Release);
+    }
     pub(crate) fn automate(&self, request: Value) -> Result<Value> {
         if !self.inner.automation_allowed.load(Ordering::Acquire) {
             return Err(
                 "El control de aplicaciones está desactivado en los ajustes del asistente".into(),
+            );
+        }
+        if request["method"] == "upload"
+            && request["files"]
+                .as_array()
+                .is_some_and(|files| !files.is_empty())
+            && !self.inner.file_access_allowed.load(Ordering::Acquire)
+        {
+            return Err(
+                "La subida de archivos requiere el permiso de lectura de archivos del asistente"
+                    .into(),
             );
         }
         self.call(request)

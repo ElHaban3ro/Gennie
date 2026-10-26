@@ -425,6 +425,8 @@ impl Backend {
     }
     fn refresh_controls(&mut self) {
         self.browser
+            .set_file_access_allowed(self.llm.as_ref().is_some_and(|c| c.settings().read_files));
+        self.browser
             .set_automation_allowed(self.llm.as_ref().is_some_and(|c| {
                 let settings = c.settings();
                 settings.local_actions && settings.run_commands

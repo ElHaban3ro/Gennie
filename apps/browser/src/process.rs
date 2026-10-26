@@ -10,6 +10,7 @@ use std::{
     time::Duration,
 };
 const LIMIT: usize = 128 * 1024;
+const RESPONSE_LIMIT: usize = 4 * 1024 * 1024;
 pub struct Session {
     child: Child,
     input: Option<ChildStdin>,
@@ -42,6 +43,7 @@ impl Session {
             ])
             .arg(&runtime)
             .arg(root.join("profile"))
+            .arg("--gennie-browser-worker")
             .env("PLAYWRIGHT_BROWSERS_PATH", root.join("browsers"))
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -60,10 +62,10 @@ impl Session {
                     let mut line = Vec::new();
                     match reader
                         .by_ref()
-                        .take((LIMIT + 1) as u64)
+                        .take((RESPONSE_LIMIT + 1) as u64)
                         .read_until(b'\n', &mut line)
                     {
-                        Ok(n) if n > 0 && n <= LIMIT => {
+                        Ok(n) if n > 0 && n <= RESPONSE_LIMIT => {
                             let Ok(value) = serde_json::from_slice(&line) else {
                                 break;
                             };

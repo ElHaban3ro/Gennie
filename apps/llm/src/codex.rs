@@ -728,7 +728,9 @@ fn session_capabilities(settings: &Settings, tool_names: &[String]) -> Value {
             "transport": "MCP directo a la API Playwright, sin controlar el ordenador",
             "tools": browser_tools,
             "tools_registered": has_browser,
-            "permission_enabled": local_control
+            "permission_enabled": local_control,
+            "file_read_permission_enabled":settings.read_files,
+            "upload_available":has_browser && local_control && settings.read_files && tool_names.iter().any(|name| name == "browser_upload")
         },
         "computer_control": {"permission_enabled":local_control,"system_permission_verified":false},
         "commands": {"permission_enabled":settings.run_commands,"network_enabled":false}
