@@ -74,3 +74,5 @@ Verificación del renombrado: 51 tests Rust correctos (más pruebas externas opt
 La ficha presenta decision_guidance en el contenedor de entrega, bajo «Criterio para avisarte entre entregas», cuando existe. Se conserva el texto literal de la política sin convertir señales en disparadores ni prometer ejecución. Ámbito, aspectos y acciones siguen en detalles; no se duplica la orientación.
 
 La migración 0003 convierte únicamente el estado histórico `recorded` a `active`, conservando ID, clave de petición, revisión, fechas y el resto del documento. Los nuevos encargos usan `active`; UI y MCP ofrecen solo activo, pausado, completado y cancelado.
+
+El editor adopta la jerarquía de la ficha: contenido, entrega y fuentes visibles, con contexto/preparación/estado y criterios avanzados desplegables sin tarjetas. Los campos permanecen montados al plegarse para conservar borrador y validadores; ante validación fallida se abre y muestra el campo relevante. Guardar/Cancelar y errores se mantienen fuera del scroll. Es una reorganización Flutter; no modifica el contrato ni la ejecución. Ver UI.md y las pruebas de widgets del editor.
