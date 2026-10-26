@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
 import 'backend.dart';
+import 'glass.dart';
 import 'assignment_logo.dart';
 import 'sidebar.dart';
 
@@ -235,6 +236,7 @@ class AssignmentProfile extends StatelessWidget {
     final apps = d['applications'] as List? ?? [];
     final preparation = d['preparation'] as Map<String, dynamic>? ?? {};
     final followUp = d['follow_up'] as Map<String, dynamic>?;
+    final guidance = (followUp?['decision_guidance'] as String? ?? '').trim();
     final ink = sidebarInk(context);
     final body = TextStyle(
       fontFamily: 'Inter',
@@ -261,6 +263,36 @@ class AssignmentProfile extends StatelessWidget {
       );
     }
 
+    bool hasValue(Object? value) => value is List
+        ? value.isNotEmpty
+        : value != null && value.toString().trim().isNotEmpty;
+    Widget section(String title, IconData icon, List<Widget> children) =>
+        Padding(
+          padding: const EdgeInsets.only(bottom: 20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(icon, size: 18, color: ink.withValues(alpha: .7)),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Semantics(
+                      header: true,
+                      child: Text(
+                        title,
+                        style: body.copyWith(fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              ...children,
+            ],
+          ),
+        );
+
     return DefaultTextStyle(
       style: body,
       child: Align(
@@ -270,50 +302,75 @@ class AssignmentProfile extends StatelessWidget {
           child: ListView(
             padding: const EdgeInsets.all(24),
             children: [
-              Align(
-                alignment: Alignment.centerRight,
-                child: OutlinedButton.icon(
-                  onPressed: onEdit,
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: ink,
-                    side: BorderSide(color: ink.withValues(alpha: .2)),
-                  ),
-                  icon: const Icon(Icons.edit_outlined, size: 16),
-                  label: const Text('Editar'),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              Stack(
                 children: [
-                  AssignmentLogo(document: d, size: 56),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                  Padding(
+                    padding: const EdgeInsets.only(right: 44),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
-                        Text(
-                          apps.isEmpty
-                              ? 'Encargo'
-                              : apps.map((a) => a['name']).join(' · '),
-                          style: body.copyWith(
-                            fontSize: 12,
-                            color: ink.withValues(alpha: .7),
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Semantics(
-                          header: true,
-                          child: Text(
-                            d['title'] as String,
-                            style: body.copyWith(
-                              fontSize: 22,
-                              height: 1.25,
-                              fontWeight: FontWeight.w600,
-                            ),
+                        AssignmentLogo(document: d, size: 72),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Encargo',
+                                key: const ValueKey('assignment-profile-label'),
+                                style: body.copyWith(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: ink.withValues(alpha: .7),
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Semantics(
+                                header: true,
+                                child: Text(
+                                  d['title'] as String,
+                                  style: body.copyWith(
+                                    fontSize: 22,
+                                    height: 1.25,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                              if (apps.isNotEmpty) ...[
+                                const SizedBox(height: 6),
+                                Text(
+                                  apps.map((a) => a['name']).join(' · '),
+                                  style: body.copyWith(
+                                    fontSize: 12,
+                                    color: ink.withValues(alpha: .7),
+                                  ),
+                                ),
+                              ],
+                            ],
                           ),
                         ),
                       ],
+                    ),
+                  ),
+                  Positioned(
+                    top: 0,
+                    right: 0,
+                    child: AppTooltip(
+                      label: 'Editar encargo',
+                      child: Semantics(
+                        label: 'Editar encargo',
+                        child: IconButton(
+                          key: const ValueKey('assignment-edit'),
+                          onPressed: onEdit,
+                          constraints: const BoxConstraints.tightFor(
+                            width: 32,
+                            height: 32,
+                          ),
+                          padding: EdgeInsets.zero,
+                          color: ink,
+                          icon: const Icon(Icons.edit_outlined, size: 16),
+                        ),
+                      ),
                     ),
                   ),
                 ],
@@ -347,7 +404,9 @@ class AssignmentProfile extends StatelessWidget {
               const SizedBox(height: 24),
               SelectableText(d['description'] as String, style: body),
               const SizedBox(height: 24),
+              detail('Para qué', d['reason']),
               Container(
+                key: const ValueKey('assignment-delivery'),
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
                   border: Border.all(color: ink.withValues(alpha: .12)),
@@ -382,6 +441,24 @@ class AssignmentProfile extends StatelessWidget {
                                 color: ink.withValues(alpha: .7),
                               ),
                             ),
+                          if (guidance.isNotEmpty) ...[
+                            Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              child: Divider(
+                                height: 1,
+                                color: ink.withValues(alpha: .12),
+                              ),
+                            ),
+                            Text(
+                              'Criterio para avisarte entre entregas',
+                              style: body.copyWith(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            _ExpandableGuidance(text: guidance, style: body),
+                          ],
                         ],
                       ),
                     ),
@@ -389,7 +466,6 @@ class AssignmentProfile extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 24),
-              detail('Para qué', d['reason']),
               Theme(
                 data: Theme.of(
                   context,
@@ -404,47 +480,168 @@ class AssignmentProfile extends StatelessWidget {
                     style: body.copyWith(fontWeight: FontWeight.w500),
                   ),
                   children: [
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          detail('Contexto', d['context']),
-                          if (apps.isNotEmpty)
-                            detail(
-                              'Aplicaciones',
-                              apps
-                                  .map(
-                                    (a) =>
-                                        '${a['name']}${a['url'] == null ? '' : ' · ${a['url']}'}',
-                                  )
-                                  .toList(),
+                    if (hasValue(d['context']))
+                      section('Contexto', Icons.notes_outlined, [
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 16),
+                          child: SelectableText(
+                            d['context'] as String,
+                            style: body,
+                          ),
+                        ),
+                      ]),
+                    if (apps.isNotEmpty)
+                      section('Aplicaciones', Icons.apps_outlined, [
+                        for (final app in apps)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 16),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                AssignmentLogo(
+                                  document: {
+                                    'applications': [app],
+                                  },
+                                  size: 28,
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      SelectableText(
+                                        app['name'] as String,
+                                        style: body.copyWith(
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                      if (hasValue(app['url']))
+                                        SelectableText(
+                                          app['url'] as String,
+                                          style: body.copyWith(
+                                            fontSize: 12,
+                                            color: ink.withValues(alpha: .7),
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              ],
                             ),
+                          ),
+                      ]),
+                    if (preparation.values.any(hasValue))
+                      _AssignmentDetailDisclosure(
+                        title: 'Preparación interna',
+                        icon: Icons.checklist_outlined,
+                        summary: [
+                          if (preparation['interval_minutes'] != null)
+                            'Cada ${preparation['interval_minutes']} minutos',
+                          if (hasValue(preparation['steps']))
+                            '${(preparation['steps'] as List).length} pasos de preparación',
+                        ].join(' · '),
+                        style: body,
+                        children: [
                           if (preparation['interval_minutes'] != null)
                             detail(
-                              'Preparación interna',
+                              'Cadencia',
                               'Cada ${preparation['interval_minutes']} minutos. Esta cadencia no cambia la hora del aviso.',
                             ),
                           detail(
                             'Motivo de la cadencia',
                             preparation['rationale'],
                           ),
-                          detail('Pasos de preparación', preparation['steps']),
-                          if (followUp != null) ...[
-                            detail('Qué observar', followUp['scope']),
-                            detail('Aspectos a valorar', followUp['signals']),
-                            detail(
-                              'Cómo decidir si intervenir',
-                              followUp['decision_guidance'],
+                          if (hasValue(preparation['steps'])) ...[
+                            Text(
+                              'Pasos de preparación',
+                              style: body.copyWith(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
-                            detail(
-                              'Acciones delegadas',
-                              followUp['action_scope'],
-                            ),
+                            const SizedBox(height: 8),
+                            for (final (index, step)
+                                in (preparation['steps'] as List).indexed)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 12),
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    SizedBox(
+                                      width: 24,
+                                      child: Text(
+                                        '${index + 1}.',
+                                        style: body.copyWith(
+                                          color: ink.withValues(alpha: .65),
+                                        ),
+                                      ),
+                                    ),
+                                    Expanded(
+                                      child: SelectableText(
+                                        step as String,
+                                        style: body,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            const SizedBox(height: 4),
                           ],
                         ],
                       ),
-                    ),
+                    if (followUp != null &&
+                        [
+                          followUp['scope'],
+                          followUp['signals'],
+                          followUp['action_scope'],
+                        ].any(hasValue))
+                      _AssignmentDetailDisclosure(
+                        title: 'Seguimiento',
+                        icon: Icons.visibility_outlined,
+                        summary: followUp['scope'] as String? ?? '',
+                        style: body,
+                        children: [
+                          detail('Qué observar', followUp['scope']),
+                          if (hasValue(followUp['signals'])) ...[
+                            Text(
+                              'Aspectos a valorar',
+                              style: body.copyWith(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            for (final signal in followUp['signals'] as List)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 12),
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      '•',
+                                      style: body.copyWith(
+                                        color: ink.withValues(alpha: .65),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: SelectableText(
+                                        signal as String,
+                                        style: body,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            const SizedBox(height: 4),
+                          ],
+                          detail(
+                            'Acciones delegadas',
+                            followUp['action_scope'],
+                          ),
+                        ],
+                      ),
                   ],
                 ),
               ),
@@ -455,6 +652,180 @@ class AssignmentProfile extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Despliegue de información secundaria sin superficies adicionales.
+class _AssignmentDetailDisclosure extends StatefulWidget {
+  const _AssignmentDetailDisclosure({
+    required this.title,
+    required this.icon,
+    required this.summary,
+    required this.style,
+    required this.children,
+  });
+  final String title, summary;
+  final IconData icon;
+  final TextStyle style;
+  final List<Widget> children;
+  @override
+  State<_AssignmentDetailDisclosure> createState() =>
+      _AssignmentDetailDisclosureState();
+}
+
+class _AssignmentDetailDisclosureState
+    extends State<_AssignmentDetailDisclosure> {
+  bool expanded = false;
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 24),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Semantics(
+          expanded: expanded,
+          child: TextButton(
+            onPressed: () => setState(() => expanded = !expanded),
+            style: TextButton.styleFrom(
+              foregroundColor: widget.style.color,
+              overlayColor: Colors.transparent,
+              splashFactory: NoSplash.splashFactory,
+              padding: EdgeInsets.zero,
+              minimumSize: const Size(0, 32),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  widget.icon,
+                  size: 18,
+                  color: widget.style.color?.withValues(alpha: .7),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    widget.title,
+                    style: widget.style.copyWith(fontWeight: FontWeight.w600),
+                  ),
+                ),
+                Icon(
+                  expanded ? Icons.expand_less : Icons.expand_more,
+                  size: 18,
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (!expanded && widget.summary.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(left: 28, top: 4),
+            child: Text(
+              widget.summary,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: widget.style.copyWith(
+                fontSize: 12,
+                color: widget.style.color?.withValues(alpha: .7),
+              ),
+            ),
+          ),
+        if (expanded)
+          Padding(
+            padding: const EdgeInsets.only(left: 28, top: 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: widget.children,
+            ),
+          ),
+      ],
+    ),
+  );
+}
+
+/// Conserva la lectura compacta y permite consultar la política completa.
+class _ExpandableGuidance extends StatefulWidget {
+  const _ExpandableGuidance({required this.text, required this.style});
+  final String text;
+  final TextStyle style;
+
+  @override
+  State<_ExpandableGuidance> createState() => _ExpandableGuidanceState();
+}
+
+class _ExpandableGuidanceState extends State<_ExpandableGuidance> {
+  bool expanded = false;
+
+  @override
+  void didUpdateWidget(covariant _ExpandableGuidance oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.text != widget.text) expanded = false;
+  }
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final painter = TextPainter(
+        text: TextSpan(text: widget.text, style: widget.style),
+        maxLines: 3,
+        textDirection: Directionality.of(context),
+        textScaler: MediaQuery.textScalerOf(context),
+        locale: Localizations.localeOf(context),
+      )..layout(maxWidth: constraints.maxWidth);
+      final overflows = painter.didExceedMaxLines;
+      painter.dispose();
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (expanded || !overflows)
+            SelectableText(widget.text, style: widget.style)
+          else
+            Text(
+              widget.text,
+              style: widget.style,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+            ),
+          if (overflows) ...[
+            const SizedBox(height: 8),
+            Semantics(
+              expanded: expanded,
+              child: TextButton(
+                onPressed: () => setState(() => expanded = !expanded),
+                style: ButtonStyle(
+                  foregroundColor: WidgetStateProperty.resolveWith(
+                    (states) => widget.style.color?.withValues(
+                      alpha:
+                          states.contains(WidgetState.hovered) ||
+                              states.contains(WidgetState.focused)
+                          ? 1
+                          : .72,
+                    ),
+                  ),
+                  overlayColor: const WidgetStatePropertyAll(
+                    Colors.transparent,
+                  ),
+                  backgroundColor: const WidgetStatePropertyAll(
+                    Colors.transparent,
+                  ),
+                  splashFactory: NoSplash.splashFactory,
+                  padding: const WidgetStatePropertyAll(EdgeInsets.zero),
+                  minimumSize: const WidgetStatePropertyAll(Size(0, 24)),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  textStyle: WidgetStatePropertyAll(
+                    widget.style.copyWith(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                      decoration: TextDecoration.underline,
+                    ),
+                  ),
+                ),
+                child: Text(expanded ? 'Ver menos' : 'Ver más'),
+              ),
+            ),
+          ],
+        ],
+      );
+    },
+  );
 }
 
 class AssignmentEditor extends StatefulWidget {
@@ -477,6 +848,8 @@ class AssignmentEditor extends StatefulWidget {
 class _AssignmentEditorState extends State<AssignmentEditor> {
   final fields = <String, TextEditingController>{};
   final form = GlobalKey<FormState>();
+  final opened = <String>{};
+  final fieldKeys = <String, GlobalKey>{};
   final applications = <Map<String, dynamic>>[];
   late String kind, priority, status, frequency;
   late String requestKey;
@@ -551,8 +924,13 @@ class _AssignmentEditorState extends State<AssignmentEditor> {
   }) => Padding(
     padding: const EdgeInsets.only(bottom: 16),
     child: TextFormField(
+      key: fieldKeys.putIfAbsent(key, () => GlobalKey()),
       controller: fields[key],
+      style: key == 'title'
+          ? const TextStyle(fontSize: 18, fontWeight: FontWeight.w600)
+          : null,
       enabled: !saving,
+      minLines: 1,
       maxLines: lines,
       decoration: InputDecoration(
         labelText: label,
@@ -610,6 +988,20 @@ class _AssignmentEditorState extends State<AssignmentEditor> {
     }
   }
 
+  Future<void> revealField(String name) async {
+    if (['interval', 'rationale', 'steps'].contains(name)) {
+      opened.add('preparation');
+    }
+    if (['followUpScope', 'guidance'].contains(name)) opened.add('followup');
+    setState(() {});
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) return;
+    final target = fieldKeys[name]?.currentContext;
+    if (target != null && target.mounted) {
+      await Scrollable.ensureVisible(target, alignment: .15);
+    }
+  }
+
   Future<void> save() async {
     if (followUpEnabled &&
         [
@@ -622,9 +1014,28 @@ class _AssignmentEditorState extends State<AssignmentEditor> {
         () => error =
             'Completa qué observar, cómo decidir y la cadencia con su motivo.',
       );
+      final missing = [
+        'followUpScope',
+        'guidance',
+        'interval',
+        'rationale',
+      ].firstWhere((name) => optional(name) == null);
+      await revealField(missing);
+      form.currentState?.validate();
       return;
     }
-    if (!form.currentState!.validate()) return;
+    if (!form.currentState!.validate()) {
+      setState(
+        () => error = 'Completa los campos obligatorios antes de guardar.',
+      );
+      final missing = [
+        'title',
+        'description',
+        if (kind == 'recurring') ...['timezone', 'time'],
+      ].where((name) => optional(name) == null);
+      if (missing.isNotEmpty) await revealField(missing.first);
+      return;
+    }
     setState(() {
       saving = true;
       error = null;
@@ -636,6 +1047,7 @@ class _AssignmentEditorState extends State<AssignmentEditor> {
         error =
             'La cadencia de preparación debe ser un número entero de minutos.';
       });
+      await revealField('interval');
       return;
     }
     final at = notifyAt?.toUtc().toIso8601String().replaceFirst('.000Z', 'Z');
@@ -722,8 +1134,111 @@ class _AssignmentEditorState extends State<AssignmentEditor> {
       height: 1.5,
       color: ink,
     );
-    final border = OutlineInputBorder(
-      borderRadius: BorderRadius.circular(8),
+    Widget heading(String title, IconData icon) => Padding(
+      padding: const EdgeInsets.only(top: 12, bottom: 20),
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: ink.withValues(alpha: .7)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Semantics(
+              header: true,
+              child: Text(
+                title,
+                style: body.copyWith(fontWeight: FontWeight.w600),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    Widget pair(Widget first, Widget second) => LayoutBuilder(
+      builder: (context, size) => size.maxWidth < 480
+          ? Column(children: [first, second])
+          : Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: first),
+                const SizedBox(width: 24),
+                Expanded(child: second),
+              ],
+            ),
+    );
+    Widget disclosure(
+      String id,
+      String title,
+      IconData icon,
+      String summary,
+      List<Widget> children,
+    ) => Padding(
+      padding: const EdgeInsets.only(bottom: 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Semantics(
+            expanded: opened.contains(id),
+            child: TextButton(
+              key: ValueKey('assignment-editor-$id'),
+              onPressed: saving
+                  ? null
+                  : () => setState(() {
+                      FocusScope.of(context).unfocus();
+                      if (!opened.add(id)) opened.remove(id);
+                    }),
+              style: TextButton.styleFrom(
+                foregroundColor: ink,
+                overlayColor: Colors.transparent,
+                splashFactory: NoSplash.splashFactory,
+                padding: EdgeInsets.zero,
+                minimumSize: const Size(0, 36),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              child: Row(
+                children: [
+                  Icon(icon, size: 18, color: ink.withValues(alpha: .7)),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: body.copyWith(fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                  Icon(
+                    opened.contains(id) ? Icons.expand_less : Icons.expand_more,
+                    size: 18,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (!opened.contains(id) && summary.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(left: 28, top: 4),
+              child: Text(
+                summary,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: body.copyWith(
+                  fontSize: 12,
+                  color: ink.withValues(alpha: .7),
+                ),
+              ),
+            ),
+          Visibility(
+            visible: opened.contains(id),
+            maintainState: true,
+            child: Padding(
+              padding: const EdgeInsets.only(top: 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: children,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    final border = UnderlineInputBorder(
       borderSide: BorderSide(color: ink.withValues(alpha: .16)),
     );
     return Theme(
@@ -741,6 +1256,7 @@ class _AssignmentEditorState extends State<AssignmentEditor> {
         ),
         inputDecorationTheme: InputDecorationTheme(
           filled: false,
+          floatingLabelBehavior: FloatingLabelBehavior.always,
           isDense: true,
           contentPadding: const EdgeInsets.symmetric(
             horizontal: 12,
@@ -766,348 +1282,515 @@ class _AssignmentEditorState extends State<AssignmentEditor> {
         style: body,
         child: Form(
           key: form,
-          child: ListView(
-            padding: const EdgeInsets.all(24),
+          child: Column(
             children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      widget.record == null
-                          ? 'Nuevo encargo'
-                          : 'Editar encargo',
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                  TextButton(
-                    onPressed: saving ? null : widget.onBack,
-                    child: const Text('Cancelar'),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'Define qué necesitas revisar y cuándo recibir el resultado.',
-                style: TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 12,
-                  color: Color(0xff737373),
-                ),
-              ),
-              const SizedBox(height: 24),
-              field('title', 'Título', required: true),
-              field(
-                'description',
-                'Qué debe hacer Gennie',
-                lines: 3,
-                required: true,
-              ),
-              choice('Tipo', kind, assignmentKinds, (v) => kind = v),
-              choice(
-                'Importancia',
-                priority,
-                assignmentPriorities,
-                (v) => priority = v,
-              ),
-              choice(
-                'Estado del encargo',
-                status,
-                assignmentStatuses,
-                (v) => status = v,
-              ),
-              field('reason', 'Para qué lo necesitas (opcional)', lines: 2),
-              field('context', 'Contexto (opcional)', lines: 3),
-              const Text(
-                'Cuándo recibir la información',
-                style: TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 13,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              const SizedBox(height: 16),
-              if (kind == 'recurring') ...[
-                field(
-                  'timezone',
-                  'Zona horaria',
-                  required: true,
-                  hint: 'Ejemplo: America/Bogota',
-                ),
-                choice('Repetición', frequency, const {
-                  'daily': 'Todos los días',
-                  'weekly': 'Cada semana',
-                }, (v) => frequency = v),
-                field(
-                  'time',
-                  'Hora del aviso',
-                  required: true,
-                  hint: 'Formato de 24 horas: 08:00',
-                ),
-                if (frequency == 'weekly')
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 16),
-                    child: Wrap(
-                      spacing: 4,
-                      children: [
-                        for (var i = 1; i <= 7; i++)
-                          FilterChip(
-                            label: Text(
-                              const [
-                                'Lun',
-                                'Mar',
-                                'Mié',
-                                'Jue',
-                                'Vie',
-                                'Sáb',
-                                'Dom',
-                              ][i - 1],
+              Expanded(
+                child: SingleChildScrollView(
+                  key: const ValueKey('assignment-editor-scroll'),
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 760),
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                AssignmentLogo(
+                                  document: {
+                                    'title': fields['title']!.text,
+                                    'applications': applications,
+                                  },
+                                  size: 56,
+                                ),
+                                const SizedBox(width: 16),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        widget.record == null
+                                            ? 'Nuevo encargo'
+                                            : 'Editar encargo',
+                                        style: body.copyWith(
+                                          fontSize: 22,
+                                          height: 1.25,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        'La tarea, sus fuentes y cuándo recibirla.',
+                                        style: body.copyWith(
+                                          fontSize: 12,
+                                          color: ink.withValues(alpha: .7),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
                             ),
-                            selected: weekdays.contains(i),
-                            onSelected: saving
-                                ? null
-                                : (v) => setState(() {
-                                    if (v) {
-                                      weekdays.add(i);
-                                    } else {
-                                      weekdays.remove(i);
-                                    }
-                                  }),
-                          ),
-                      ],
-                    ),
-                  ),
-              ] else ...[
-                Text(
-                  kind == 'goal'
-                      ? 'Fecha límite opcional. Se elige en la hora local del sistema.'
-                      : 'Elige fecha y hora de aviso en la hora local del sistema.',
-                ),
-                Wrap(
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: [
-                    TextButton(
-                      onPressed: saving ? null : pickDate,
-                      child: Text(
-                        notifyAt == null
-                            ? 'Elegir fecha y hora'
-                            : '${MaterialLocalizations.of(context).formatMediumDate(notifyAt!)} · ${TimeOfDay.fromDateTime(notifyAt!).format(context)}',
-                      ),
-                    ),
-                    if (notifyAt != null && kind == 'goal')
-                      TextButton(
-                        onPressed: saving
-                            ? null
-                            : () => setState(() => notifyAt = null),
-                        child: const Text('Sin fecha límite'),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-              ],
-              const Text(
-                'Preparación interna',
-                style: TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 13,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'Esta cadencia indica cuándo reunir información. No cambia la hora del aviso.',
-              ),
-              const SizedBox(height: 16),
-              field(
-                'interval',
-                'Revisar cada cuántos minutos (opcional)',
-                required: followUpEnabled,
-              ),
-              field(
-                'rationale',
-                'Por qué usar esa cadencia',
-                lines: 2,
-                required: followUpEnabled,
-              ),
-              field('steps', 'Pasos de preparación (uno por línea)', lines: 4),
-              const Text(
-                'Seguimiento',
-                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
-              ),
-              const SizedBox(height: 8),
-              SwitchListTile.adaptive(
-                key: const ValueKey('follow-up-policy'),
-                contentPadding: EdgeInsets.zero,
-                title: const Text(
-                  'Seguimiento entre entregas',
-                  style: TextStyle(fontSize: 13),
-                ),
-                subtitle: const Text(
-                  'Define qué observar y cómo acompañarte.',
-                  style: TextStyle(fontSize: 11),
-                ),
-                value: followUpEnabled,
-                onChanged: saving
-                    ? null
-                    : (value) => setState(() {
-                        followUpEnabled = value;
-                        if (value) {
-                          if (fields['interval']!.text.trim().isEmpty) {
-                            fields['interval']!.text = '10';
-                          }
-                          if (fields['rationale']!.text.trim().isEmpty) {
-                            fields['rationale']!.text =
-                                'Detectar cambios y valorar si conviene intervenir entre entregas.';
-                          }
-                          if (fields['guidance']!.text.trim().isEmpty) {
-                            fields['guidance']!.text =
-                                'Valora los cambios, el contexto y el historial. Decide si basta con registrar, si conviene preguntar, avisar o proponer ayuda, o si corresponde una acción delegada. Conserva los cambios aunque no justifiquen interrumpir; evita repetir preguntas o avisos sin novedades relevantes.';
-                          }
-                        }
-                      }),
-              ),
-              const SizedBox(height: 16),
-              if (followUpEnabled) ...[
-                field(
-                  'followUpScope',
-                  'Qué observar',
-                  lines: 3,
-                  required: true,
-                  hint:
-                      'Describe las fuentes y los cambios que interesa seguir y conservar.',
-                ),
-                const Text(
-                  'Criterio de intervención',
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Gennie valora cada revisión según su contexto. La frecuencia de revisión no obliga a avisarte.',
-                ),
-                const SizedBox(height: 16),
-                field(
-                  'signals',
-                  'Aspectos a valorar (uno por línea)',
-                  lines: 4,
-                  hint:
-                      'Preguntas propias de este encargo. Puedes dejarlo vacío si basta con la orientación general.',
-                ),
-                field(
-                  'guidance',
-                  'Cómo decidir si intervenir',
-                  lines: 5,
-                  required: true,
-                  hint:
-                      'Cuándo guardar silencio, preguntar, avisar o proponer ayuda. Los criterios y plazos pueden adaptarse a la situación.',
-                ),
-                field(
-                  'actionScope',
-                  'Acciones delegadas (opcional)',
-                  lines: 3,
-                  hint:
-                      'Solo acciones que hayas encargado expresamente, con sus límites. Vacío si no has delegado ejecución.',
-                ),
-              ],
-              const Text(
-                'Aplicaciones necesarias',
-                style: TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 13,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'Indica las aplicaciones y fuentes que necesita esta tarea.',
-              ),
-              const SizedBox(height: 16),
-              for (var i = 0; i < applications.length; i++) ...[
-                TextFormField(
-                  key: ValueKey('name-${identityHashCode(applications[i])}'),
-                  initialValue: applications[i]['name'] as String? ?? '',
-                  enabled: !saving,
-                  decoration: const InputDecoration(
-                    labelText: 'Nombre de la aplicación',
-                  ),
-                  onChanged: (v) => applications[i]['name'] = v,
-                ),
-                const SizedBox(height: 12),
-                choice(
-                  'Dónde se utiliza',
-                  applications[i]['kind'] as String? ?? 'web',
-                  const {'web': 'Web', 'desktop': 'En el ordenador'},
-                  (v) {
-                    applications[i]['kind'] = v;
-                    if (v == 'desktop') applications[i]['url'] = null;
-                  },
-                ),
-                if (applications[i]['kind'] == 'web')
-                  TextFormField(
-                    key: ValueKey('url-${identityHashCode(applications[i])}'),
-                    initialValue: applications[i]['url'] as String? ?? '',
-                    enabled: !saving,
-                    decoration: const InputDecoration(
-                      labelText: 'Dirección web (opcional)',
-                    ),
-                    onChanged: (v) => applications[i]['url'] = v.trim().isEmpty
-                        ? null
-                        : v.trim(),
-                  ),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton(
-                    onPressed: saving
-                        ? null
-                        : () => setState(() => applications.removeAt(i)),
-                    child: const Text('Quitar aplicación'),
-                  ),
-                ),
-                const Divider(),
-              ],
-              Align(
-                alignment: Alignment.centerLeft,
-                child: TextButton.icon(
-                  onPressed: saving
-                      ? null
-                      : () => setState(
-                          () => applications.add({
-                            'name': '',
-                            'kind': 'web',
-                            'url': null,
-                            'plugin_available': false,
-                            'manual_required': true,
-                          }),
+                            const SizedBox(height: 32),
+                            field('title', 'Título', required: true),
+                            field(
+                              'description',
+                              'Qué debe hacer Gennie',
+                              lines: 3,
+                              required: true,
+                            ),
+                            field(
+                              'reason',
+                              'Para qué lo necesitas (opcional)',
+                              lines: 2,
+                            ),
+                            const SizedBox(height: 12),
+                            heading(
+                              'Cuándo recibir la información',
+                              Icons.schedule_outlined,
+                            ),
+                            choice(
+                              'Tipo',
+                              kind,
+                              assignmentKinds,
+                              (v) => kind = v,
+                            ),
+                            if (kind == 'recurring') ...[
+                              pair(
+                                choice('Repetición', frequency, const {
+                                  'daily': 'Todos los días',
+                                  'weekly': 'Cada semana',
+                                }, (v) => frequency = v),
+                                field(
+                                  'time',
+                                  'Hora del aviso',
+                                  required: true,
+                                  hint: 'Formato de 24 horas: 08:00',
+                                ),
+                              ),
+                              field(
+                                'timezone',
+                                'Zona horaria',
+                                required: true,
+                                hint: 'Ejemplo: America/Bogota',
+                              ),
+                              if (frequency == 'weekly')
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 16),
+                                  child: Wrap(
+                                    spacing: 4,
+                                    children: [
+                                      for (var i = 1; i <= 7; i++)
+                                        FilterChip(
+                                          label: Text(
+                                            const [
+                                              'Lun',
+                                              'Mar',
+                                              'Mié',
+                                              'Jue',
+                                              'Vie',
+                                              'Sáb',
+                                              'Dom',
+                                            ][i - 1],
+                                          ),
+                                          selected: weekdays.contains(i),
+                                          onSelected: saving
+                                              ? null
+                                              : (v) => setState(() {
+                                                  if (v) {
+                                                    weekdays.add(i);
+                                                  } else {
+                                                    weekdays.remove(i);
+                                                  }
+                                                }),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                            ] else ...[
+                              Text(
+                                kind == 'goal'
+                                    ? 'Fecha límite opcional. Se elige en la hora local del sistema.'
+                                    : 'Elige fecha y hora de aviso en la hora local del sistema.',
+                              ),
+                              Wrap(
+                                crossAxisAlignment: WrapCrossAlignment.center,
+                                children: [
+                                  TextButton(
+                                    onPressed: saving ? null : pickDate,
+                                    child: Text(
+                                      notifyAt == null
+                                          ? 'Elegir fecha y hora'
+                                          : '${MaterialLocalizations.of(context).formatMediumDate(notifyAt!)} · ${TimeOfDay.fromDateTime(notifyAt!).format(context)}',
+                                    ),
+                                  ),
+                                  if (notifyAt != null && kind == 'goal')
+                                    TextButton(
+                                      onPressed: saving
+                                          ? null
+                                          : () =>
+                                                setState(() => notifyAt = null),
+                                      child: const Text('Sin fecha límite'),
+                                    ),
+                                ],
+                              ),
+                              const SizedBox(height: 16),
+                            ],
+
+                            const SizedBox(height: 12),
+                            heading('Aplicaciones', Icons.apps_outlined),
+                            if (applications.isEmpty)
+                              Text(
+                                'Ninguna aplicación añadida',
+                                style: body.copyWith(
+                                  fontSize: 12,
+                                  color: ink.withValues(alpha: .7),
+                                ),
+                              ),
+                            for (var i = 0; i < applications.length; i++) ...[
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 12),
+                                    child: AssignmentLogo(
+                                      document: {
+                                        'applications': [applications[i]],
+                                      },
+                                      size: 32,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: TextFormField(
+                                      key: ValueKey(
+                                        'name-${identityHashCode(applications[i])}',
+                                      ),
+                                      initialValue:
+                                          applications[i]['name'] as String? ??
+                                          '',
+                                      enabled: !saving,
+                                      decoration: const InputDecoration(
+                                        labelText: 'Nombre de la aplicación',
+                                      ),
+                                      onChanged: (v) =>
+                                          applications[i]['name'] = v,
+                                    ),
+                                  ),
+                                  AppTooltip(
+                                    label: 'Quitar aplicación',
+                                    child: Semantics(
+                                      label: 'Quitar aplicación',
+                                      child: IconButton(
+                                        onPressed: saving
+                                            ? null
+                                            : () => setState(
+                                                () => applications.removeAt(i),
+                                              ),
+                                        icon: const Icon(Icons.close, size: 16),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 12),
+                              disclosure(
+                                'source-${identityHashCode(applications[i])}',
+                                'Origen de la aplicación',
+                                Icons.link_outlined,
+                                applications[i]['kind'] == 'desktop'
+                                    ? 'En el ordenador'
+                                    : applications[i]['url'] as String? ??
+                                          'Web',
+                                [
+                                  choice(
+                                    'Dónde se utiliza',
+                                    applications[i]['kind'] as String? ?? 'web',
+                                    const {
+                                      'web': 'Web',
+                                      'desktop': 'En el ordenador',
+                                    },
+                                    (v) {
+                                      applications[i]['kind'] = v;
+                                      if (v == 'desktop') {
+                                        applications[i]['url'] = null;
+                                      }
+                                    },
+                                  ),
+                                  if (applications[i]['kind'] == 'web')
+                                    TextFormField(
+                                      key: ValueKey(
+                                        'url-${identityHashCode(applications[i])}',
+                                      ),
+                                      initialValue:
+                                          applications[i]['url'] as String? ??
+                                          '',
+                                      enabled: !saving,
+                                      decoration: const InputDecoration(
+                                        labelText: 'Dirección web (opcional)',
+                                      ),
+                                      onChanged: (v) => applications[i]['url'] =
+                                          v.trim().isEmpty ? null : v.trim(),
+                                    ),
+                                ],
+                              ),
+                            ],
+                            TextButton.icon(
+                              onPressed: saving
+                                  ? null
+                                  : () => setState(
+                                      () => applications.add({
+                                        'name': '',
+                                        'kind': 'web',
+                                        'url': null,
+                                        'plugin_available': false,
+                                        'manual_required': true,
+                                      }),
+                                    ),
+                              style: TextButton.styleFrom(
+                                padding: EdgeInsets.zero,
+                                overlayColor: Colors.transparent,
+                              ),
+                              icon: const Icon(Icons.add, size: 16),
+                              label: const Text('Añadir aplicación'),
+                            ),
+                            const SizedBox(height: 24),
+                            disclosure(
+                              'context',
+                              'Contexto',
+                              Icons.notes_outlined,
+                              optional('context') ??
+                                  'Información adicional para interpretar la tarea.',
+                              [
+                                field(
+                                  'context',
+                                  'Contexto (opcional)',
+                                  lines: 3,
+                                ),
+                              ],
+                            ),
+                            disclosure(
+                              'preparation',
+                              'Preparación interna',
+                              Icons.checklist_outlined,
+                              optional('interval') == null
+                                  ? 'Cadencia y pasos para reunir la información.'
+                                  : 'Cada ${optional('interval')} minutos',
+                              [
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 16),
+                                  child: Text(
+                                    'Reunir información no cambia la hora del aviso.',
+                                    style: body.copyWith(
+                                      fontSize: 12,
+                                      color: ink.withValues(alpha: .7),
+                                    ),
+                                  ),
+                                ),
+                                field(
+                                  'interval',
+                                  'Revisar cada cuántos minutos (opcional)',
+                                  required: followUpEnabled,
+                                ),
+                                field(
+                                  'rationale',
+                                  'Por qué usar esa cadencia',
+                                  lines: 2,
+                                  required: followUpEnabled,
+                                ),
+                                field(
+                                  'steps',
+                                  'Pasos de preparación (uno por línea)',
+                                  lines: 4,
+                                ),
+                              ],
+                            ),
+                            Row(
+                              children: [
+                                const Icon(Icons.visibility_outlined, size: 18),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Text(
+                                    'Seguimiento',
+                                    style: body.copyWith(
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            SwitchListTile.adaptive(
+                              key: const ValueKey('follow-up-policy'),
+                              contentPadding: EdgeInsets.zero,
+                              title: const Text(
+                                'Seguimiento entre entregas',
+                                style: TextStyle(fontSize: 13),
+                              ),
+                              subtitle: const Text(
+                                'Valorar cambios además de la entrega programada.',
+                                style: TextStyle(fontSize: 11),
+                              ),
+                              value: followUpEnabled,
+                              onChanged: saving
+                                  ? null
+                                  : (value) => setState(() {
+                                      followUpEnabled = value;
+                                      if (value) {
+                                        opened.add('followup');
+                                        if (optional('interval') == null) {
+                                          fields['interval']!.text = '10';
+                                        }
+                                        if (optional('rationale') == null) {
+                                          fields['rationale']!.text =
+                                              'Detectar cambios y valorar si conviene intervenir entre entregas.';
+                                        }
+                                        if (optional('guidance') == null) {
+                                          fields['guidance']!.text =
+                                              'Valora los cambios, el contexto y el historial. Decide si basta con registrar, si conviene preguntar, avisar o proponer ayuda, o si corresponde una acción delegada. Conserva los cambios aunque no justifiquen interrumpir; evita repetir preguntas o avisos sin novedades relevantes.';
+                                        }
+                                      }
+                                    }),
+                            ),
+                            if (followUpEnabled)
+                              disclosure(
+                                'followup',
+                                'Criterios de seguimiento',
+                                Icons.tune_outlined,
+                                optional('followUpScope') ??
+                                    'Define qué observar y cuándo intervenir.',
+                                [
+                                  field(
+                                    'followUpScope',
+                                    'Qué observar',
+                                    lines: 3,
+                                    required: true,
+                                  ),
+                                  field(
+                                    'guidance',
+                                    'Cómo decidir si intervenir',
+                                    lines: 4,
+                                    required: true,
+                                    hint:
+                                        'Cuándo guardar silencio, preguntar, avisar o proponer ayuda.',
+                                  ),
+                                  disclosure(
+                                    'actions',
+                                    'Aspectos y acciones',
+                                    Icons.rule_outlined,
+                                    'Preguntas específicas y límites de las acciones delegadas.',
+                                    [
+                                      field(
+                                        'signals',
+                                        'Aspectos a valorar (uno por línea)',
+                                        lines: 3,
+                                      ),
+                                      field(
+                                        'actionScope',
+                                        'Acciones delegadas (opcional)',
+                                        lines: 3,
+                                        hint:
+                                            'Solo acciones que hayas encargado expresamente, con sus límites.',
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            const SizedBox(height: 16),
+                            disclosure(
+                              'settings',
+                              'Estado e importancia',
+                              Icons.flag_outlined,
+                              '${assignmentStatuses[status]} · Importancia ${assignmentPriorities[priority]?.toLowerCase()}',
+                              [
+                                pair(
+                                  choice(
+                                    'Estado del encargo',
+                                    status,
+                                    assignmentStatuses,
+                                    (v) => status = v,
+                                  ),
+                                  choice(
+                                    'Importancia',
+                                    priority,
+                                    assignmentPriorities,
+                                    (v) => priority = v,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
                         ),
-                  icon: const Icon(Icons.add, size: 18),
-                  label: const Text('Añadir aplicación'),
-                ),
-              ),
-              if (error != null) ...[
-                const SizedBox(height: 16),
-                SelectableText(
-                  error!,
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
-                ),
-                if (widget.record != null)
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: TextButton(
-                      onPressed: saving ? null : widget.onReload,
-                      child: const Text('Descartar borrador y recargar'),
+                      ),
                     ),
                   ),
-              ],
-              const SizedBox(height: 24),
-              Align(
-                alignment: Alignment.centerRight,
-                child: FilledButton(
-                  onPressed: saving ? null : save,
-                  child: Text(saving ? 'Guardando…' : 'Guardar encargo'),
                 ),
               ),
-              const SizedBox(height: 24),
+              Container(
+                key: const ValueKey('assignment-editor-footer'),
+                decoration: BoxDecoration(
+                  border: Border(
+                    top: BorderSide(color: ink.withValues(alpha: .1)),
+                  ),
+                ),
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 760),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: 12,
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          if (error != null) ...[
+                            ConstrainedBox(
+                              constraints: const BoxConstraints(maxHeight: 80),
+                              child: SingleChildScrollView(
+                                child: SelectableText(
+                                  error!,
+                                  style: body.copyWith(
+                                    color: theme.colorScheme.error,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            if (widget.record != null)
+                              Align(
+                                alignment: Alignment.centerLeft,
+                                child: TextButton(
+                                  onPressed: saving ? null : widget.onReload,
+                                  child: const Text(
+                                    'Descartar borrador y recargar',
+                                  ),
+                                ),
+                              ),
+                            const SizedBox(height: 8),
+                          ],
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              TextButton(
+                                onPressed: saving ? null : widget.onBack,
+                                child: const Text('Cancelar'),
+                              ),
+                              const SizedBox(width: 12),
+                              FilledButton(
+                                onPressed: saving ? null : save,
+                                child: Text(
+                                  saving ? 'Guardando…' : 'Guardar encargo',
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
             ],
           ),
         ),

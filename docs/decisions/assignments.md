@@ -71,4 +71,6 @@ Verificación del renombrado: 51 tests Rust correctos (más pruebas externas opt
 
 2026-10-26. Seleccionar abre `AssignmentProfile`, una ficha sin inputs con icono, título, metadatos, descripción y horario guardados. Los detalles de contexto, aplicaciones, preparación y seguimiento están plegados inicialmente. Editar y cancelar alternan con el formulario en el mismo panel, sin navegación hacia atrás. Un guardado correcto devuelve a la ficha del registro; la creación identifica el nuevo ID en el snapshot devuelto. No cambia API, SQL ni políticas de ejecución. La UI no sintetiza contenido ni confunde cadencia interna con entrega.
 
+La ficha presenta decision_guidance en el contenedor de entrega, bajo «Criterio para avisarte entre entregas», cuando existe. Se conserva el texto literal de la política sin convertir señales en disparadores ni prometer ejecución. Ámbito, aspectos y acciones siguen en detalles; no se duplica la orientación.
+
 La migración 0003 convierte únicamente el estado histórico `recorded` a `active`, conservando ID, clave de petición, revisión, fechas y el resto del documento. Los nuevos encargos usan `active`; UI y MCP ofrecen solo activo, pausado, completado y cancelado.

@@ -50,7 +50,10 @@ Future<void> show(
       home: Scaffold(
         body: ListenableBuilder(
           listenable: state,
-          builder: (context, _) => AssignmentsView(state: state),
+          builder: (context, _) => RepaintBoundary(
+            key: const ValueKey('editor-capture'),
+            child: AssignmentsView(state: state),
+          ),
         ),
       ),
     ),
@@ -61,6 +64,21 @@ Future<void> show(
     state.dispose();
     await (state.backend as AssignmentBackend).events.close();
   });
+}
+
+Future<void> revealVisible(WidgetTester tester, Finder finder) async {
+  FocusManager.instance.primaryFocus?.unfocus();
+  await tester.pumpAndSettle();
+  await tester.ensureVisible(finder);
+  await tester.pumpAndSettle();
+}
+
+Future<void> openEditorSection(WidgetTester tester, String id) async {
+  final target = find.byKey(ValueKey('assignment-editor-$id'));
+  await revealVisible(tester, target);
+  await tester.pumpAndSettle();
+  await tester.tap(target);
+  await tester.pumpAndSettle();
 }
 
 void main() {
@@ -171,6 +189,32 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
+        expect(
+          find.descendant(
+            of: find.byKey(const ValueKey('assignment-delivery')),
+            matching: find.text('Criterio para avisarte entre entregas'),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(
+            of: find.byKey(const ValueKey('assignment-delivery')),
+            matching: find.byWidgetPredicate(
+              (w) =>
+                  w is SelectableText &&
+                  w.data ==
+                      'Valorar cambios, contexto e historial. Preguntar o proponer ayuda cuando aporte valor; registrar en silencio el resto. Adaptar la anticipación a cada situación y respetar respuestas y aplazamientos.',
+            ),
+          ),
+          findsOneWidget,
+        );
+        final editTop = tester
+            .getTopLeft(find.byKey(const ValueKey('assignment-edit')))
+            .dy;
+        final labelTop = tester
+            .getTopLeft(find.byKey(const ValueKey('assignment-profile-label')))
+            .dy;
+        expect(editTop, labelTop);
         final boundary = tester.renderObject<RenderRepaintBoundary>(
           find.byKey(const ValueKey('capture')),
         );
@@ -184,9 +228,70 @@ void main() {
           ).writeAsBytes(bytes!.buffer.asUint8List());
           image.dispose();
         });
-        await tester.ensureVisible(find.text('Editar'));
-        await tester.tap(find.text('Editar'));
+        expect(
+          tester.getTopLeft(find.text('Para qué')).dy,
+          lessThan(
+            tester
+                .getTopLeft(find.byKey(const ValueKey('assignment-delivery')))
+                .dy,
+          ),
+        );
+        final profileScroll = find
+            .descendant(
+              of: find.byType(AssignmentProfile),
+              matching: find.byType(Scrollable),
+            )
+            .first;
+        await tester.scrollUntilVisible(
+          find.text('Detalles del encargo'),
+          150,
+          scrollable: profileScroll,
+        );
+        await tester.tap(find.text('Detalles del encargo'));
         await tester.pumpAndSettle();
+        await tester.scrollUntilVisible(
+          find.text('Aplicaciones'),
+          150,
+          scrollable: profileScroll,
+        );
+        await revealVisible(tester, find.text('Aplicaciones'));
+        await tester.pumpAndSettle();
+        await tester.runAsync(() async {
+          final image = await boundary.toImage(pixelRatio: 1);
+          final bytes = await image.toByteData(format: ImageByteFormat.png);
+          await File(
+            '../.verification/flutter-ui/events-details-${brightness.name}.png',
+          ).writeAsBytes(bytes!.buffer.asUint8List());
+          image.dispose();
+        });
+        expect(find.text('Pasos de preparación'), findsNothing);
+        expect(find.text('Aspectos a valorar'), findsNothing);
+        await revealVisible(tester, find.text('Preparación interna'));
+        await tester.tap(find.text('Preparación interna'));
+        await tester.pumpAndSettle();
+        expect(find.text('Pasos de preparación'), findsOneWidget);
+        await tester.scrollUntilVisible(
+          find.text('Seguimiento'),
+          150,
+          scrollable: profileScroll,
+        );
+        await revealVisible(tester, find.text('Seguimiento'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Seguimiento'));
+        await tester.pumpAndSettle();
+        expect(find.text('Aspectos a valorar'), findsOneWidget);
+        tester.state<ScrollableState>(profileScroll).position.jumpTo(0);
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('assignment-edit')));
+        await tester.pumpAndSettle();
+        await tester.runAsync(() async {
+          final image = await boundary.toImage(pixelRatio: 1);
+          final bytes = await image.toByteData(format: ImageByteFormat.png);
+          await File(
+            '../.verification/flutter-ui/events-editor-${brightness.name}.png',
+          ).writeAsBytes(bytes!.buffer.asUint8List());
+          image.dispose();
+        });
         final scroll = find
             .descendant(
               of: find.byType(AssignmentEditor),
@@ -198,7 +303,7 @@ void main() {
           220,
           scrollable: scroll,
         );
-        await tester.ensureVisible(find.text('Seguimiento'));
+        await revealVisible(tester, find.text('Seguimiento'));
         await tester.pumpAndSettle();
         await tester.runAsync(() async {
           final image = await boundary.toImage(pixelRatio: 1);
@@ -292,11 +397,37 @@ void main() {
       await show(tester, state);
       await tester.tap(find.byIcon(Icons.add).first);
       await tester.pumpAndSettle();
+      expect(field('Contexto (opcional)'), findsNothing);
+      expect(field('Revisar cada cuántos minutos (opcional)'), findsNothing);
+      await openEditorSection(tester, 'settings');
+      final statusChoice = tester.widget<DropdownButtonFormField<String>>(
+        find.byWidgetPredicate(
+          (w) =>
+              w is DropdownButtonFormField<String> &&
+              w.decoration.labelText == 'Estado del encargo',
+        ),
+      );
+      expect(statusChoice.initialValue, 'active');
+      final statusDropdown = tester.widget<DropdownButton<String>>(
+        find.descendant(
+          of: find.byWidget(statusChoice),
+          matching: find.byWidgetPredicate((w) => w is DropdownButton<String>),
+        ),
+      );
+      expect(statusDropdown.items!.map((item) => item.value), [
+        'active',
+        'paused',
+        'completed',
+        'cancelled',
+      ]);
+      expect(find.text('Registrado'), findsNothing);
+      await revealVisible(tester, field('Título'));
       await tester.enterText(field('Título'), 'Organizar mi correo');
       await tester.enterText(
         field('Qué debe hacer Gennie'),
         'Preparar un resumen de mensajes pendientes',
       );
+      await openEditorSection(tester, 'preparation');
       await tester.scrollUntilVisible(
         field('Revisar cada cuántos minutos (opcional)'),
         400,
@@ -315,6 +446,8 @@ void main() {
         field('Por qué usar esa cadencia'),
         'Reunir novedades antes de las ocho',
       );
+      await openEditorSection(tester, 'preparation');
+      expect(field('Revisar cada cuántos minutos (opcional)'), findsNothing);
       await tester.scrollUntilVisible(
         find.text('Guardar encargo'),
         400,
@@ -326,7 +459,7 @@ void main() {
             .first,
       );
       backend.pending = Completer<Snapshot>();
-      await tester.ensureVisible(find.text('Guardar encargo'));
+      await revealVisible(tester, find.text('Guardar encargo'));
       await tester.tap(find.text('Guardar encargo'));
       await tester.pump();
       expect(find.text('Guardando…'), findsOneWidget);
@@ -334,12 +467,13 @@ void main() {
       expect((payload['recurrence'] as Map)['local_time'], '08:00');
       expect((payload['preparation'] as Map)['interval_minutes'], 10);
       expect(payload['reason'], isNull);
+      expect(payload['status'], 'active');
       backend.pending!.completeError(Exception('No se pudo guardar'));
       await tester.pumpAndSettle();
       expect(find.textContaining('No se pudo guardar'), findsOneWidget);
       backend.pending = null;
-      await tester.ensureVisible(find.text('Guardar encargo'));
-      await tester.ensureVisible(find.text('Guardar encargo'));
+      await revealVisible(tester, find.text('Guardar encargo'));
+      await revealVisible(tester, find.text('Guardar encargo'));
       await tester.tap(find.text('Guardar encargo'));
       await tester.pumpAndSettle();
       expect(backend.saved.length, 2);
@@ -372,14 +506,15 @@ void main() {
           .first;
       Future<void> reveal(Finder finder) async {
         await tester.scrollUntilVisible(finder, 220, scrollable: scroll);
-        await tester.ensureVisible(finder);
+        await revealVisible(tester, finder);
         await tester.pumpAndSettle();
       }
 
       await reveal(field('Hora del aviso'));
       await tester.enterText(field('Hora del aviso'), '07:30');
       await reveal(find.byKey(const ValueKey('follow-up-policy')));
-      await tester.ensureVisible(
+      await revealVisible(
+        tester,
         find.byKey(const ValueKey('follow-up-policy')),
       );
       await tester.tap(find.byKey(const ValueKey('follow-up-policy')));
@@ -389,6 +524,7 @@ void main() {
         field('Qué observar'),
         'Tareas abiertas, completadas y reabiertas; conservar cambios silenciosos.',
       );
+      await openEditorSection(tester, 'actions');
       await reveal(field('Aspectos a valorar (uno por línea)'));
       await tester.enterText(
         field('Aspectos a valorar (uno por línea)'),
@@ -401,7 +537,7 @@ void main() {
       );
       await reveal(find.text('Guardar encargo'));
       backend.pending = Completer<Snapshot>();
-      await tester.ensureVisible(find.text('Guardar encargo'));
+      await revealVisible(tester, find.text('Guardar encargo'));
       await tester.tap(find.text('Guardar encargo'));
       await tester.pump();
       final first = backend.saved.single.$4;
@@ -418,8 +554,8 @@ void main() {
       );
       await tester.pumpAndSettle();
       backend.pending = null;
-      await tester.ensureVisible(find.text('Guardar encargo'));
-      await tester.ensureVisible(find.text('Guardar encargo'));
+      await revealVisible(tester, find.text('Guardar encargo'));
+      await revealVisible(tester, find.text('Guardar encargo'));
       await tester.tap(find.text('Guardar encargo'));
       await tester.pumpAndSettle();
       expect(backend.saved.length, 2);
@@ -454,7 +590,7 @@ void main() {
       220,
       scrollable: scroll,
     );
-    await tester.ensureVisible(find.byKey(const ValueKey('follow-up-policy')));
+    await revealVisible(tester, find.byKey(const ValueKey('follow-up-policy')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('follow-up-policy')));
     await tester.pumpAndSettle();
@@ -463,12 +599,65 @@ void main() {
       220,
       scrollable: scroll,
     );
-    await tester.ensureVisible(find.text('Guardar encargo'));
+    await revealVisible(tester, find.text('Guardar encargo'));
     await tester.tap(find.text('Guardar encargo'));
     await tester.pumpAndSettle();
     expect(backend.saved, isEmpty);
     expect(find.textContaining('Completa qué observar'), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('Criterio largo se despliega y contrae sin cambiar el encargo', (
+    tester,
+  ) async {
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final guidance = List.filled(
+      8,
+      'Valorar cambios y contexto, respetar respuestas y evitar repetir preguntas sin novedades.',
+    ).join(' ');
+    final backend = AssignmentBackend()
+      ..value = snapshot(
+        plans: [
+          AssignmentRecord(
+            id: 'long-policy',
+            revision: 1,
+            document: jsonEncode({
+              'title': 'Revisar pendientes',
+              'description': 'Preparar el día.',
+              'kind': 'recurring',
+              'priority': 'normal',
+              'status': 'active',
+              'timezone': 'America/Bogota',
+              'recurrence': {'frequency': 'daily', 'local_time': '07:30'},
+              'follow_up': {'decision_guidance': guidance},
+            }),
+            createdAt: '',
+            updatedAt: '',
+          ),
+        ],
+      );
+    await show(tester, DesktopState(backend));
+    await tester.tap(find.text('Revisar pendientes'));
+    await tester.pumpAndSettle();
+    final preview = find.byWidgetPredicate(
+      (w) => w is Text && w.data == guidance,
+    );
+    expect(tester.widget<Text>(preview).maxLines, 3);
+    expect(tester.widget<Text>(preview).overflow, TextOverflow.ellipsis);
+    await revealVisible(tester, find.text('Ver más'));
+    await tester.tap(find.text('Ver más'));
+    await tester.pumpAndSettle();
+    expect(
+      find.byWidgetPredicate((w) => w is SelectableText && w.data == guidance),
+      findsOneWidget,
+    );
+    await revealVisible(tester, find.text('Ver menos'));
+    await tester.tap(find.text('Ver menos'));
+    await tester.pumpAndSettle();
+    expect(tester.widget<Text>(preview).maxLines, 3);
+    expect(find.text('Ver más'), findsOneWidget);
+    expect(backend.saved, isEmpty);
   });
 
   testWidgets('Editar encargo conserva su política y permite retirarla', (
@@ -515,8 +704,8 @@ void main() {
     expect(find.byType(AssignmentEditor), findsNothing);
     expect(field('Título'), findsNothing);
     expect(find.byIcon(Icons.arrow_back), findsNothing);
-    await tester.ensureVisible(find.text('Editar'));
-    await tester.tap(find.text('Editar'));
+    await revealVisible(tester, find.byKey(const ValueKey('assignment-edit')));
+    await tester.tap(find.byKey(const ValueKey('assignment-edit')));
     await tester.pumpAndSettle();
     await tester.enterText(field('Título'), 'Borrador descartado');
     await tester.tap(find.text('Cancelar'));
@@ -524,13 +713,14 @@ void main() {
     expect(find.byType(AssignmentProfile), findsOneWidget);
     expect(find.text('Borrador descartado'), findsNothing);
     expect(backend.saved, isEmpty);
-    await tester.ensureVisible(find.text('Editar'));
-    await tester.tap(find.text('Editar'));
+    await revealVisible(tester, find.byKey(const ValueKey('assignment-edit')));
+    await tester.tap(find.byKey(const ValueKey('assignment-edit')));
     await tester.pumpAndSettle();
     expect(
       tester.widget<TextField>(field('Título')).controller!.text,
       'Mi seguimiento',
     );
+    await openEditorSection(tester, 'followup');
     final scroll = find
         .descendant(
           of: find.byType(AssignmentEditor),
@@ -543,7 +733,7 @@ void main() {
       scrollable: scroll,
     );
     backend.pending = Completer<Snapshot>();
-    await tester.ensureVisible(find.text('Guardar encargo'));
+    await revealVisible(tester, find.text('Guardar encargo'));
     await tester.tap(find.text('Guardar encargo'));
     await tester.pump();
     expect(backend.saved.single.$4['follow_up'], policy);
@@ -556,7 +746,7 @@ void main() {
       -240,
       scrollable: scroll,
     );
-    await tester.ensureVisible(find.byKey(const ValueKey('follow-up-policy')));
+    await revealVisible(tester, find.byKey(const ValueKey('follow-up-policy')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('follow-up-policy')));
     await tester.pumpAndSettle();
@@ -565,7 +755,7 @@ void main() {
       240,
       scrollable: scroll,
     );
-    await tester.ensureVisible(find.text('Guardar encargo'));
+    await revealVisible(tester, find.text('Guardar encargo'));
     await tester.tap(find.text('Guardar encargo'));
     await tester.pumpAndSettle();
     expect(backend.saved.last.$4.containsKey('follow_up'), isFalse);
@@ -622,6 +812,7 @@ void main() {
       expect(find.byType(AssignmentProfile), findsOneWidget);
       expect(find.byType(AssignmentLogo), findsNWidgets(2));
       expect(find.byType(AssignmentEditor), findsNothing);
+      expect(find.text('Criterio para avisarte entre entregas'), findsNothing);
       final scroll = find
           .descendant(
             of: find.byType(AssignmentProfile),
@@ -679,7 +870,8 @@ void main() {
           220,
           scrollable: scroll,
         );
-        await tester.ensureVisible(
+        await revealVisible(
+          tester,
           find.byKey(const ValueKey('follow-up-policy')),
         );
         await tester.tap(find.byKey(const ValueKey('follow-up-policy')));
@@ -700,6 +892,24 @@ void main() {
               )
               .first,
         );
+        final actions = tester.getRect(
+          find.byKey(const ValueKey('assignment-editor-footer')),
+        );
+        expect(actions.bottom, lessThanOrEqualTo(420));
+        expect(find.text('Guardar encargo').hitTestable(), findsOneWidget);
+        if (const bool.fromEnvironment('CAPTURE_UI')) {
+          final boundary = tester.renderObject<RenderRepaintBoundary>(
+            find.byKey(const ValueKey('editor-capture')),
+          );
+          await tester.runAsync(() async {
+            final image = await boundary.toImage(pixelRatio: 1);
+            final bytes = await image.toByteData(format: ImageByteFormat.png);
+            await File(
+              '../.verification/flutter-ui/events-editor-min-${brightness.name}.png',
+            ).writeAsBytes(bytes!.buffer.asUint8List());
+            image.dispose();
+          });
+        }
         expect(tester.takeException(), isNull);
       },
     );
