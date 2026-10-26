@@ -3,6 +3,7 @@ import FlutterMacOS
 import CoreText
 
 class MainFlutterWindow: NSWindow {
+  private var assignmentLogos: AssignmentLogoResolver?
   private var tooltipChannel: FlutterMethodChannel?
   private var tooltipPanel: NSPanel?
 
@@ -167,6 +168,7 @@ class MainFlutterWindow: NSWindow {
       content.addSubview(material, positioned: .below, relativeTo: nil)
     }
     (NSApp.delegate as? AppDelegate)?.configureLifecycle(controller)
+    assignmentLogos = AssignmentLogoResolver(controller)
     configureTooltips(controller)
     RegisterGeneratedPlugins(registry: controller)
     super.awakeFromNib()
