@@ -28,8 +28,12 @@ Antes de añadir/actualizar: verificar versión exacta en registro oficial y man
 
 ## Encargos y MCP
 
-`browser` aporta herramientas Playwright mediante el mismo registro. Bootstrap inyecta un único Controller compartido entre AppModule, API FRB y MCP; no construir un navegador independiente por consumidor. Perfil propio y Node/Chromium pertenecen a la app, sin tablas. Start no abre ventanas; stop cierra su contexto y proceso, conservando el perfil. Ver [D-026](../decisions/browser.md).
+`browser` aporta herramientas Playwright mediante el mismo registro. Bootstrap inyecta un único Controller compartido entre AppModule, API FRB y MCP; no construir un navegador independiente por consumidor. Perfil propio, recetas de consulta y Node/Chromium pertenecen a la app, sin tablas. Las recetas se ejecutan por la misma interfaz desde MCP y Rust, con verificación por revisión; ver [D-027](../decisions/web-plugins.md). Start no abre ventanas; stop cierra su contexto y proceso, conservando el perfil. Ver [D-026](../decisions/browser.md).
 
 `assignments` posee planes/validación/tabla y aporta herramientas a `kernel/mcp`, biblioteca reutilizable sin registro AppModule ni datos de negocio. Bootstrap registra las herramientas de módulos activos después de migrar y configura llm antes de start. Cada app futura podrá aportar herramientas propias sin introducir un módulo MCP monolítico. El helper stdio solo reenvía al host privado; comparte la conexión DB por inyección en el Store del host. Cierre de clientes/host antes de DB. Ver [D-025](../decisions/assignments.md).
 
 El transporte MCP admite resultados de imagen de herramientas propias mediante with_image; mantiene separado structuredContent y no conoce apps ni páginas. Requests siguen en 128 KiB y respuestas en 4 MiB. Los artifacts y la lectura/subida de archivos pertenecen a browser, sin acceso a tablas de otras apps. Ver D-026.
+
+`plugins` se compone explícitamente en bootstrap; posee trabajos/outbox y un worker serial bajo demanda, con diario y ajustes inyectados. Usa browser y las sesiones builder públicas de llm sin importar presence; bootstrap adapta el diario. Presence no conoce jobs y conserva sus recibos de mensajes. Kernel no importa plugins. Stop cancela y une el constructor antes de browser/MCP/SQLite. Ver [D-027](../decisions/web-plugins.md).
+
+Proactivity es una app independiente, compuesta en bootstrap con la clave opcional; no depende de assignments, plugins ni decisions local, y no ejecuta rutinas al arrancar.

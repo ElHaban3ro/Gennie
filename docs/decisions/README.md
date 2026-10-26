@@ -2,6 +2,8 @@
 
 Estado actual: escritorio Flutter + flutter_rust_bridge; ver [arquitectura](../architecture/overview.md) y [UI](../../UI.md). Los documentos anteriores conservan decisiones históricas; no reintroducir la presencia flotante ni sus sondas.
 
+- [Plugins web D-027](web-plugins.md): recetas HTTP/DOM verificadas, sesión bajo demanda y plan del constructor aislado.
+
 - [Navegador persistente D-026](browser.md): perfil exclusivo, apertura desde chat, herramientas Playwright y preparación del runtime local.
 
 - [Encargos y MCP modular D-025](assignments.md): registro de planes y políticas contextuales de seguimiento, preparación/aviso separados y transporte local compartido.
@@ -38,3 +40,5 @@ Estado actual: escritorio Flutter + flutter_rust_bridge; ver [arquitectura](../a
 - [Historial D-001..D-011](initialization-history.md): respuestas/decisiones originales; D-009 reemplaza ubicación D-001 y D-010 la demo aislada.
 
 Requisitos confirmados tienen prioridad sobre supuestos gráficos delegados. Las propuestas históricas no se convierten en autorizaciones de publicación ni acciones externas.
+
+- [Proactividad bajo demanda](proactivity.md): cliente de decisiones de OpenRouter sin rutinas automáticas.

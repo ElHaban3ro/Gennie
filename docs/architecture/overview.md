@@ -4,8 +4,10 @@ Gennie combina escritorio Flutter y backend Rust local mediante flutter_rust_bri
 
 ```text
 frontend/lib → API FRB (bootstrap/src/api.rs) → runtime.rs
-bootstrap → presence, transcription, decisions, llm, tts, reminders-plugin, assignments, browser, mcp
+bootstrap → presence, transcription, decisions, llm, tts, reminders-plugin, assignments, browser, plugins, proactivity, mcp
 browser → core, mcp
+plugins → browser, llm, core, db, mcp
+proactivity → core, reqwest
 assignments → core, db, mcp
 llm → mcp
 mcp → core
@@ -25,6 +27,10 @@ Pesos compartidos en `~/Library/Application Support/AIModels`, entornos propios 
 
 Desarrollo: `scripts/dev.sh`, biblioteca/helper debug en `target/flutter`, hot reload Dart. Release: `scripts/build.sh`, `frontend/build/macos/Build/Products/Release/Gennie.app`. El paquete incluye dylib/helper y licencia Inter. El build release y la firma local del runner se verificaron con Xcode 27.1; el comportamiento físico de la nueva interfaz sigue pendiente. [Verificación](../rules/testing.md).
 
-[Encargos y MCP modular](../decisions/assignments.md): cada app aporta herramientas propias a una biblioteca común. Bootstrap expone las activas mediante el helper stdio y un socket Unix privado; Store usa la conexión compartida. El Codex aislado recibe su configuración automáticamente. Assignments registra planes y políticas contextuales de seguimiento, sin scheduler, memoria, acceso a Gmail ni avisos.
+[Encargos y MCP modular](../decisions/assignments.md): cada app aporta herramientas propias a una biblioteca común. Bootstrap expone las activas mediante el helper stdio y un socket Unix privado; Store usa la conexión compartida. El Codex aislado recibe su configuración automáticamente. Assignments registra objetivo, referencia de método y autorización, además de políticas contextuales de seguimiento. La evidencia técnica se resuelve desde el catálogo inyectado por bootstrap, sin scheduler, memoria, acceso propio a Gmail ni avisos.
 
 [Navegador D-026](../decisions/browser.md): `apps/browser` comparte un contexto persistente Chromium entre el botón de chat y herramientas MCP de navegación/interacción. Node/Playwright se preparan explícitamente por usuario; el perfil queda en Application Support/Gennie, separado de SQLite y del navegador habitual. El módulo no abre ventanas al arrancar y las herramientas respetan el control de aplicaciones configurado.
+
+[Plugins web D-027](../decisions/web-plugins.md): browser guarda recetas HTTP/DOM de consulta, permite verificar y reutilizar funciones desde MCP/Rust y abre headless bajo demanda. El login se solicita solo si la operación lo necesita y la sesión existente no basta. El constructor aislado y los mensajes al chat de origen están implementados; no hay scheduler; [plan](../plans/web-plugins.md).
+
+Proactivity añade un cliente de decisiones de OpenRouter bajo demanda, con modelos Jev y OpenAI seleccionados por el llamador. La clave es opcional, separada de AppState; arrancar no consulta la red ni observa encargos.

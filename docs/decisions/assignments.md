@@ -1,6 +1,6 @@
 # D-025 — Registro de encargos y MCP modular
 
-2026-10-25. Alcance solicitado: registrar planes mediante la conversación y editarlos en Flutter. No se implementan ejecución programada, cron, entrega de avisos, memoria, Gmail ni plugins nuevos.
+2026-10-25. Alcance solicitado: registrar planes mediante la conversación y editarlos en Flutter. El registro no implementa ejecución programada, cron, entrega de avisos, memoria ni acceso directo a Gmail. Los plugins web y su constructor se describen en D-027.
 
 ## Propiedad y composición
 
@@ -16,7 +16,7 @@ La documentación oficial de [MCP en Codex](https://developers.openai.com/codex/
 
 La primera versión admite aviso puntual en ISO UTC, recurrencia diaria/semanal con HH:mm y días ISO 1–7, y objetivos con fecha límite opcional. La zona se valida contra un archivo TZif del sistema; las fechas contra su normalización SQLite. No se aceptan fechas imposibles ni campos desconocidos. La recurrencia conserva hora local y zona para que el futuro ejecutor aplique reglas de horario de verano; todavía no se calculan próximas ocurrencias ni se decide cómo resolver horas ambiguas/inexistentes. El editor puntual usa fecha/hora local del sistema y convierte el instante a UTC. La cadencia de preparación es opcional, en minutos, con justificación y pasos; nunca cambia la hora de aviso ni genera notificaciones.
 
-Cada aplicación registra nombre, desktop/web y URL opcional. Al no existir catálogo de plugins conectado, el backend fuerza `plugin_available=false` y `manual_required=true`, aunque el agente afirme lo contrario. Es metadato de planificación, no una integración ni autorización para acceder a cuentas. Los estados activo/pausado/completado/cancelado describen el encargo; no prueban que se haya trabajado en él.
+Cada aplicación registra nombre, desktop/web y URL opcional. Por compatibilidad, el backend sigue normalizando los indicadores históricos a `plugin_available=false` y `manual_required=true`; la evidencia técnica vigente se consulta en `method_resolution`. Es metadato de planificación, no una integración ni autorización para acceder a cuentas. Los estados activo/pausado/completado/cancelado describen el encargo; no prueban que se haya trabajado en él.
 
 ## Conversación y escritorio
 
@@ -76,3 +76,15 @@ La ficha presenta decision_guidance en el contenedor de entrega, bajo «Criterio
 La migración 0003 convierte únicamente el estado histórico `recorded` a `active`, conservando ID, clave de petición, revisión, fechas y el resto del documento. Los nuevos encargos usan `active`; UI y MCP ofrecen solo activo, pausado, completado y cancelado.
 
 El editor adopta la jerarquía de la ficha: contenido, entrega y fuentes visibles, con contexto/preparación/estado y criterios avanzados desplegables sin tarjetas. Los campos permanecen montados al plegarse para conservar borrador y validadores; ante validación fallida se abre y muestra el campo relevante. Guardar/Cancelar y errores se mantienen fuera del scroll. Es una reorganización Flutter; no modifica el contrato ni la ejecución. Ver UI.md y las pruebas de widgets del editor.
+
+## Objetivo, método y autorización — 2026-10-26
+
+`description` conserva el objetivo y resultado esperado; `context` delimita fuente/cuenta. `method` es opcional y referencia `plugin_id` y `functions`: alternativas equivalentes en orden de preferencia. El transporte pertenece al manifiesto verificado por el constructor, no a una etiqueta inventada por la conversación. `authorization` conserva el alcance aceptado y las vías permitidas (`http`, `web`, `computer_use`); método sin autorización se rechaza. Ausencias anteriores no conceden permisos ni cambian la representación canónica/idempotencia. Los campos son JSON opcional, sin migración nueva.
+
+`Record.method_resolution` se calcula al leer, fuera del lock SQLite, mediante un catálogo inyectado por bootstrap (sin dependencia assignments→browser). Solo acepta evidencia con revisión vigente y timestamp de verificación, cruza transporte y vías autorizadas y presenta la primera alternativa técnicamente disponible; no modifica el documento. Distingue plugin ausente, catálogo no disponible, función ausente, vía no autorizada y verificación pendiente. Editar/eliminar/publicar un plugin refresca también la ficha. Los indicadores históricos de applications no declaran compatibilidad. Los fallos de ejecución no reescriben el plan ni amplían permisos; este hito no añade ejecutor ni historial ficticio de ejecuciones.
+
+El editor permite configurar referencia y permisos en un despliegue, conservando borrador y revisión; la ficha los presenta separados en Detalles, junto con la resolución actual. No se envía evidencia calculada como parte del documento editable. Computer Use puede registrarse como vía autorizada, pero el constructor web actual solo implementa HTTP/DOM: no genera disponibilidad ficticia de escritorio.
+
+Un horario recurrente usa exclusivamente recurrence y no notify_at: si llega una fecha puntual, la validación señala ambos nombres antes de analizar su formato y orienta a corregir con null/omisión. MCP e instrucciones del asistente incluyen el ejemplo diario y el reintento con la misma clave después de un rechazo sin escritura. No se inventa una fecha ni se modifica silenciosamente una petición.
+
+Crear o editar desde MCP solicita la revisión del plugin de cada fuente web una vez confirmado el encargo y devuelve plugin_preparation. Un fallo o falta de origen se informa sin revertir el guardado. Desde el editor se usa el chat seleccionado para recibir avances; sin chat seleccionado el aviso explica que debe elegirse uno. El constructor sigue separado y no activa la ejecución periódica.

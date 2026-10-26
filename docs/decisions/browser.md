@@ -22,7 +22,7 @@ Verificado el 26 de octubre: `NSRunningApplication` devuelve nombre Gennie Web y
 - Runtime versionado: `browser/runtime-1.64.1`, Playwright y playwright-core exactos, npm lock con integridad. `node` enlaza al ejecutable local preparado; no depende del PATH del runner. Node debe seguir instalado en esa ubicación.
 - Navegadores descargables: `browser/browsers`, separados del perfil y de los datos de SQLite. Directorios privados 0700.
 
-El contexto usa `launchPersistentContext`, modo visible, tamaño nativo y restauración de última sesión. Activa el sandbox de Chromium y conserva la advertencia self-XSS de DevTools. Mantiene el almacén de credenciales predeterminado de Playwright; no debe usarse como gestor de contraseñas. Conserva cookies y almacenamiento de sitios según Chromium; no promete que una cuenta permanezca autenticada indefinidamente. Caducidad, cierre de sesión remoto y políticas del sitio siguen aplicándose. `sessionStorage` y otras estructuras efímeras conservan su semántica de navegador; no se exportan cookies, contraseñas ni tokens al historial o logs. No se sincroniza con otro dispositivo ni existe un borrado automático del perfil.
+El contexto usa `launchPersistentContext`, modo visible por apertura manual o headless bajo demanda por plugins ([D-027](web-plugins.md)), tamaño nativo y restauración de última sesión. Activa el sandbox de Chromium y conserva la advertencia self-XSS de DevTools. Mantiene el almacén de credenciales predeterminado de Playwright; no debe usarse como gestor de contraseñas. Conserva cookies y almacenamiento de sitios según Chromium; no promete que una cuenta permanezca autenticada indefinidamente. Caducidad, cierre de sesión remoto y políticas del sitio siguen aplicándose. `sessionStorage` y otras estructuras efímeras conservan su semántica de navegador; no se exportan cookies, contraseñas ni tokens al historial o logs. No se sincroniza con otro dispositivo ni existe un borrado automático del perfil.
 
 ## Control y cierre
 
@@ -36,7 +36,7 @@ Diagnóstico del 26 de octubre: la instancia abierta ya publicaba seis herramien
 
 Fuentes del protocolo: [MCP en Codex](https://learn.chatgpt.com/docs/extend/mcp) y [App Server](https://learn.chatgpt.com/docs/app-server), consultadas el 26 de octubre de 2026. El registro de herramientas, las instrucciones de servidor y developerInstructions orientan al modelo; no ejecutan automáticamente una navegación por sí solos.
 
-### Catálogo ampliado (21 herramientas)
+### Catálogo ampliado (24 herramientas)
 
 Todas siguen dentro del MCP local `gennie`, junto con `assignments_*`. No se añadió un servidor Playwright independiente ni un puerto de producto.
 
@@ -55,6 +55,8 @@ Todas siguen dentro del MCP local `gennie`, junto con `assignments_*`. No se añ
 | browser_request | HTTP GET/HEAD con cookie jar del contexto; sin extracción de cookies ni headers sensibles |
 | browser_download, browser_upload | Gestionar descargas persistidas y adjuntar archivos locales elegidos para la tarea |
 | browser_pdf | Exportar la página a PDF sin diálogo de impresión del sistema |
+| browser_network | Descubrimiento temporal de metadatos de red por origen |
+| browser_plugins, browser_plugin_run | Recetas web versionadas y ejecución/verificación HTTP/DOM; ver D-027 |
 
 Snapshot identifica hasta 200 elementos visibles de hasta 16 frames y devuelve referencias asociadas a handles concretos; conserva selectores como alternativa explícita. Cada snapshot/find y cada acción invalida las referencias anteriores. Antes de usar una referencia se comprueba conexión e identidad del elemento; ante referencia caducada se exige observar de nuevo. No hay JavaScript arbitrario suministrado por el modelo. Find también localiza texto que no estaba entre los primeros targets del snapshot. La lectura y las respuestas se acotan para no volcar páginas ilimitadas al modelo.
 
@@ -72,7 +74,7 @@ Upload acepta hasta 8 archivos regulares de 25 MiB cada uno, con rutas absolutas
 
 IPC JSON por stdin/stdout: peticiones de 128 KiB y respuestas de hasta 4 MiB. El transporte MCP común admite contenido `image` además del JSON de negocio, sin duplicar el base64 en structuredContent. El sobre interno `__gennie_mcp_output_v1` queda reservado a resultados multimodales construidos por herramientas propias. Encargos mantiene su contrato JSON. Los sockets aceptados se fijan explícitamente en modo bloqueante con timeout: en macOS podían heredar O_NONBLOCK y truncar una imagen a los primeros 8 KiB. La prueba del helper stdio conserva una imagen de 200.000 caracteres.
 
-Llamadas serializadas con rechazo ocupado y sin reintentos automáticos. Plazos Playwright: acciones 6 s, navegación 8 s, arranque 9 s; espera IPC 12 s. Esperas/descargas acotadas a 8 s por petición. Snapshot tiene presupuesto de exploración y conserva truncado explícito; no equivale a leer toda página. Timeout comunica resultado incierto, sin registrar excepciones/URLs. Cierre: EOF, cancelación de descargas pendientes, `context.close()` y drenaje de tareas propias, con hasta 5 s para terminar; último recurso kill/wait del grupo propio y error de escritura final no confirmada. Los hijos de Chromium los administra Playwright y el lector se une antes de finalizar. El perfil y los artifacts completados se conservan; el cierre global ocurre antes de SQLite.
+Llamadas serializadas con rechazo ocupado y sin reintentos automáticos. Plazos Playwright: acciones 6 s, navegación 8 s, arranque 9 s; espera IPC 12 s (24 s para plugin_run con arranque frío). Esperas/descargas acotadas a 8 s por petición. Snapshot tiene presupuesto de exploración y conserva truncado explícito; no equivale a leer toda página. Timeout comunica resultado incierto, sin registrar excepciones/URLs. Cierre: EOF, cancelación de descargas pendientes, `context.close()` y drenaje de tareas propias, con hasta 5 s para terminar; último recurso kill/wait del grupo propio y error de escritura final no confirmada. Los hijos de Chromium los administra Playwright y el lector se une antes de finalizar. El perfil y los artifacts completados se conservan; el cierre global ocurre antes de SQLite.
 
 Fuentes públicas verificadas: [Locator](https://playwright.dev/docs/api/class-locator), [APIRequestContext](https://playwright.dev/docs/api/class-apirequestcontext), [Download](https://playwright.dev/docs/api/class-download) y [diálogos](https://playwright.dev/docs/dialogs). Reutiliza Playwright 1.64.1 y Node instalados, sin dependencias de registro nuevas.
 

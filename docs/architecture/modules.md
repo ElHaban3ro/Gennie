@@ -8,11 +8,13 @@
 | gennie-core | AppModule, AppState y Shutdown; independiente de apps/frontend |
 | gennie-presence | Datos de historial, ConversationJournal, preparación de respuestas y narración; sin ventanas |
 | gennie-transcription | Preferencias, atajo, micrófono, descarga verificada y helper Nemotron |
+| gennie-proactivity | Cliente de decisiones OpenRouter bajo demanda para Jev y OpenAI, sin rutinas automáticas |
 | gennie-decisions | Catálogo, intención, disponibilidad, Laya y ejecutores locales comprobados |
 | gennie-llm | Preferencias, worker de conversación, proceso Codex app-server y thread_id |
 | gennie-tts | Preferencias y worker Kokoro MLX; audio no persistido |
 | gennie-mcp | Biblioteca MCP reutilizable, registro de herramientas y transporte privado sin datos de negocio |
-| gennie-browser | Contexto Playwright persistente y proceso Node propios; apertura FRB y 21 herramientas MCP comparten el controlador; referencias, imágenes, HTTP de sesión y artifacts, sin tablas |
+| gennie-browser | Contexto Playwright persistente y proceso Node propios; apertura FRB y 24 herramientas MCP comparten el controlador; referencias, imágenes, HTTP de sesión, artifacts y recetas de plugins verificadas, sin tablas |
+| gennie-plugins | Constructor Codex aislado bajo demanda, candidatos, trabajos/outbox y avances al chat de origen; sin scheduler |
 | gennie-assignments | Planes y políticas contextuales de seguimiento persistidos, validación y herramientas de registro; sin ejecución ni avisos |
 | gennie-reminders-plugin | Controlador y observador EventKit local; sin consumidor UI/IA |
 | bootstrap / gennie_backend | Composición, API FRB, runtime serial y secuencia de cierre |
@@ -27,3 +29,5 @@ Flutter recibe snapshots y ejecuta operaciones asíncronas de `bootstrap/src/api
 Dictado envía frases finalizadas a llm; Laya permanece separado. La selección de historial es de lectura y no reactiva un hilo. Renombrar/eliminar son locales; Codex conserva sus hilos. La narración usa texto de respuesta y cola acotada, sin persistir audio. [Historial](../decisions/chat-history.md), [conversación](../decisions/llm-conversation.md), [voz](../decisions/tts.md).
 
 La interfaz flotante, sus adaptadores y sondas visuales se retiraron. Los registros históricos describen esa implementación anterior y no prueban el escritorio Flutter. Linux/Windows pendientes; macOS necesita Xcode completo para el runner.
+
+Encargos separa objetivo, referencia de método y autorización. Bootstrap inyecta un proveedor del catálogo web a Store; la resolución técnica es calculada, sin dependencia de crates entre assignments/browser ni modificaciones a permisos. Plugins expone sus hitos persistidos también en la ficha.

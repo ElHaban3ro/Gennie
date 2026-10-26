@@ -1,9 +1,10 @@
 # Configuración
 
-Propietario: kernel/config. `Config` contiene ruta DB y busy timeout; `Secrets` separado y vacío en esta base, sin Debug ni AppState. Bootstrap consume Secrets al construir clientes futuros. No inventar credenciales. Prefijo GENNIE_. Precedencia: entorno de proceso > `.env` explícito del cwd > defaults. No modificar entorno global mediante unsafe set_var; fusionar valores en memoria. Exportado distinto al archivo genera aviso solo con nombre.
+Propietario: kernel/config. `Config` contiene ruta DB y busy timeout; `Secrets` separado, sin Debug ni AppState; contiene la clave opcional de OpenRouter. Bootstrap consume Secrets al construir clientes futuros. No inventar credenciales. Prefijo GENNIE_. Precedencia: entorno de proceso > `.env` explícito del cwd > defaults. No modificar entorno global mediante unsafe set_var; fusionar valores en memoria. Exportado distinto al archivo genera aviso solo con nombre.
 
 ## Variables de proceso
 - GENNIE_DATABASE_PATH obligatoria sin default: archivo SQLite, no vacío ni `:memory:`. Instalaciones nuevas usan data/gennie.sqlite3; el .env local conserva la ruta existente al renombrar el producto. Las herramientas CLI resuelven rutas relativas al cwd; el escritorio las resuelve respecto al directorio del `.env` explícito para conservar la DB del checkout aunque Flutter arranque desde `frontend`. Las rutas absolutas se conservan.
+- GENNIE_OPENROUTER_API_KEY opcional: clave privada de OpenRouter, necesaria solo al clasificar; no se registra ni persiste en SQLite.
 - GENNIE_DB_BUSY_TIMEOUT_MS default 500, entero 1..5000. Una conexión, sin parámetros de pool o HTTP.
 
 .env fuera de Git. .env.example lista todas las variables y distingue obligatorias/defaults; test compara declaraciones y defaults. No sobrescribir .env existente. Falta de ruta falla temprano con nombre, no valor. Error de parseo no debe filtrar valores sensibles; cuando se añadan secretos sanitizar mensajes del parser también.
@@ -41,3 +42,9 @@ El navegador propio usa `~/Library/Application Support/Gennie/browser/profile`, 
 Al abrir Gennie se solicita automáticamente la conexión de Codex en segundo plano. Se verifica el inventario MCP del hilo antes de declarar Conectado; la primera intervención reutiliza la sesión. No hay mensaje de calentamiento ni inferencia. Falta de autenticación o fallo de descubrimiento producen error visible y reintento explícito con Conectar.
 
 Capturas, PDF y descargas de Gennie Web pertenecen a `browser/artifacts` y persisten tras cerrar; directorio 0700, archivos 0600 y nombres generados. Upload requiere lectura de archivos activada y rutas explícitas elegidas para la tarea; vaciar/cancelar una selección no lee archivos. No añade preferencias ni variables de entorno. Ver D-026.
+
+Las recetas web viven en `browser/plugins`, directorio 0700 y JSON 0600, con revisión y evidencia mínima por función. No añaden variables, preferencias, credenciales ni tablas. Sesión compartida y acceso únicamente bajo demanda; no solicitar login al guardar una receta o consultar contenido público. Ver [D-027](../decisions/web-plugins.md).
+
+El constructor de plugins usa un workspace/CLI home por trabajo bajo Application Support/Gennie/plugins/builds, con hilo Codex propio y los ajustes de modelo/esfuerzo vigentes. Reutiliza el mecanismo de autenticación aislada existente sin copiar credenciales. No incorpora variables ni secretos nuevos; el presupuesto vive en el trabajo. Catálogo UI/MCP propio independiente de permisos de comandos; construir/ejecutar requiere control de apps y comandos. Ver [D-027](../decisions/web-plugins.md).
+
+Proactivity carga GENNIE_OPENROUTER_API_KEY desde el .env explícito o el entorno, con precedencia del entorno. Su ausencia no impide arrancar. Se elige Jev u OpenAI Decisions por llamada, ambos mediante OpenRouter.

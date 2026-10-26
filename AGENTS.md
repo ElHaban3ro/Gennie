@@ -1,6 +1,6 @@
 # Gennie — instrucciones del checkout
 
-Gennie es un asistente personal con escritorio Flutter local en macOS y backend Rust mediante flutter_rust_bridge, configuración y SQLite. Conserva dictado Nemotron, conversación con Codex y narración Kokoro; Laya permanece como módulo independiente. La presencia flotante, la cara y los globos fueron retirados y no deben replicarse. No hay HTTP entrante, usuarios, correo ni conectores de IA remota adicionales. Antes de modificar código, identifica las áreas afectadas y lee los archivos de reglas correspondientes. Los enlaces de este índice son instrucciones de lectura, no sustituyen su contenido.
+Gennie es un asistente personal con escritorio Flutter local en macOS y backend Rust mediante flutter_rust_bridge, configuración y SQLite. Conserva dictado Nemotron, conversación con Codex y narración Kokoro; Laya permanece como módulo independiente. La presencia flotante, la cara y los globos fueron retirados y no deben replicarse. No hay HTTP entrante, usuarios ni correo integrado. Proactivity permite clasificación remota explícita mediante OpenRouter. Antes de modificar código, identifica las áreas afectadas y lee los archivos de reglas correspondientes. Los enlaces de este índice son instrucciones de lectura, no sustituyen su contenido.
 
 ## Mapa e invariantes
 - El nombre visible de la aplicación se escribe **Gennie**, siempre con G mayúscula. Mantén en minúscula los identificadores técnicos, crates, comandos, rutas y nombres de archivo existentes.
@@ -9,12 +9,14 @@ Gennie es un asistente personal con escritorio Flutter local en macOS y backend 
 - `kernel/core`: AppModule, AppState y señal de apagado. Kernel nunca importa apps ni contracts.
 - `frontend/lib`: interfaz Flutter, navegación, historial, conversación y ajustes; consume únicamente la API Rust generada.
 - `kernel/mcp`: biblioteca de protocolo y transporte local; cada app aporta sus herramientas, sin tablas ni módulo MCP monolítico.
-- `apps/browser`: navegador Playwright/Chromium visible, perfil persistente exclusivo y herramientas MCP sobre la misma instancia; sin HTTP/CDP ni perfil personal. Ver D-026.
-- `apps/assignments`: Encargos; registro de planes y políticas contextuales de seguimiento, horarios de aviso y preparación; MCP y SQLite propios, sin ejecutor ni notificaciones.
+- `apps/browser`: navegador Playwright/Chromium visible o headless bajo demanda, perfil persistente exclusivo, recetas web de consulta y herramientas MCP sobre la misma instancia; sin HTTP/CDP ni perfil personal. Ver D-026 y D-027.
+- `apps/plugins`: constructor Codex aislado bajo demanda, candidatos verificados, trabajos/outbox y progreso al chat de origen; sin ejecución periódica. Ver D-027.
+- `apps/assignments`: Encargos; registro de objetivo, método y autorización, políticas contextuales de seguimiento, horarios de aviso y preparación; MCP y SQLite propios, sin ejecutor ni notificaciones.
 - `apps/presence`: datos de historial, preparación de respuestas y narración; conserva sus migraciones SQL históricas, sin interfaz ni ventanas.
 - `apps/transcription`: dictado, preferencias propias, descarga verificada de Nemotron y proceso hijo de audio/inferencia con descarga por inactividad.
+- `apps/proactivity`: cliente de decisiones OpenRouter bajo demanda para Jev y OpenAI; sin observadores ni rutinas automáticas.
 - `apps/decisions`: catálogo, intención semántica y disponibilidad separadas, Laya local/adaptaciones, ejecutores comprobados y diario de intentos; sin reintentos automáticos.
-- `apps/llm`: proceso hijo app-server, sesión ChatGPT de Codex CLI, un hilo activo y su identificador SQLite; presence posee el catálogo de conversaciones e historial local, sin audio persistido. Bootstrap inyecta su diario al worker LLM; ver D-024.
+- `apps/llm`: proceso hijo app-server, sesión ChatGPT de Codex CLI, un hilo conversacional activo y su identificador SQLite, más sesiones técnicas aisladas para plugins sin alterar ese hilo; presence posee el catálogo de conversaciones e historial local, sin audio persistido. Bootstrap inyecta su diario al worker LLM; ver D-024.
 - `apps/reminders-plugin`: controlador local de Recordatorios mediante EventKit; lectura, escritura y observador de cambios, sin conexión a la IA o UI todavía.
 - `bootstrap`: biblioteca `gennie_backend`, API FRB en `api.rs`, coordinador en `runtime.rs` y binario helper de audio; composición explícita y secuencia de arranque/cierre. Grafo acíclico; datos de apps no invaden AppState.
 - No existen contracts, HTTP, buses ni testkit sin una necesidad real. Los avisos futuros salen después del commit.

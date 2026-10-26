@@ -58,3 +58,13 @@ La política contextual `follow_up` es metadato opcional del documento de assign
 En el renombrado a assignments, AppModule conserva `migration_namespace() = "events"` para que `_soc_migrations_events` mantenga los checksums y fechas originales; solo es identidad histórica de migraciones. La tabla de datos vigente es assignments y el registro de módulos usa assignments. La migración 0001 permanece inmutable y 0002 hace ALTER TABLE sin copiar ni reescribir documentos/IDs/revisiones/claves. Bootstrap transfiere la selección activa/inactiva desde modules.events a modules.assignments en una transacción; si ya hay selección nueva, la conserva y retira la fila antigua. Ante una tabla de destino en conflicto la migración falla con rollback, sin borrar datos. No abrir simultáneamente un binario anterior sobre esa DB migrada; downgrade no soportado.
 
 La migración 0003 de assignments sustituye `recorded` por `active` dentro del JSON, sin cambiar otros campos, revisiones ni fechas. Las migraciones 0001 y 0002 permanecen inmutables.
+
+## Construcción de plugins
+
+`plugins` posee plugin_build_jobs y plugin_build_events (migración 0001), con origen de chat fijo, request_key idempotente, revisión base, presupuesto y estado. Cambio e hito se confirman juntos. Su outbox entrega mediante un trait inyectado, sin consultar tablas de presence. Presence añade 0011 para recibos por event_key: recibo y mensaje del chat explícito comparten transacción; no se resucita un chat eliminado. Las migraciones anteriores no cambian. No mantener SQLite bloqueado durante Codex o navegador. Ver [D-027](../decisions/web-plugins.md).
+
+Encargos añade method/authorization opcionales al JSON, omitiendo ausencias para conservar idempotencia. method_resolution es evidencia calculada fuera del lock desde el catálogo inyectado, nunca persistida en el plan. Los hitos del constructor se leen de plugin_build_events, incluso entregados; no se alteran migraciones ni se duplica el historial.
+
+Eliminar un encargo exige su revisión vigente y confirma la eliminación en una transacción; un conflicto no altera datos ni incrementa la revisión observada.
+
+La migración 0002 de plugins permite encolar solicitudes independientes para el mismo plugin y conserva una única ejecución simultánea por identidad. refresh_base fija la revisión publicada al iniciar cada trabajo creado desde un encargo; al reanudar conserva la base y el candidato. 0001 permanece inmutable. Las solicitudes con distinta revisión del encargo tienen claves y chat de origen propios.
