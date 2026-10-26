@@ -2,11 +2,13 @@
 
 Estado actual: escritorio Flutter + flutter_rust_bridge; ver [arquitectura](../architecture/overview.md) y [UI](../../UI.md). Los documentos anteriores conservan decisiones históricas; no reintroducir la presencia flotante ni sus sondas.
 
+- [Encargos y MCP modular D-025](assignments.md): registro de planes y políticas contextuales de seguimiento, preparación/aviso separados y transporte local compartido.
+
 - [Historial propio D-024](chat-history.md): catálogo local, mensajes por conversación y consulta desde la sidebar.
 
 - [Composición de la cara sobre el escritorio D-023](wallpaper-face.md): material nativo global, ajustes de apariencia y límites de las capturas.
 
-- [Reminders plugin](reminders-plugin.md): integración local EventKit y eventos de cambios.
+- [Reminders plugin](reminders-plugin.md): integración local EventKit y encargos de cambios.
 
 - [Voz de salida de Gennie D-022](tts.md): Kokoro MLX local, preferencias y reproducción de respuestas.
 - [Almacén compartido de modelos](model-storage.md): rutas globales por usuario y migración conservadora.

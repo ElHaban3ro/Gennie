@@ -21,3 +21,9 @@ Cerrar, minimizar y redimensionar corresponden a la ventana macOS. La integraci�
 `./scripts/dev.sh` prepara Rust y abre Flutter debug con hot reload; cambios Rust requieren recompilar. `--build-only` no abre UI y no compila el runner. `--generate` regenera el puente. `./scripts/build.sh` crea el paquete release con dylib, helper y licencia; no despliega.
 
 Revisar análisis y tests Dart, tests Rust pertinentes y estado del código generado. El build macOS exige Xcode completo. Si no está disponible, informar del bloqueo: ni análisis ni widgets prueban ventana, composición, entrada física o permisos del sistema. Ver [testing](testing.md).
+
+## Sidebar compartida
+
+Historial, Encargos y Plugins deben usar `AppSidebar` de `frontend/lib/src/sidebar.dart`. El ancho y el agarre pertenecen al escritorio y se conservan entre pestañas; no crear una sidebar fija independiente por módulo. Búsqueda con `SidebarSearch`, filas con `SidebarTile`, vacío lateral con `SidebarEmpty` y vacío del lector con `ContentEmpty`. Las diferencias de contenido no deben introducir otras lupas, escalas de fuente, fondos ni estructuras de búsqueda.
+
+Los logos de Encargos son recursos de presentación del runner (`gennie/event-logo`), derivados de la aplicación principal guardada por Rust. Flutter no resuelve apps, hace HTTP ni consulta contenido de servicios. El runner usa iconos instalados/favicons acotados y caché regenerable; no abre sesiones. La fila siempre reserva su avatar, con inicial cuando no existe imagen. Ver [diseño](../decisions/assignments.md#recursos-visuales-de-las-fuentes).

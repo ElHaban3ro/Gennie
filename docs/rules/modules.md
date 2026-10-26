@@ -3,9 +3,9 @@
 Propietario del grafo, workspace, registro, AppModule y lifecycle. Workspace edición 2024, resolver 3, versiones centralizadas exactas; crates heredan package/dependencies. Kernel no importa apps/contracts. Apps pueden importar kernel y otras apps solo sin ciclos. Contracts solo cuando rompa un ciclo real; no generar capas/crates vacíos.
 
 ## Registro y orden
-Registro explícito en bootstrap/registry.rs; no discovery de módulos por DB, red ni filesystem. AppModule Send+Sync expone nombre estable, activación inicial, dependencias obligatorias/opcionales, migraciones y start/stop. No incluir HTTP, permisos o pestañas sin consumidor.
+Registro explícito en bootstrap/registry.rs; no discovery de módulos por DB, red ni filesystem. AppModule Send+Sync expone nombre estable, activación inicial, dependencias obligatorias/opcionales, namespace persistido de migraciones y start/stop. El namespace usa name por defecto y puede conservar una identidad histórica al renombrar una app; no cambia su nombre vigente. No incluir HTTP, permisos o pestañas sin consumidor.
 
-Nombres: minúsculas ASCII/dígitos/underscore; rechazar duplicados. No normalizar guiones, así no hay colisiones ambiguas. Validar DAG antes de migrar apps. Obligatorias ausentes son errores de código; apagadas son errores de configuración. Opcionales ausentes son válidas; presentes ordenan aunque estén apagadas. Fila huérfana no representa código disponible. Insertar módulo no sobrescribe selección persistida. Migrar todos los compilados, iniciar solo activos. No hay activación en caliente en este hito: modificar selección requiere reiniciar. Implementar hot activation solo con transición serializada, gate y compensaciones definidos si se solicita.
+Nombres: minúsculas ASCII/dígitos/underscore; rechazar duplicados de nombre y de namespace de migraciones. No normalizar guiones, así no hay colisiones ambiguas. Validar DAG antes de migrar apps. Obligatorias ausentes son errores de código; apagadas son errores de configuración. Opcionales ausentes son válidas; presentes ordenan aunque estén apagadas. Fila huérfana no representa código disponible. Insertar módulo no sobrescribe selección persistida. Migrar todos los compilados, iniciar solo activos. No hay activación en caliente en este hito: modificar selección requiere reiniciar. Implementar hot activation solo con transición serializada, gate y compensaciones definidos si se solicita.
 
 ## Lifecycle y comunicación
 Start no entra en el event loop, es idempotente y serializado; stop detiene solo recursos propios y es idempotente. Flutter inicia la biblioteca mediante la API FRB; el runtime Rust coordina start fuera del hilo visual. Si falla start, limpiar ese módulo y los iniciados en orden inverso, conservar error original y registrar secundarios. Salir solicita shutdown, detiene módulos y cierra DB al final; cerrar la ventana macOS la oculta y mantiene servicios.
@@ -25,3 +25,7 @@ Antes de añadir/actualizar: verificar versión exacta en registro oficial y man
 3. Crear crate significativo con interfaz pequeña, no andamiaje vacío; añadir dependencias centrales y registro.
 4. Validar ciclos, activación, migraciones incluso apagada, lifecycle y limpieza tras fallo.
 5. Actualizar mapa/docs en el mismo cambio. Composición solo en bootstrap; SQL y secretos según documentos propietarios.
+
+## Encargos y MCP
+
+`assignments` posee planes/validación/tabla y aporta herramientas a `kernel/mcp`, biblioteca reutilizable sin registro AppModule ni datos de negocio. Bootstrap registra las herramientas de módulos activos después de migrar y configura llm antes de start. Cada app futura podrá aportar herramientas propias sin introducir un módulo MCP monolítico. El helper stdio solo reenvía al host privado; comparte la conexión DB por inyección en el Store del host. Cierre de clientes/host antes de DB. Ver [D-025](../decisions/assignments.md).

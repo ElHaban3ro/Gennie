@@ -4,7 +4,10 @@ Gennie combina escritorio Flutter y backend Rust local mediante flutter_rust_bri
 
 ```text
 frontend/lib → API FRB (bootstrap/src/api.rs) → runtime.rs
-bootstrap → presence, transcription, decisions, llm, tts, reminders-plugin
+bootstrap → presence, transcription, decisions, llm, tts, reminders-plugin, assignments, mcp
+assignments → core, db, mcp
+llm → mcp
+mcp → core
 presence → llm, core, db
 transcription / decisions / llm / tts → core, db
 reminders-plugin → core
@@ -20,3 +23,5 @@ El binario Rust `gennie` es helper separado para captura/inferencia y descarga N
 Pesos compartidos en `~/Library/Application Support/AIModels`, entornos propios de cada app. [Almacén](../decisions/model-storage.md). Datos y migraciones existentes permanecen; las preferencias antiguas de apariencia flotante ya no tienen consumidor visual. No hay cara, globos ni presencia flotante.
 
 Desarrollo: `scripts/dev.sh`, biblioteca/helper debug en `target/flutter`, hot reload Dart. Release: `scripts/build.sh`, `frontend/build/macos/Build/Products/Release/Gennie.app`. El paquete incluye dylib/helper y licencia Inter. El build release y la firma local del runner se verificaron con Xcode 27.1; el comportamiento físico de la nueva interfaz sigue pendiente. [Verificación](../rules/testing.md).
+
+[Encargos y MCP modular](../decisions/assignments.md): cada app aporta herramientas propias a una biblioteca común. Bootstrap expone las activas mediante el helper stdio y un socket Unix privado; Store usa la conexión compartida. El Codex aislado recibe su configuración automáticamente. Assignments registra planes y políticas contextuales de seguimiento, sin scheduler, memoria, acceso a Gmail ni avisos.

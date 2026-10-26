@@ -46,3 +46,11 @@ Los fallos de operaciones y los avisos de dictado/voz también se registran como
 ## Memoria de modelos bajo demanda
 
 La operación de lectura `model_memory_bytes` recorre el Controller propietario, sin cambiar snapshot, avisos ni preferencias. `kernel/core::process_resident_bytes` consulta RSS con `proc_pidinfo(PROC_PIDTASKINFO)` en macOS; no enumera procesos. Cada app expone únicamente la medición de su hijo propio. Laya comparte su PID desde el momento de crear el helper y lo limpia al destruirlo; voz y transcripción prestan su handle Child. Sin hijo devuelve cero; lectura no disponible devuelve None. No consultar desde tick, publicar métricas periódicas, guardar RAM en SQLite ni iniciar procesos para medir. RSS corresponde al proceso, no a una medida exclusiva de pesos o de GPU.
+
+## Registro de planes
+
+`apps/assignments::Store` valida/persiste planes y políticas contextuales de seguimiento sin ejecutar acciones. Flutter opera desde el coordinador; MCP desde workers propios acotados del host. Toda confirmación sigue al commit. `kernel/mcp` admite hasta 16 clientes, limita líneas a 128 KiB y une sus workers durante stop. No guardar conversaciones en esa tabla ni añadir scheduler implícito. Las revisiones internas son metadatos distintos del aviso al usuario. Ver [D-025](../decisions/assignments.md).
+
+Las instrucciones fijas de `apps/llm/src/assistant-instructions.md` definen a Gennie como asistente personal que facilita delegación y seguimiento. La iniciativa conversacional detecta necesidades, ofrece ayuda concreta, explica su beneficio y facilita elegir con pocas alternativas usando contexto real. Los encargos resultan de acuerdos aceptados, sin inventar agenda, crear compromisos no aceptados ni prometer capacidades o trabajo autónomo inexistentes. Se componen con permisos y herramientas en developerInstructions; no se añaden al texto de cada mensaje del usuario ni afectan al generador de títulos.
+
+En delegaciones sobre aplicaciones, personalidad y metadatos MCP orientan la conversación a identificar fuente/ámbito/resultado y concretar el encargo, sin exigir contenido manual para registrarlo. La falta de integración no se sustituye automáticamente por pedir capturas/listas ni autoriza prometer conexión. El análisis inmediato de contenido compartido es una alternativa que el usuario puede solicitar expresamente.
