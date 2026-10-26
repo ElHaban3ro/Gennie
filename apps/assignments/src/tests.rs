@@ -3,7 +3,7 @@ use serde_json::json;
 fn document() -> Document {
     serde_json::from_value(json!({
         "title":"Organizar el correo", "description":"Preparar un resumen para organizar mi mañana.",
-        "reason":null,"context":"Petición del usuario en el chat", "kind":"recurring","priority":"high","status":"recorded",
+        "reason":null,"context":"Petición del usuario en el chat", "kind":"recurring","priority":"high","status":"active",
         "timezone":"America/Bogota","recurrence":{"frequency":"daily","local_time":"08:00"},
         "preparation":{"interval_minutes":10,"rationale":"Reunir cambios antes del resumen diario","steps":["Revisar nuevos mensajes","Agrupar asuntos pendientes"]},
         "applications":[{"name":"Gmail","kind":"web","url":"https://mail.google.com","plugin_available":true,"manual_required":false}]
@@ -17,6 +17,48 @@ fn store() -> Store {
     )
     .unwrap();
     Store::new(db)
+}
+#[test]
+fn migrating_recorded_status_preserves_other_states_and_record_metadata() {
+    let db = Database::memory().unwrap();
+    let module = AssignmentsModule;
+    db.migrate(module.migration_namespace(), &module.migrations()[..2])
+        .unwrap();
+    let mut legacy = document();
+    legacy.applications[0].plugin_available = false;
+    legacy.applications[0].manual_required = true;
+    let encoded = serde_json::to_string(&legacy).unwrap();
+    db.with_connection(|c| {
+        for status in ["recorded", "paused", "completed", "cancelled"] {
+            let saved = encoded.replace("\"status\":\"active\"", &format!("\"status\":\"{status}\""));
+            c.execute("INSERT INTO assignments(request_key,revision,document,created_at,updated_at) VALUES(?1,7,?2,'2026-10-24T13:00:00.000Z','2026-10-25T13:00:00.000Z')", params![status, saved])?;
+        }
+        Ok(())
+    }).unwrap();
+    db.migrate(module.migration_namespace(), module.migrations())
+        .unwrap();
+    let store = Store::new(db.clone());
+    for (id, key, status) in [
+        (1, "recorded", Status::Active),
+        (2, "paused", Status::Paused),
+        (3, "completed", Status::Completed),
+        (4, "cancelled", Status::Cancelled),
+    ] {
+        let row = store.get(id).unwrap();
+        let mut expected = legacy.clone();
+        expected.status = status;
+        assert_eq!(row.document, expected);
+        assert_eq!(row.revision, 7);
+        assert_eq!(row.created_at, "2026-10-24T13:00:00.000Z");
+        assert_eq!(row.updated_at, "2026-10-25T13:00:00.000Z");
+        assert_eq!(store.create(key, expected).unwrap().id, id);
+    }
+    let mut invalid = serde_json::to_value(legacy).unwrap();
+    invalid["status"] = json!("recorded");
+    assert!(serde_json::from_value::<Document>(invalid).is_err());
+    db.migrate(module.migration_namespace(), module.migrations())
+        .unwrap();
+    assert_eq!(store.get(1).unwrap().document.status, Status::Active);
 }
 #[test]
 fn separates_preparation_from_notification_and_normalizes_unavailable_plugins() {
@@ -297,7 +339,7 @@ fn migrating_legacy_events_preserves_records_keys_revisions_and_checksums() {
         assert_eq!(
             c.query_row("SELECT count(*) FROM _soc_migrations_events", [], |r| r
                 .get::<_, i64>(0))?,
-            2
+            3
         );
         Ok(())
     })

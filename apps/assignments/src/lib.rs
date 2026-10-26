@@ -29,7 +29,7 @@ pub enum Priority {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum Status {
-    Recorded,
+    Active,
     Paused,
     Completed,
     Cancelled,
@@ -126,6 +126,10 @@ impl AppModule for AssignmentsModule {
             Migration {
                 version: 2,
                 sql: include_str!("../migrations/0002_assignments.sql"),
+            },
+            Migration {
+                version: 3,
+                sql: include_str!("../migrations/0003_active_status.sql"),
             },
         ]
     }

@@ -101,7 +101,7 @@ void main() {
               'Preparar un resumen de las tareas que requieren mi atención.',
           'kind': 'recurring',
           'priority': 'high',
-          'status': 'recorded',
+          'status': 'active',
           'timezone': 'America/Bogota',
           'reason': 'Planificar la mañana antes de empezar a trabajar.',
           'recurrence': {
@@ -494,7 +494,7 @@ void main() {
               'description': 'Acompañar mi día',
               'kind': 'recurring',
               'priority': 'normal',
-              'status': 'recorded',
+              'status': 'active',
               'timezone': 'America/Bogota',
               'recurrence': {'frequency': 'daily', 'local_time': '07:30'},
               'preparation': {

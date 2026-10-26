@@ -44,7 +44,7 @@ fn stdio_registers_reads_and_edits_on_the_hosts_single_database() {
     assert_eq!(init["result"]["protocolVersion"], "2025-06-18");
     let listed = call(json!({"jsonrpc":"2.0","id":2,"method":"tools/list"}));
     assert_eq!(listed["result"]["tools"].as_array().unwrap().len(), 4);
-    let document = json!({"title":"Investigar autos autónomos","description":"Preparar investigación sobre IA en autos autónomos","kind":"goal","priority":"normal","status":"recorded","timezone":"America/Bogota","applications":[],"preparation":{"steps":["Reunir fuentes primarias"]}});
+    let document = json!({"title":"Investigar autos autónomos","description":"Preparar investigación sobre IA en autos autónomos","kind":"goal","priority":"normal","status":"active","timezone":"America/Bogota","applications":[],"preparation":{"steps":["Reunir fuentes primarias"]}});
     let saved = call(
         json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"assignments_create","arguments":{"request_key":"integration","document":document}}}),
     );
@@ -294,7 +294,7 @@ fn run_codex_fixture(evaluate_dialogue: bool) {
         assert!(reply.len() > 10);
         return;
     }
-    let document = json!({"title":"Prueba local sin inferencia","description":"Verificar el registro desde Codex","kind":"goal","priority":"normal","status":"recorded","timezone":"UTC"});
+    let document = json!({"title":"Prueba local sin inferencia","description":"Verificar el registro desde Codex","kind":"goal","priority":"normal","status":"active","timezone":"UTC"});
     let saved = call(
         json!({"jsonrpc":"2.0","id":4,"method":"mcpServer/tool/call","params":{"threadId":thread_id,"server":"gennie","tool":"assignments_create","arguments":{"request_key":"codex-no-inference","document":document}}}),
     );

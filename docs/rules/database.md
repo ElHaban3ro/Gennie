@@ -56,3 +56,5 @@ La política contextual `follow_up` es metadato opcional del documento de assign
 
 
 En el renombrado a assignments, AppModule conserva `migration_namespace() = "events"` para que `_soc_migrations_events` mantenga los checksums y fechas originales; solo es identidad histórica de migraciones. La tabla de datos vigente es assignments y el registro de módulos usa assignments. La migración 0001 permanece inmutable y 0002 hace ALTER TABLE sin copiar ni reescribir documentos/IDs/revisiones/claves. Bootstrap transfiere la selección activa/inactiva desde modules.events a modules.assignments en una transacción; si ya hay selección nueva, la conserva y retira la fila antigua. Ante una tabla de destino en conflicto la migración falla con rollback, sin borrar datos. No abrir simultáneamente un binario anterior sobre esa DB migrada; downgrade no soportado.
+
+La migración 0003 de assignments sustituye `recorded` por `active` dentro del JSON, sin cambiar otros campos, revisiones ni fechas. Las migraciones 0001 y 0002 permanecen inmutables.

@@ -508,7 +508,7 @@ fn assignment_commit_refreshes_snapshot_and_survives_reopen_without_provider() {
     .unwrap();
     db.close().unwrap();
     let mut backend = fixture.open();
-    let document=serde_json::json!({"title":"Investigar IA","description":"Comparar fuentes de autos autónomos","kind":"goal","priority":"high","status":"recorded","timezone":"America/Bogota"}).to_string();
+    let document=serde_json::json!({"title":"Investigar IA","description":"Comparar fuentes de autos autónomos","kind":"goal","priority":"high","status":"active","timezone":"America/Bogota"}).to_string();
     backend
         .apply(Operation::SaveAssignment(
             None,

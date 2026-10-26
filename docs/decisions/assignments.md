@@ -16,7 +16,7 @@ La documentación oficial de [MCP en Codex](https://developers.openai.com/codex/
 
 La primera versión admite aviso puntual en ISO UTC, recurrencia diaria/semanal con HH:mm y días ISO 1–7, y objetivos con fecha límite opcional. La zona se valida contra un archivo TZif del sistema; las fechas contra su normalización SQLite. No se aceptan fechas imposibles ni campos desconocidos. La recurrencia conserva hora local y zona para que el futuro ejecutor aplique reglas de horario de verano; todavía no se calculan próximas ocurrencias ni se decide cómo resolver horas ambiguas/inexistentes. El editor puntual usa fecha/hora local del sistema y convierte el instante a UTC. La cadencia de preparación es opcional, en minutos, con justificación y pasos; nunca cambia la hora de aviso ni genera notificaciones.
 
-Cada aplicación registra nombre, desktop/web y URL opcional. Al no existir catálogo de plugins conectado, el backend fuerza `plugin_available=false` y `manual_required=true`, aunque el agente afirme lo contrario. Es metadato de planificación, no una integración ni autorización para acceder a cuentas. Los estados registrado/pausado/completado/cancelado describen el registro; no prueban que se haya trabajado en él.
+Cada aplicación registra nombre, desktop/web y URL opcional. Al no existir catálogo de plugins conectado, el backend fuerza `plugin_available=false` y `manual_required=true`, aunque el agente afirme lo contrario. Es metadato de planificación, no una integración ni autorización para acceder a cuentas. Los estados activo/pausado/completado/cancelado describen el encargo; no prueban que se haya trabajado en él.
 
 ## Conversación y escritorio
 
@@ -70,3 +70,5 @@ Verificación del renombrado: 51 tests Rust correctos (más pruebas externas opt
 ## Consulta y edición explícita
 
 2026-10-26. Seleccionar abre `AssignmentProfile`, una ficha sin inputs con icono, título, metadatos, descripción y horario guardados. Los detalles de contexto, aplicaciones, preparación y seguimiento están plegados inicialmente. Editar y cancelar alternan con el formulario en el mismo panel, sin navegación hacia atrás. Un guardado correcto devuelve a la ficha del registro; la creación identifica el nuevo ID en el snapshot devuelto. No cambia API, SQL ni políticas de ejecución. La UI no sintetiza contenido ni confunde cadencia interna con entrega.
+
+La migración 0003 convierte únicamente el estado histórico `recorded` a `active`, conservando ID, clave de petición, revisión, fechas y el resto del documento. Los nuevos encargos usan `active`; UI y MCP ofrecen solo activo, pausado, completado y cancelado.

@@ -92,3 +92,5 @@ Renombrado Encargos/assignments: comprobar migración desde events conservando I
 
 
 Ficha de Encargos: comprobar apertura en lectura sin inputs, edición explícita, cancelación sin guardado y retorno a la ficha después de guardar. Verificar detalles plegados/desplegados, días semanales (lunes=1), icono compartido, títulos largos y scroll al mínimo en claro/oscuro. Las capturas events-light/dark muestran la ficha; events-follow-up muestra edición. Son fixtures sin DB personal, ejecución ni ventana nativa.
+
+Estados de Encargos: comprobar migración de `recorded` a `active` con conservación de datos, revisiones, fechas y claves; otros estados intactos, idempotencia posterior y rechazo de `recorded` en entradas nuevas. El editor ofrece Activo/Pausado/Completado/Cancelado y guarda Activo por defecto.

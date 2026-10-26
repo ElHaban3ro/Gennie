@@ -18,7 +18,7 @@ const assignmentPriorities = {
   'critical': 'Crítica',
 };
 const assignmentStatuses = {
-  'recorded': 'Registrado',
+  'active': 'Activo',
   'paused': 'Pausado',
   'completed': 'Completado',
   'cancelled': 'Cancelado',
@@ -498,7 +498,7 @@ class _AssignmentEditorState extends State<AssignmentEditor> {
     followUpEnabled = followUp != null;
     kind = d['kind'] as String? ?? 'recurring';
     priority = d['priority'] as String? ?? 'normal';
-    status = d['status'] as String? ?? 'recorded';
+    status = d['status'] as String? ?? 'active';
     frequency = recurrence['frequency'] as String? ?? 'daily';
     weekdays.addAll((recurrence['weekdays'] as List? ?? []).cast<int>());
     notifyAt = DateTime.tryParse(d['notify_at'] as String? ?? '')?.toLocal();
@@ -813,7 +813,7 @@ class _AssignmentEditorState extends State<AssignmentEditor> {
                 (v) => priority = v,
               ),
               choice(
-                'Estado del registro',
+                'Estado del encargo',
                 status,
                 assignmentStatuses,
                 (v) => status = v,

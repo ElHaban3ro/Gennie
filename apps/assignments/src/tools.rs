@@ -75,7 +75,7 @@ fn document_schema() -> Value {
         "description":{"type":"string","description":"Qué pidió el usuario; conserva el alcance y resultado esperado."},
         "context":{"type":["string","null"],"description":"Ámbito de la fuente: nombre de lista/carpeta/cuenta/sección cuando sea necesario, sin copiar su contenido al chat. Conserva las suposiciones identificadas y el acceso pendiente."},"reason":{"type":["string","null"],"description":"Para qué lo quiere. Pregunta solo si resulta útil y no puedes inferirlo; null si se desconoce. Identifica en el contexto cualquier motivo inferido."},
         "kind":{"enum":["one_time","recurring","goal"]},"priority":{"enum":["low","normal","high","critical"]},
-        "status":{"enum":["recorded","paused","completed","cancelled"]},
+        "status":{"enum":["active","paused","completed","cancelled"]},
         "timezone":{"type":"string","description":"Zona IANA confirmada o inferida del contexto, por ejemplo America/Bogota. No inventar."},
         "notify_at":{"type":["string","null"],"description":"Instante UTC AAAA-MM-DDTHH:MM:SSZ para puntual; fecha límite opcional de un objetivo. null para recurrente."},
         "recurrence":{"type":["object","null"],"additionalProperties":false,"required":["frequency","local_time"],"properties":{"frequency":{"enum":["daily","weekly"]},"local_time":{"type":"string","description":"HH:mm del aviso al usuario, no de la preparación"},"weekdays":{"type":"array","items":{"type":"integer","minimum":1,"maximum":7},"description":"Lunes=1; obligatorio en semanal, vacío en diaria"}}},
@@ -110,7 +110,7 @@ mod tests {
         assert_eq!(schema["result"]["tools"].as_array().unwrap().len(), 4);
         let invalid=registry.respond(json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"assignments_create","arguments":{}}})).unwrap();
         assert_eq!(invalid["result"]["isError"], true);
-        let document = json!({"title":"Acompañar tareas", "description":"Resumen de mañana y seguimiento contextual", "kind":"recurring", "priority":"normal", "status":"recorded", "timezone":"America/Bogota", "recurrence":{"frequency":"daily","local_time":"07:30"}, "preparation":{"interval_minutes":10,"rationale":"Detectar cambios entre entregas"}, "follow_up":{"scope":"Tareas abiertas, cerradas y reabiertas", "signals":["¿Hay un bloqueo que podamos resolver?"], "decision_guidance":"Valorar contexto e historial; registrar sin interrumpir si no aporta ayuda", "action_scope":null}});
+        let document = json!({"title":"Acompañar tareas", "description":"Resumen de mañana y seguimiento contextual", "kind":"recurring", "priority":"normal", "status":"active", "timezone":"America/Bogota", "recurrence":{"frequency":"daily","local_time":"07:30"}, "preparation":{"interval_minutes":10,"rationale":"Detectar cambios entre entregas"}, "follow_up":{"scope":"Tareas abiertas, cerradas y reabiertas", "signals":["¿Hay un bloqueo que podamos resolver?"], "decision_guidance":"Valorar contexto e historial; registrar sin interrumpir si no aporta ayuda", "action_scope":null}});
         let created = registry.respond(json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"assignments_create","arguments":{"request_key":"policy-mcp","document":document}}})).unwrap();
         let result: Value =
             serde_json::from_str(created["result"]["content"][0]["text"].as_str().unwrap())?;

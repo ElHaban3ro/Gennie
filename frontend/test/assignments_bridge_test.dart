@@ -25,7 +25,7 @@ void main() {
           'description': 'Investigar IA con fuentes primarias',
           'kind': 'goal',
           'priority': 'high',
-          'status': 'recorded',
+          'status': 'active',
           'timezone': 'America/Bogota',
           'preparation': {
             'interval_minutes': 10,
