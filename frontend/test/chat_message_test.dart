@@ -4,6 +4,25 @@ import 'package:gennie/src/backend.dart';
 import 'package:gennie/src/chat_message.dart';
 
 void main() {
+  testWidgets('los avances antiguos no muestran el número interno', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: ChatMessage(
+            message: Message(
+              speaker: 'system',
+              text: 'Plugin · trabajo 1: Inicia sesión en Gennie Web.',
+              createdAt: '2026-10-26T12:00:00Z',
+            ),
+          ),
+        ),
+      ),
+    );
+    expect(find.text('Plugin: Inicia sesión en Gennie Web.'), findsOneWidget);
+    expect(find.textContaining('trabajo 1'), findsNothing);
+  });
   test('Fechas del chat por calendario local y hora sin fecha completa', () {
     final now = DateTime(2026, 10, 25, 0, 1);
     String label(DateTime date) =>

@@ -99,6 +99,12 @@ class ChatMessage extends StatelessWidget {
   Widget build(BuildContext context) {
     final user = message.speaker == 'user';
     final system = message.speaker == 'system';
+    final displayText = system
+        ? message.text.replaceFirst(
+            RegExp(r'^Plugin · trabajo [0-9]+: '),
+            'Plugin: ',
+          )
+        : message.text;
     final time = messageTimeLabel(message.createdAt);
     return LayoutBuilder(
       builder: (context, constraints) => Padding(
@@ -122,7 +128,9 @@ class ChatMessage extends StatelessWidget {
                   vertical: 12,
                 ),
                 decoration: BoxDecoration(
-                  color: const Color(0x14808080),
+                  color: user
+                      ? const Color(0x24D6AD42)
+                      : const Color(0x14808080),
                   borderRadius: BorderRadius.circular(16),
                 ),
                 child: Row(
@@ -150,7 +158,7 @@ class ChatMessage extends StatelessWidget {
                             ),
                           if (user || system)
                             Text(
-                              message.text,
+                              displayText,
                               style: const TextStyle(
                                 fontSize: 14,
                                 height: 1.65,
@@ -158,7 +166,7 @@ class ChatMessage extends StatelessWidget {
                             )
                           else
                             MarkdownBody(
-                              data: message.text,
+                              data: displayText,
                               selectable: false,
                               styleSheet: MarkdownStyleSheet(
                                 p: const TextStyle(
