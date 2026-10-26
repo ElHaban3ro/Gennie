@@ -34,6 +34,8 @@ La sesión ChatGPT pertenece a Codex CLI (`codex login`); Gennie no importa toke
 
 ## Herramientas de desarrollo
 
+El navegador propio usa `~/Library/Application Support/Gennie/browser/profile`, fijo y separado del perfil personal, de SQLite y de los navegadores descargados. `scripts/setup_browser.sh` prepara explícitamente el runtime Playwright 1.64.1 y enlaza el Node local (>=20) en `browser/runtime-1.64.1`; no usa `.env`, no crea preferencias ni instala al abrir la UI. El helper recibe las rutas y `PLAYWRIGHT_BROWSERS_PATH` solo en su entorno hijo. La distribución actual requiere esa preparación por usuario también para release. Herramientas MCP del navegador condicionadas a control de apps y comandos; apertura manual desde el botón independiente. Ver [D-026](../decisions/browser.md).
+
 `./scripts/dev.sh` entrega rutas de biblioteca, helper y `.env` mediante dart-defines. No añade preferencias ni modifica `.env`. `--build-only` prepara Rust y paquetes sin abrir UI; `--generate` regenera FRB. Flutter debug puede abrir servicios temporales locales de depuración; el producto no abre HTTP entrante.
 
 Al abrir Gennie se solicita automáticamente la conexión de Codex en segundo plano. Se verifica el inventario MCP del hilo antes de declarar Conectado; la primera intervención reutiliza la sesión. No hay mensaje de calentamiento ni inferencia. Falta de autenticación o fallo de descubrimiento producen error visible y reintento explícito con Conectar.

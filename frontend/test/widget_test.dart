@@ -171,6 +171,14 @@ class FakeBackend implements DesktopBackend {
   Future<Snapshot> newChat() async => value;
   @override
   Future<Snapshot> connect() async => value;
+  int browserOpens = 0;
+  Completer<Snapshot>? pendingBrowser;
+  @override
+  Future<Snapshot> openBrowser() async {
+    browserOpens++;
+    return pendingBrowser?.future ?? value;
+  }
+
   @override
   Future<Snapshot> saveAssignment(
     String? id,
@@ -251,6 +259,34 @@ String draft(WidgetTester tester) =>
     tester.widget<TextField>(composer()).controller!.text;
 
 void main() {
+  testWidgets('navegador junto al menú, bloqueo pendiente y error visible', (
+    tester,
+  ) async {
+    final (fake, state) = await mount(tester, size: const Size(640, 420));
+    final button = find.byKey(const ValueKey('open-browser'));
+    expect(appTooltip('Abrir Gennie Web'), findsOneWidget);
+    expect(
+      tester.getCenter(button).dx,
+      lessThan(tester.getCenter(appTooltip('Opciones del sistema')).dx),
+    );
+    fake.pendingBrowser = Completer<Snapshot>();
+    await tester.tap(button);
+    await tester.pump();
+    expect(fake.browserOpens, 1);
+    expect(tester.widget<IconButton>(button).onPressed, isNull);
+    fake.pendingBrowser!.completeError(
+      Exception('No se pudo abrir el navegador'),
+    );
+    await tester.pumpAndSettle();
+    expect(state.failure, contains('No se pudo abrir el navegador'));
+    expect(
+      find.textContaining('No se pudo abrir el navegador'),
+      findsOneWidget,
+    );
+    expect(tester.widget<IconButton>(button).onPressed, isNotNull);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
     'Modelos al pie: estado real, solicitud pendiente y tooltip detallado',
     (tester) async {

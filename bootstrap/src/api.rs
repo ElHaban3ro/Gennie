@@ -119,6 +119,9 @@ pub fn new_chat() -> Result<Snapshot, String> {
 pub fn connect() -> Result<Snapshot, String> {
     runtime::request(Operation::Connect)
 }
+pub fn open_browser() -> Result<Snapshot, String> {
+    runtime::request(Operation::OpenBrowser)
+}
 pub fn rename_conversation(id: String, title: String) -> Result<Snapshot, String> {
     runtime::request(Operation::Rename(id, title))
 }

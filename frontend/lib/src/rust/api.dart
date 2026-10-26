@@ -28,6 +28,8 @@ Future<Snapshot> newChat() => RustLib.instance.api.crateApiNewChat();
 
 Future<Snapshot> connect() => RustLib.instance.api.crateApiConnect();
 
+Future<Snapshot> openBrowser() => RustLib.instance.api.crateApiOpenBrowser();
+
 Future<Snapshot> renameConversation({
   required String id,
   required String title,

@@ -24,6 +24,7 @@ abstract class DesktopBackend {
   Future<api.Snapshot> send(String text);
   Future<api.Snapshot> newChat();
   Future<api.Snapshot> connect();
+  Future<api.Snapshot> openBrowser();
   Future<api.Snapshot> saveAssignment(
     String? id,
     int? revision,
@@ -81,6 +82,8 @@ class RustBackend implements DesktopBackend {
   Future<api.Snapshot> newChat() => api.newChat();
   @override
   Future<api.Snapshot> connect() => api.connect();
+  @override
+  Future<api.Snapshot> openBrowser() => api.openBrowser();
   @override
   Future<api.Snapshot> saveAssignment(
     String? id,

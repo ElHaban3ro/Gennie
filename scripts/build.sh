@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Construye la aplicación release autocontenida; no la instala ni la abre.
+# Construye el paquete release; los runtimes de modelos y navegador se preparan por usuario.
 set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root"

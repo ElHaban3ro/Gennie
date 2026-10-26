@@ -30,6 +30,7 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
   int tab = 0;
   bool _sending = false;
   bool _closing = false;
+  bool _openingBrowser = false;
   static const _lifecycle = MethodChannel('gennie/lifecycle');
   String? _lastSelection;
   int _messageCount = 0;
@@ -495,6 +496,56 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
                                         ),
                                       ),
                                     ),
+                                    if (tab == 0)
+                                      AppTooltip(
+                                        label: 'Abrir Gennie Web',
+                                        child: Semantics(
+                                          label: 'Abrir Gennie Web',
+                                          button: true,
+                                          child: IconButton(
+                                            key: const ValueKey('open-browser'),
+                                            onPressed:
+                                                s == null || _openingBrowser
+                                                ? null
+                                                : () async {
+                                                    setState(
+                                                      () => _openingBrowser =
+                                                          true,
+                                                    );
+                                                    await state.perform(
+                                                      state.backend.openBrowser,
+                                                    );
+                                                    if (mounted) {
+                                                      setState(
+                                                        () => _openingBrowser =
+                                                            false,
+                                                      );
+                                                    }
+                                                  },
+                                            icon: _openingBrowser
+                                                ? const SizedBox(
+                                                    width: 18,
+                                                    height: 18,
+                                                    child:
+                                                        CircularProgressIndicator(
+                                                          strokeWidth: 1.5,
+                                                        ),
+                                                  )
+                                                : SvgPicture.asset(
+                                                    'assets/icons/browser.svg',
+                                                    width: 20,
+                                                    height: 20,
+                                                    colorFilter:
+                                                        ColorFilter.mode(
+                                                          Theme.of(context)
+                                                              .colorScheme
+                                                              .onSurface,
+                                                          BlendMode.srcIn,
+                                                        ),
+                                                  ),
+                                          ),
+                                        ),
+                                      ),
                                     AppTooltip(
                                       label: 'Opciones del sistema',
                                       child: PopupMenuButton<String>(

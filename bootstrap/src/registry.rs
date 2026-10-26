@@ -12,6 +12,7 @@ pub fn build(
     llm: Arc<gennie_llm::LlmModule>,
     tts: Arc<gennie_tts::TtsModule>,
     reminders: Arc<gennie_reminders_plugin::RemindersPluginModule>,
+    browser: Arc<gennie_browser::BrowserModule>,
 ) -> Vec<Arc<dyn AppModule>> {
     vec![
         transcription,
@@ -21,6 +22,7 @@ pub fn build(
         reminders,
         presence,
         Arc::new(gennie_assignments::AssignmentsModule),
+        browser,
     ]
 }
 

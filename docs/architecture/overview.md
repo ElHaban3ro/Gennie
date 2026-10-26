@@ -4,7 +4,8 @@ Gennie combina escritorio Flutter y backend Rust local mediante flutter_rust_bri
 
 ```text
 frontend/lib → API FRB (bootstrap/src/api.rs) → runtime.rs
-bootstrap → presence, transcription, decisions, llm, tts, reminders-plugin, assignments, mcp
+bootstrap → presence, transcription, decisions, llm, tts, reminders-plugin, assignments, browser, mcp
+browser → core, mcp
 assignments → core, db, mcp
 llm → mcp
 mcp → core
@@ -25,3 +26,5 @@ Pesos compartidos en `~/Library/Application Support/AIModels`, entornos propios 
 Desarrollo: `scripts/dev.sh`, biblioteca/helper debug en `target/flutter`, hot reload Dart. Release: `scripts/build.sh`, `frontend/build/macos/Build/Products/Release/Gennie.app`. El paquete incluye dylib/helper y licencia Inter. El build release y la firma local del runner se verificaron con Xcode 27.1; el comportamiento físico de la nueva interfaz sigue pendiente. [Verificación](../rules/testing.md).
 
 [Encargos y MCP modular](../decisions/assignments.md): cada app aporta herramientas propias a una biblioteca común. Bootstrap expone las activas mediante el helper stdio y un socket Unix privado; Store usa la conexión compartida. El Codex aislado recibe su configuración automáticamente. Assignments registra planes y políticas contextuales de seguimiento, sin scheduler, memoria, acceso a Gmail ni avisos.
+
+[Navegador D-026](../decisions/browser.md): `apps/browser` comparte un contexto persistente Chromium entre el botón de chat y herramientas MCP de navegación/interacción. Node/Playwright se preparan explícitamente por usuario; el perfil queda en Application Support/Gennie, separado de SQLite y del navegador habitual. El módulo no abre ventanas al arrancar y las herramientas respetan el control de aplicaciones configurado.

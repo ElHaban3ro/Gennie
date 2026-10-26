@@ -640,6 +640,7 @@ version = "0.1.0"
 dependencies = [
  "flutter_rust_bridge",
  "gennie-assignments",
+ "gennie-browser",
  "gennie-config",
  "gennie-core",
  "gennie-db",
@@ -661,6 +662,15 @@ dependencies = [
  "gennie-db",
  "gennie-mcp",
  "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "gennie-browser"
+version = "0.1.0"
+dependencies = [
+ "gennie-core",
+ "gennie-mcp",
  "serde_json",
 ]
 

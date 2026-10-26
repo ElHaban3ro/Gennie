@@ -48,6 +48,7 @@ impl Fixture {
                 "decisions",
                 "tts",
                 "reminders_plugin",
+                "browser",
             ] {
                 tx.execute(
                     "INSERT INTO modules(name,active) VALUES(?1,?2)",

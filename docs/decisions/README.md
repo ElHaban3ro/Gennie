@@ -2,6 +2,8 @@
 
 Estado actual: escritorio Flutter + flutter_rust_bridge; ver [arquitectura](../architecture/overview.md) y [UI](../../UI.md). Los documentos anteriores conservan decisiones históricas; no reintroducir la presencia flotante ni sus sondas.
 
+- [Navegador persistente D-026](browser.md): perfil exclusivo, apertura desde chat, herramientas Playwright y preparación del runtime local.
+
 - [Encargos y MCP modular D-025](assignments.md): registro de planes y políticas contextuales de seguimiento, preparación/aviso separados y transporte local compartido.
 
 - [Historial propio D-024](chat-history.md): catálogo local, mensajes por conversación y consulta desde la sidebar.

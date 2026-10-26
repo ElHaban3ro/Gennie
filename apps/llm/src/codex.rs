@@ -20,6 +20,10 @@ const MAX_REPLY_BYTES: usize = 32_000;
 const VOICE_PROFILE: &str = "gennie_voice";
 const ASSISTANT_INSTRUCTIONS: &str = include_str!("assistant-instructions.md");
 
+#[cfg(test)]
+#[path = "browser_tests.rs"]
+mod browser_tests;
+
 fn turn_start_request(thread_id: &str, cwd: &Path, model: &str, effort: &str, text: &str) -> Value {
     json!({"jsonrpc":"2.0","id":4,"method":"turn/start","params":{
         "threadId":thread_id,
@@ -163,6 +167,7 @@ pub struct Session {
     effort: String,
     title_effort: Option<String>,
     settings: Settings,
+    tool_names: Vec<String>,
 }
 
 impl Session {
@@ -292,6 +297,10 @@ impl Session {
             effort: settings.effort.clone(),
             title_effort: None,
             settings: settings.clone(),
+            tool_names: tools
+                .as_ref()
+                .map(|tools| tools.tool_names.clone())
+                .unwrap_or_default(),
         };
         session.send(json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"Gennie","title":"Gennie","version":env!("CARGO_PKG_VERSION")},"capabilities":{"experimentalApi":true}}}))?;
         session.response(1, HANDSHAKE_TIMEOUT)?;
@@ -334,7 +343,7 @@ impl Session {
         session.title_effort = crate::title::minimum_effort(selected);
         session.model = settings.model.clone();
         let saved = if new_chat { None } else { load_thread(db)? };
-        let instructions = instructions(settings);
+        let instructions = instructions(settings, &session.tool_names);
         let (method, params) = match saved.as_deref() {
             Some(thread_id) => (
                 "thread/resume",
@@ -388,7 +397,7 @@ impl Session {
                 "approvalPolicy":"never",
                 "permissions":VOICE_PROFILE,
                 "model":self.model,
-                "developerInstructions":instructions(&self.settings)
+                "developerInstructions":instructions(&self.settings, &self.tool_names)
             }}),
         )?;
         let thread = self.response(6, HANDSHAKE_TIMEOUT)?;
@@ -704,13 +713,37 @@ fn filesystem_config(settings: &Settings, binary_rule: &str) -> String {
         "permissions.gennie_voice.filesystem={{\":root\"=\"{root}\",\":minimal\"=\"read\",{binary_rule}=\"read\"}}"
     )
 }
-fn instructions(settings: &Settings) -> String {
+fn session_capabilities(settings: &Settings, tool_names: &[String]) -> Value {
+    let browser_tools: Vec<_> = tool_names
+        .iter()
+        .filter(|name| name.starts_with("browser_"))
+        .collect();
+    let has_browser = ["browser_open", "browser_navigate", "browser_snapshot"]
+        .iter()
+        .all(|required| tool_names.iter().any(|name| name == required));
+    let local_control = settings.local_actions && settings.run_commands;
+    json!({
+        "gennie_web": {
+            "available": has_browser && local_control,
+            "transport": "MCP directo a la API Playwright, sin controlar el ordenador",
+            "tools": browser_tools,
+            "tools_registered": has_browser,
+            "permission_enabled": local_control
+        },
+        "computer_control": {"permission_enabled":local_control,"system_permission_verified":false},
+        "commands": {"permission_enabled":settings.run_commands,"network_enabled":false}
+    })
+}
+fn instructions(settings: &Settings, tool_names: &[String]) -> String {
     let mut text = ASSISTANT_INSTRUCTIONS.to_owned();
-    text.push_str(" Si el MCP local gennie ofrece herramientas assignments_*, úsalas para registrar, consultar y actualizar encargos a petición del usuario o cuando acepte claramente una propuesta tuya. No escribas directamente sus archivos ni SQLite. Hay encargos puntuales, recurrentes y objetivos. Antes de crear, consulta assignments_list para obtener fecha UTC, zona horaria del sistema y encargos existentes; usa esa referencia salvo que el usuario indique otra zona. Separa estrictamente el horario de aviso al usuario de la cadencia de preparación interna; revisiones frecuentes no implican avisos frecuentes. Elige prioridad, pasos e intervalo según el objetivo y justifica la cadencia. Usa la referencia horaria de assignments_list sin preguntar la zona salvo contradicción. Completa tú título, descripción, tipo, prioridad, pasos y seguimiento a partir de la necesidad aceptada; no conviertas los campos del registro en preguntas. Pregunta solo por el principal dato indispensable que siga faltando, como un horario obligatorio o una fuente ambigua. No inventes horarios ni cuentas. El motivo y otros campos opcionales pueden quedar vacíos. Conserva el contexto e identifica las inferencias. No inventes plugins ni acceso a Gmail: todos los destinos están pendientes de integración y requieren operación manual. Registrar un encargo solo acredita su guardado. Confirma los datos acordados, sin añadir avisos de implementación o integración pendiente. No deduzcas del registro que una revisión se ejecutó o una conexión quedó activada. Confirma el guardado únicamente cuando assignments_create/assignments_update devuelva éxito; ante errores corrige datos o pide lo que falte. Antes de editar consulta assignments_get y usa su revision. Reutiliza request_key solo para repetir la misma creación; una solicitud nueva necesita otra clave. Estas herramientas registran datos propios de Gennie y son independientes de los permisos de archivos/comandos del ordenador. No hay herramientas de memoria todavía.");
+    text.push_str(" Si el MCP local gennie ofrece herramientas assignments_*, úsalas para registrar, consultar y actualizar encargos a petición del usuario o cuando acepte claramente una propuesta tuya. No escribas directamente sus archivos ni SQLite. Hay encargos puntuales, recurrentes y objetivos. Antes de crear, consulta assignments_list para obtener fecha UTC, zona horaria del sistema y encargos existentes; usa esa referencia salvo que el usuario indique otra zona. Separa estrictamente el horario de aviso al usuario de la cadencia de preparación interna; revisiones frecuentes no implican avisos frecuentes. Elige prioridad, pasos e intervalo según el objetivo y justifica la cadencia. Usa la referencia horaria de assignments_list sin preguntar la zona salvo contradicción. Completa tú título, descripción, tipo, prioridad, pasos y seguimiento a partir de la necesidad aceptada; no conviertas los campos del registro en preguntas. Pregunta solo por el principal dato indispensable que siga faltando, como un horario obligatorio o una fuente ambigua. No inventes horarios ni cuentas. El motivo y otros campos opcionales pueden quedar vacíos. Conserva el contexto e identifica las inferencias. No inventes plugins ni acceso a cuentas. Si hay herramientas browser_*, el navegador de Gennie permite trabajo web autorizado sobre sesiones verificadas; no implica conexión nativa de esas aplicaciones ni ejecución autónoma de encargos. Registrar un encargo solo acredita su guardado. Confirma los datos acordados, sin añadir avisos de implementación o integración pendiente. No deduzcas del registro que una revisión se ejecutó o una conexión quedó activada. Confirma el guardado únicamente cuando assignments_create/assignments_update devuelva éxito; ante errores corrige datos o pide lo que falte. Antes de editar consulta assignments_get y usa su revision. Reutiliza request_key solo para repetir la misma creación; una solicitud nueva necesita otra clave. Estas herramientas registran datos propios de Gennie y son independientes de los permisos de archivos/comandos del ordenador. No hay herramientas de memoria todavía.");
     text.push_str("\n\n");
     text.push_str(include_str!("web-research-instructions.md"));
+    text.push_str("\n\nCapacidades de esta sesión, derivadas de las herramientas registradas y los permisos vigentes; no son una autorización general para actuar:\n");
+    text.push_str(&session_capabilities(settings, tool_names).to_string());
+    text.push_str("\nUsa esta disponibilidad actual, aunque un mensaje anterior tuyo haya negado acceso. No confundas la ausencia de plugins o conectores nativos con la ausencia del navegador por MCP. Si gennie_web.available es true, tienes Gennie Web y debes intentar su API antes de afirmar que no puedes acceder a ese navegador. Si es false, distingue herramienta ausente de permiso desactivado y no intentes eludir esa restricción. La red de los comandos está desactivada; un fallo de curl/wget no implica que la búsqueda web o Playwright estén bloqueados. No gastes intentos equivalentes contra la misma restricción.");
     if settings.local_actions {
-        text.push_str(" Puedes controlar la interfaz de aplicaciones locales mediante comandos de macOS, por ejemplo osascript/System Events, cuando el usuario lo pida. Respeta los permisos del sistema y no afirmes que una acción ocurrió sin comprobarla.");
+        text.push_str(" Puedes usar el ordenador para completar una petición del usuario que lo necesite, también como alternativa razonable dentro del mismo objetivo de lectura o navegación. No esperes una orden literal «usa el ordenador» para continuar una investigación aceptada. Prefiere primero la API de Gennie Web; si falla por una causa comprobada y queda una vía pertinente, puedes probar Safari u otro navegador disponible mediante comandos de macOS (por ejemplo osascript/System Events), con los permisos existentes. Abrir un enlace no prueba que hayas leído su contenido: obsérvalo por una vía disponible. No inventes herramientas de ordenador instaladas ni permisos del sistema concedidos. Informa brevemente de un cambio de vía cuando aporte contexto; no pidas autorización repetida para pasos de lectura ya comprendidos en la petición. El envío de mensajes, compras o cambios externos conserva el alcance autorizado por el usuario.");
     } else {
         text.push_str(
             " No controles la interfaz de otras aplicaciones, tampoco mediante comandos.",
@@ -992,6 +1025,7 @@ done
                 effort: "high".into(),
                 title_effort: Some("none".into()),
                 settings: Settings::default(),
+                tool_names: Vec::new(),
             };
             let mut events = Vec::new();
             session

@@ -291,6 +291,7 @@ mod tests {
             Arc::new(gennie_llm::LlmModule::default()),
             Arc::new(gennie_tts::TtsModule::default()),
             Arc::new(gennie_reminders_plugin::RemindersPluginModule::default()),
+            Arc::new(gennie_browser::BrowserModule::default()),
         );
         assert!(register(&state.db, &modules).unwrap().contains("presence"));
         state
@@ -331,6 +332,7 @@ mod tests {
             Arc::new(gennie_llm::LlmModule::default()),
             Arc::new(gennie_tts::TtsModule::default()),
             Arc::new(gennie_reminders_plugin::RemindersPluginModule::default()),
+            Arc::new(gennie_browser::BrowserModule::default()),
         );
         assert!(!register(&state.db, &modules).unwrap().contains("llm"));
     }

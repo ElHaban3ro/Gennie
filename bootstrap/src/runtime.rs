@@ -20,6 +20,7 @@ pub(crate) enum Operation {
     Send(String),
     NewChat,
     Connect,
+    OpenBrowser,
     Rename(String, String),
     Delete(String),
     Assistant(AssistantSettings),
@@ -184,6 +185,7 @@ struct Backend {
     assignments_observed: u64,
     assignments_enabled: bool,
     mcp: Option<gennie_mcp::Server>,
+    browser: gennie_browser::Controller,
     modules: Vec<Arc<dyn AppModule>>,
     started: Vec<usize>,
     llm: Option<gennie_llm::Controller>,
@@ -230,6 +232,8 @@ impl Backend {
         ));
         let tts = Arc::new(gennie_tts::TtsModule::default());
         let reminders = Arc::new(gennie_reminders_plugin::RemindersPluginModule::default());
+        let browser_module = Arc::new(gennie_browser::BrowserModule::default());
+        let browser = browser_module.controller();
         let modules = registry::build(
             presence,
             transcription.clone(),
@@ -237,6 +241,7 @@ impl Backend {
             llm.clone(),
             tts.clone(),
             reminders,
+            browser_module,
         );
         let setup = (|| {
             let order = registry::order(&modules)?;
@@ -250,6 +255,9 @@ impl Backend {
             let mut tools = gennie_mcp::Registry::default();
             if active.contains("assignments") {
                 tools.register(gennie_assignments::tools(assignments.clone()))?;
+            }
+            if active.contains("browser") {
+                tools.register(gennie_browser::tools(browser.clone()))?;
             }
             let server = gennie_mcp::Server::start(tools, Path::new(helper))?;
             llm.configure_tools(server.launch())?;
@@ -272,6 +280,7 @@ impl Backend {
             assignments_observed: 0,
             assignments_enabled: active.contains("assignments"),
             mcp,
+            browser,
             modules,
             started,
             llm: None,
@@ -415,6 +424,11 @@ impl Backend {
         ]
     }
     fn refresh_controls(&mut self) {
+        self.browser
+            .set_automation_allowed(self.llm.as_ref().is_some_and(|c| {
+                let settings = c.settings();
+                settings.local_actions && settings.run_commands
+            }));
         self.snapshot.models = self.model_info();
         self.snapshot.busy = self.llm.as_ref().is_some_and(|c| c.is_pending());
         self.snapshot.assistant = self.llm.as_ref().map(|c| {
@@ -522,6 +536,7 @@ impl Backend {
                 .as_ref()
                 .ok_or("Conversación desactivada")?
                 .connect()?,
+            Operation::OpenBrowser => self.browser.open()?,
             Operation::Rename(id, title) => {
                 history::rename(&self.state.db, id.parse()?, &title)?;
                 self.snapshot.confirmation = Some("Nombre guardado".into());

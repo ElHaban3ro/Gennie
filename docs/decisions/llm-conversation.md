@@ -1,5 +1,7 @@
 # D-021 — Conversación de voz de Gennie
 
+Actualización del 26 de octubre: el navegador propio dispone de API MCP/Playwright y no necesita Computer Use. Las instrucciones de creación, reanudación y nuevo chat reciben inventario de herramientas y permisos calculado para esa sesión. Las peticiones de lectura incluyen iniciativa para cambiar de búsqueda/descarga a Gennie Web y, ante un fallo concreto de su API, a otro navegador mediante control local disponible. No se requiere una orden literal adicional de usar el ordenador para continuar el mismo objetivo autorizado. Se conservan los permisos, la red de comandos desactivada y la distinción entre abrir un enlace y comprobar su contenido. Ver [D-026](browser.md) para la prueba real del modelo con MCP simulado y sus límites.
+
 > Contexto histórico: la UI descrita aquí fue retirada al migrar a Flutter. La cara, presencia flotante, globos y sus sondas no forman parte del producto vigente. Para arquitectura y verificación actuales, consultar los documentos de arquitectura y reglas del índice. Las migraciones y los datos conservan su historia.
 
 2026-10-13; actualizado 2026-10-24. Cada transcripción final de Nemotron se envía directamente a la conversación de Gennie mediante Codex. Laya permanece como módulo independiente, sin selector de destino, Controller de Presence ni ruta `god_call` en el dictado normal.
