@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
 import 'backend.dart';
 import 'glass.dart';
+import 'notice.dart';
 import 'assignment_logo.dart';
 import 'sidebar.dart';
 
@@ -1104,9 +1105,7 @@ class _AssignmentEditorState extends State<AssignmentEditor> {
       );
       widget.state.accept(snapshot);
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Encargo guardado.')));
+      showAppNotice(context, 'Encargo guardado.');
       final created = snapshot.assignments.where(
         (r) => !previousIds.contains(r.id),
       );
@@ -1133,6 +1132,10 @@ class _AssignmentEditorState extends State<AssignmentEditor> {
       fontWeight: FontWeight.w400,
       height: 1.5,
       color: ink,
+    );
+    Widget sectionDivider() => Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Divider(height: 1, color: ink.withValues(alpha: .10)),
     );
     Widget heading(String title, IconData icon) => Padding(
       padding: const EdgeInsets.only(top: 12, bottom: 20),
@@ -1440,6 +1443,7 @@ class _AssignmentEditorState extends State<AssignmentEditor> {
                             ],
 
                             const SizedBox(height: 12),
+                            sectionDivider(),
                             heading('Aplicaciones', Icons.apps_outlined),
                             if (applications.isEmpty)
                               Text(
@@ -1556,7 +1560,8 @@ class _AssignmentEditorState extends State<AssignmentEditor> {
                               icon: const Icon(Icons.add, size: 16),
                               label: const Text('Añadir aplicación'),
                             ),
-                            const SizedBox(height: 24),
+                            const SizedBox(height: 20),
+                            sectionDivider(),
                             disclosure(
                               'context',
                               'Contexto',
@@ -1571,6 +1576,7 @@ class _AssignmentEditorState extends State<AssignmentEditor> {
                                 ),
                               ],
                             ),
+                            sectionDivider(),
                             disclosure(
                               'preparation',
                               'Preparación interna',
@@ -1607,6 +1613,7 @@ class _AssignmentEditorState extends State<AssignmentEditor> {
                                 ),
                               ],
                             ),
+                            sectionDivider(),
                             Row(
                               children: [
                                 const Icon(Icons.visibility_outlined, size: 18),
@@ -1698,6 +1705,7 @@ class _AssignmentEditorState extends State<AssignmentEditor> {
                                 ],
                               ),
                             const SizedBox(height: 16),
+                            sectionDivider(),
                             disclosure(
                               'settings',
                               'Estado e importancia',

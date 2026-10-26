@@ -101,3 +101,6 @@ Estados de Encargos: comprobar migración de `recorded` a `active` con conservac
 
 
 Editor progresivo: comprobar secciones cerradas inicialmente, borrador conservado al plegar/reabrir, origen de aplicaciones y eliminación correcta de una fuente, habilitar/retirar/reactivar seguimiento, validación de campos ocultos con apertura y scroll, y guardado pendiente con acciones bloqueadas. Guardar/Cancelar y errores viven fuera del scroll; verificar que se alcanzan al mínimo de ventana, con textos largos y ambos temas. Capturas software events-editor-{light,dark}.png y events-editor-min-{light,dark}.png; no prueban entrada física ni material nativo. La comprobación de payload, idempotencia y conflicto se mantiene con backend simulado sin procesos ni proveedores.
+
+
+Confirmaciones: `notice_test.dart` comprueba ancho acotado al mínimo de ventana, claro/oscuro, sustitución de avisos y cierre manual, con capturas notice-{light,dark}.png bajo CAPTURE_UI. `assignments_test.dart` conserva la comprobación de que el guardado fallido no confirma éxito y que reintentar confirma tras el backend. Son widgets y material Flutter; no prueban composición nativa.

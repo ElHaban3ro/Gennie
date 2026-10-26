@@ -298,6 +298,15 @@ void main() {
               matching: find.byType(Scrollable),
             )
             .first;
+        await revealVisible(tester, find.text('Aplicaciones'));
+        await tester.runAsync(() async {
+          final image = await boundary.toImage(pixelRatio: 1);
+          final bytes = await image.toByteData(format: ImageByteFormat.png);
+          await File(
+            '../.verification/flutter-ui/events-editor-options-${brightness.name}.png',
+          ).writeAsBytes(bytes!.buffer.asUint8List());
+          image.dispose();
+        });
         await tester.scrollUntilVisible(
           find.text('Seguimiento'),
           220,
@@ -463,6 +472,21 @@ void main() {
       await tester.tap(find.text('Guardar encargo'));
       await tester.pump();
       expect(find.text('Guardando…'), findsOneWidget);
+      expect(
+        tester
+            .widget<TextButton>(find.widgetWithText(TextButton, 'Cancelar'))
+            .onPressed,
+        isNull,
+      );
+      expect(tester.widget<TextField>(field('Título')).enabled, isFalse);
+      expect(
+        tester
+            .widget<TextButton>(
+              find.byKey(const ValueKey('assignment-editor-preparation')),
+            )
+            .onPressed,
+        isNull,
+      );
       final payload = backend.saved.single.$4;
       expect((payload['recurrence'] as Map)['local_time'], '08:00');
       expect((payload['preparation'] as Map)['interval_minutes'], 10);
@@ -564,6 +588,69 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('Validación recupera campos plegados sin perder el borrador', (
+    tester,
+  ) async {
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final backend = AssignmentBackend();
+    await show(tester, DesktopState(backend));
+    await tester.tap(find.byIcon(Icons.add).first);
+    await tester.pumpAndSettle();
+    final scroll = tester.state<ScrollableState>(
+      find
+          .descendant(
+            of: find.byKey(const ValueKey('assignment-editor-scroll')),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    scroll.position.jumpTo(scroll.position.maxScrollExtent);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Guardar encargo'));
+    await tester.pumpAndSettle();
+    expect(backend.saved, isEmpty);
+    expect(field('Título').hitTestable(), findsOneWidget);
+    await tester.enterText(field('Título'), 'Mi borrador');
+    await revealVisible(tester, field('Qué debe hacer Gennie'));
+    await tester.enterText(
+      field('Qué debe hacer Gennie'),
+      'Revisar mis pendientes.',
+    );
+    await openEditorSection(tester, 'context');
+    await tester.enterText(
+      field('Contexto (opcional)'),
+      'Conservar este contexto',
+    );
+    await openEditorSection(tester, 'context');
+    expect(field('Contexto (opcional)'), findsNothing);
+    await openEditorSection(tester, 'context');
+    expect(
+      tester.widget<TextField>(field('Contexto (opcional)')).controller!.text,
+      'Conservar este contexto',
+    );
+    await openEditorSection(tester, 'preparation');
+    await tester.enterText(
+      field('Revisar cada cuántos minutos (opcional)'),
+      'abc',
+    );
+    await openEditorSection(tester, 'preparation');
+    expect(field('Revisar cada cuántos minutos (opcional)'), findsNothing);
+    await tester.tap(find.text('Guardar encargo'));
+    await tester.pumpAndSettle();
+    expect(backend.saved, isEmpty);
+    expect(find.textContaining('número entero de minutos'), findsOneWidget);
+    expect(
+      field('Revisar cada cuántos minutos (opcional)').hitTestable(),
+      findsOneWidget,
+    );
+    expect(
+      tester.widget<TextField>(field('Título')).controller!.text,
+      'Mi borrador',
+    );
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('Guardar seguimiento incompleto no envía el plan', (
     tester,
