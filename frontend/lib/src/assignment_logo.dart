@@ -2,6 +2,58 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'sidebar.dart';
 
+/// Identifica el encargo y, cuando existe, su aplicación principal.
+class AssignmentIcon extends StatelessWidget {
+  const AssignmentIcon({super.key, required this.document, this.size = 38});
+
+  final Map<String, dynamic> document;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final apps = document['applications'] as List? ?? const [];
+    final ink = sidebarInk(context);
+    final badgeSize = size * .46;
+    return SizedBox(
+      width: size,
+      height: size,
+      child: Stack(
+        children: [
+          Align(
+            alignment: Alignment.center,
+            child: Icon(
+              Icons.calendar_month_outlined,
+              size: size * .86,
+              color: ink,
+            ),
+          ),
+          if (apps.isNotEmpty)
+            Positioned(
+              right: 0,
+              bottom: 0,
+              child: Container(
+                width: badgeSize,
+                height: badgeSize,
+                decoration: BoxDecoration(
+                  color: Theme.of(context).brightness == Brightness.dark
+                      ? const Color(0xff303238)
+                      : const Color(0xfff5f5f4),
+                  shape: BoxShape.circle,
+                ),
+                child: Center(
+                  child: AssignmentLogo(
+                    document: document,
+                    size: badgeSize * .68,
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
 /// Recurso visual de la fuente principal; no consulta contenido ni conecta cuentas.
 class AssignmentLogo extends StatefulWidget {
   const AssignmentLogo({super.key, required this.document, this.size = 38});
@@ -80,7 +132,7 @@ class _AssignmentLogoState extends State<AssignmentLogo> {
               : label.trim().characters.first.toUpperCase(),
           style: TextStyle(
             fontFamily: 'Inter',
-            fontSize: 16,
+            fontSize: widget.size * .42,
             fontWeight: FontWeight.w500,
             color: ink.withValues(alpha: .65),
           ),

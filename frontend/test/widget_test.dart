@@ -189,6 +189,8 @@ class FakeBackend implements DesktopBackend {
   @override
   Future<Snapshot> delete(String id) async => value;
   @override
+  Future<Snapshot> deleteAssignment(String id, int revision) async => value;
+  @override
   Future<Snapshot> saveVoice(VoiceSettings settings) async => value;
   @override
   Future<Snapshot> saveDictation(DictationSettings settings) async => value;
@@ -501,13 +503,13 @@ void main() {
           matching: find.byType(ListView),
         );
         final controller = tester.widget<ListView>(chatList).controller!;
-        expect(controller.position.extentAfter, lessThan(1));
+        expect(controller.position.extentBefore, lessThan(1));
 
         // Cambiar entre historiales con igual cantidad también debe ir al final.
         state.accept(snapshot(selected: 'another', messages: messages));
         await tester.pumpAndSettle();
         expect(last.hitTestable(), findsOneWidget);
-        expect(controller.position.extentAfter, lessThan(1));
+        expect(controller.position.extentBefore, lessThan(1));
 
         final withNewMessage = [
           ...messages,
@@ -523,7 +525,7 @@ void main() {
           find.text('Último mensaje enviado').hitTestable(),
           findsOneWidget,
         );
-        expect(controller.position.extentAfter, lessThan(1));
+        expect(controller.position.extentBefore, lessThan(1));
 
         // Leer mensajes anteriores no debe perderse por nuevas entradas.
         controller.jumpTo(controller.position.maxScrollExtent / 2);

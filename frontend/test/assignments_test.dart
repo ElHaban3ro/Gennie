@@ -1,8 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:ui' show ImageByteFormat;
+import 'dart:ui' show ImageByteFormat, PointerDeviceKind;
 import 'package:flutter/services.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -14,6 +15,13 @@ import 'widget_test.dart' show FakeBackend, snapshot, mount, rail;
 
 class AssignmentBackend extends FakeBackend {
   Completer<Snapshot>? pending;
+  final deleted = <(String, int)>[];
+  @override
+  Future<Snapshot> deleteAssignment(String id, int revision) async {
+    deleted.add((id, revision));
+    return value;
+  }
+
   final saved = <(String?, int?, String, Map<String, dynamic>)>[];
   @override
   Future<Snapshot> saveAssignment(
@@ -92,6 +100,108 @@ void main() {
       ..addFont(rootBundle.load('fonts/MaterialIcons-Regular.otf'));
     await icons.load();
   });
+  testWidgets('El menú contextual confirma la eliminación', (tester) async {
+    final backend = AssignmentBackend()
+      ..value = snapshot(
+        plans: [
+          AssignmentRecord(
+            id: '1',
+            revision: 3,
+            createdAt: '',
+            updatedAt: '',
+            document: jsonEncode({
+              'title': 'Encargo de prueba',
+              'kind': 'goal',
+              'status': 'active',
+            }),
+          ),
+        ],
+      );
+    await show(tester, DesktopState(backend));
+    final gesture = await tester.createGesture(
+      kind: PointerDeviceKind.mouse,
+      buttons: kSecondaryMouseButton,
+    );
+    await gesture.down(tester.getCenter(find.text('Encargo de prueba')));
+    await gesture.up();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Eliminar encargo'));
+    await tester.pumpAndSettle();
+    expect(backend.deleted, isEmpty);
+    await tester.tap(find.text('Eliminar encargo').last);
+    await tester.pumpAndSettle();
+    expect(backend.deleted, [('1', 3)]);
+  });
+  testWidgets(
+    'La ficha separa método y permisos y presenta evidencia vigente',
+    (tester) async {
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final backend = AssignmentBackend()
+        ..value = snapshot(
+          plans: [
+            AssignmentRecord(
+              id: 'method',
+              revision: 1,
+              createdAt: '',
+              updatedAt: '',
+              methodResolution: jsonEncode({
+                'status': 'ready',
+                'routes': [
+                  {'function': 'list_web', 'route': 'web', 'status': 'ready'},
+                ],
+                'sources': [
+                  {
+                    'source': 'Correo web',
+                    'kind': 'web',
+                    'status': 'waiting_user',
+                  },
+                  {
+                    'source': 'Notas local',
+                    'kind': 'desktop',
+                    'status': 'desktop_unsupported',
+                  },
+                ],
+              }),
+              document: jsonEncode({
+                'title': 'Consultar correo',
+                'description': 'Preparar resumen',
+                'kind': 'goal',
+                'status': 'active',
+                'priority': 'normal',
+                'method': {
+                  'plugin_id': 'mail',
+                  'functions': ['list_web'],
+                },
+                'authorization': {
+                  'scope': 'Solo consultar pendientes',
+                  'allowed_routes': ['web'],
+                },
+              }),
+            ),
+          ],
+        );
+      await show(tester, DesktopState(backend), size: const Size(640, 420));
+      await tester.tap(find.text('Consultar correo'));
+      await tester.pumpAndSettle();
+      final details = find.text('Detalles del encargo');
+      await revealVisible(tester, details);
+      await tester.tap(details);
+      await tester.pumpAndSettle();
+      await revealVisible(tester, find.text('Método'));
+      expect(find.text('mail · list_web'), findsOneWidget);
+      expect(find.text('Verificado y permitido'), findsOneWidget);
+      expect(find.text('Esperando acceso'), findsOneWidget);
+      expect(
+        find.text('Aplicación de escritorio: soporte pendiente'),
+        findsOneWidget,
+      );
+      await revealVisible(tester, find.text('Solo consultar pendientes'));
+      expect(find.text('Navegación web'), findsOneWidget);
+      expect(backend.saved, isEmpty);
+      expect(tester.takeException(), isNull);
+    },
+  );
   if (const bool.fromEnvironment('CAPTURE_UI')) {
     for (final brightness in Brightness.values) {
       testWidgets('Captura Encargos ${brightness.name}', (tester) async {
@@ -389,7 +499,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(sidebar, findsOneWidget);
       expect(tester.getSize(sidebar).width, eventsWidth);
-      expect(find.byType(SidebarSearch), findsNothing);
+      expect(find.byType(SidebarSearch), findsOneWidget);
       expect(find.byType(SidebarEmpty), findsOneWidget);
       expect(find.byType(ContentEmpty), findsOneWidget);
       expect(tester.takeException(), isNull);
@@ -777,6 +887,14 @@ void main() {
                 'interval_minutes': 20,
                 'rationale': 'Mantener contexto entre entregas',
               },
+              'method': {
+                'plugin_id': 'mail',
+                'functions': ['list_http', 'list_web'],
+              },
+              'authorization': {
+                'scope': 'Consultar pendientes sin modificar mensajes',
+                'allowed_routes': ['http', 'web'],
+              },
               'follow_up': policy,
             }),
             createdAt: '2026-10-25T12:00:00Z',
@@ -824,6 +942,15 @@ void main() {
     await tester.tap(find.text('Guardar encargo'));
     await tester.pump();
     expect(backend.saved.single.$4['follow_up'], policy);
+    expect(backend.saved.single.$4['method'], {
+      'plugin_id': 'mail',
+      'functions': ['list_http', 'list_web'],
+    });
+    expect(backend.saved.single.$4['authorization'], {
+      'scope': 'Consultar pendientes sin modificar mensajes',
+      'allowed_routes': ['http', 'web'],
+    });
+    expect(backend.saved.single.$4.containsKey('method_resolution'), false);
     expect(backend.saved.single.$2, 7);
     backend.pending!.completeError(Exception('Conservar borrador'));
     await tester.pumpAndSettle();

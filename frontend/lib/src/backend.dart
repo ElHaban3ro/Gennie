@@ -31,6 +31,7 @@ abstract class DesktopBackend {
     String requestKey,
     String document,
   );
+  Future<api.Snapshot> deleteAssignment(String id, int revision);
   Future<api.Snapshot> rename(String id, String title);
   Future<api.Snapshot> delete(String id);
   Future<api.Snapshot> saveAssistant(api.AssistantSettings settings);
@@ -47,7 +48,14 @@ abstract class DesktopBackend {
   Future<void> shutdown();
 }
 
-class RustBackend implements DesktopBackend {
+abstract interface class PluginBackend {
+  Future<String> pluginRequest(String request);
+}
+
+class RustBackend implements DesktopBackend, PluginBackend {
+  @override
+  Future<String> pluginRequest(String request) =>
+      api.pluginRequest(request: request);
   bool _loaded = false;
   @override
   Future<api.Snapshot> initialize() async {
@@ -96,6 +104,9 @@ class RustBackend implements DesktopBackend {
     requestKey: requestKey,
     document: document,
   );
+  @override
+  Future<api.Snapshot> deleteAssignment(String id, int revision) =>
+      api.deleteAssignment(id: id, expectedRevision: revision);
   @override
   Future<api.Snapshot> rename(String id, String title) =>
       api.renameConversation(id: id, title: title);

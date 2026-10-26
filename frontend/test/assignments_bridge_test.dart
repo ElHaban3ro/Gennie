@@ -31,6 +31,14 @@ void main() {
             'interval_minutes': 10,
             'rationale': 'Observar cambios entre entregas',
           },
+          'method': {
+            'plugin_id': 'research',
+            'functions': ['list_sources'],
+          },
+          'authorization': {
+            'scope': 'Consultar fuentes sin cambios',
+            'allowed_routes': ['http', 'web'],
+          },
           'follow_up': {
             'scope': 'Seguir avances y obstáculos de la investigación',
             'signals': ['¿Podemos adelantar algún paso útil?'],
@@ -48,6 +56,10 @@ void main() {
         expect(saved.assignments.length, 1);
         expect(saved.confirmation, contains('Encargo guardado'));
         final row = saved.assignments.single;
+        expect(
+          jsonDecode(row.methodResolution!)['status'],
+          'catalogue_unavailable',
+        );
         final duplicate = await api.saveAssignment(
           id: null,
           expectedRevision: null,
@@ -81,6 +93,18 @@ void main() {
         expect(
           jsonDecode(reopened.assignments.single.document)['status'],
           'paused',
+        );
+        expect(
+          jsonDecode(reopened.assignments.single.document)['method'],
+          jsonDecode(document)['method'],
+        );
+        expect(
+          jsonDecode(reopened.assignments.single.document)['authorization'],
+          jsonDecode(document)['authorization'],
+        );
+        expect(
+          jsonDecode(reopened.assignments.single.methodResolution!)['status'],
+          'catalogue_unavailable',
         );
         expect(
           jsonDecode(reopened.assignments.single.document)['follow_up'],

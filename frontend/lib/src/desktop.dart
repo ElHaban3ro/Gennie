@@ -13,6 +13,7 @@ import 'glass.dart';
 import 'settings.dart';
 import 'model_controls.dart';
 import 'assignments.dart';
+import 'plugins.dart';
 import 'sidebar.dart';
 
 class DesktopScreen extends StatefulWidget {
@@ -72,7 +73,7 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
     final changedSelection = selected != _lastSelection;
     final wasAtEnd =
         !_scroll.hasClients ||
-        _scroll.position.maxScrollExtent - _scroll.offset < 70;
+        _scroll.offset - _scroll.position.minScrollExtent < 70;
     final changedContent =
         _messageCount != s.messages.length || _reply != s.reply;
     _lastSelection = selected;
@@ -86,7 +87,7 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
   void _scrollToEnd() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !_scroll.hasClients) return;
-      final end = _scroll.position.maxScrollExtent;
+      final end = _scroll.position.minScrollExtent;
       if ((_scroll.offset - end).abs() < 1) return;
       _scroll.jumpTo(end);
       // La lista estima alturas: volver a comprobar tras construir el destino.
@@ -385,6 +386,10 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
                             sidebarWidth: width,
                           ),
                         )
+                      else if (tab == 1)
+                        Expanded(
+                          child: PluginsView(state: state, sidebarWidth: width),
+                        )
                       else ...[
                         AppSidebar(
                           width: width,
@@ -599,6 +604,7 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
                                                   child: SelectionArea(
                                                     child: ListView.builder(
                                                       controller: _scroll,
+                                                      reverse: true,
                                                       padding:
                                                           const EdgeInsets.fromLTRB(
                                                             32,
@@ -609,16 +615,21 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
                                                       itemCount:
                                                           messages.length,
                                                       itemBuilder: (context, index) {
+                                                        final chronologicalIndex =
+                                                            messages.length -
+                                                            1 -
+                                                            index;
                                                         final message =
-                                                            messages[index];
+                                                            messages[chronologicalIndex];
                                                         final day =
                                                             messageLocalDay(
                                                               message.createdAt,
                                                             );
                                                         final previousDay =
-                                                            index > 0
+                                                            chronologicalIndex >
+                                                                0
                                                             ? messageLocalDay(
-                                                                messages[index -
+                                                                messages[chronologicalIndex -
                                                                         1]
                                                                     .createdAt,
                                                               )

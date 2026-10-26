@@ -115,4 +115,31 @@ void main() {
     expect(find.text('F'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('El encargo muestra calendario y badge solo con aplicación', (
+    tester,
+  ) async {
+    Future<void> showIcon(Map<String, dynamic> document) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(body: AssignmentIcon(document: document)),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    await showIcon({'title': 'Encargo', 'applications': []});
+    expect(find.byIcon(Icons.calendar_month_outlined), findsOneWidget);
+    expect(find.byType(AssignmentLogo), findsNothing);
+    await showIcon({
+      'title': 'Encargo',
+      'applications': [
+        {'name': 'Notas', 'kind': 'desktop'},
+      ],
+    });
+    final calendar = tester.getRect(find.byIcon(Icons.calendar_month_outlined));
+    final badge = tester.getRect(find.byType(AssignmentLogo));
+    expect(badge.center.dx, greaterThan(calendar.center.dx));
+    expect(badge.center.dy, greaterThan(calendar.center.dy));
+  });
 }

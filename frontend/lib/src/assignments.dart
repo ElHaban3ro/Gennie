@@ -1,12 +1,42 @@
 import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter/semantics.dart';
 import 'package:window_manager/window_manager.dart';
 import 'backend.dart';
 import 'glass.dart';
 import 'notice.dart';
 import 'assignment_logo.dart';
 import 'sidebar.dart';
+
+const assignmentRoutes = {
+  'http': 'Peticiones HTTP',
+  'web': 'Navegación web',
+  'computer_use': 'Computer Use',
+};
+const assignmentMethodStates = {
+  'ready': 'Verificado y permitido',
+  'unresolved': 'Pendiente de una vía verificada y permitida',
+  'plugin_missing': 'Plugin pendiente o eliminado',
+  'catalogue_unavailable': 'Catálogo no disponible',
+  'verification_required': 'Necesita verificación',
+  'not_authorized': 'Vía sin autorización',
+  'function_missing': 'Función no disponible',
+};
+const assignmentSourceStates = {
+  'not_investigated': 'Sin investigar',
+  'desktop_unsupported': 'Aplicación de escritorio: soporte pendiente',
+  'unsupported': 'Tipo de fuente sin soporte',
+  'origin_required': 'Falta una dirección web válida',
+  'queued': 'En cola',
+  'running': 'En preparación',
+  'waiting_user': 'Esperando acceso',
+  'interrupted': 'Interrumpido',
+  'completed': 'Investigación finalizada',
+  'blocked': 'Bloqueado',
+  'cancelled': 'Cancelado',
+};
 
 const assignmentKinds = {
   'one_time': 'Puntual',
@@ -44,6 +74,55 @@ class _AssignmentsViewState extends State<AssignmentsView> {
   bool creating = false;
   bool editing = false;
   int generation = 0;
+  Future<void> _delete(AssignmentRecord record) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Eliminar encargo'),
+        content: const Text('Se eliminará este encargo de Gennie.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Eliminar encargo'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    final ok = await widget.state.perform(
+      () => widget.state.backend.deleteAssignment(record.id, record.revision),
+    );
+    if (!mounted || !ok) return;
+    setState(() {
+      if (selected == record.id) {
+        selected = null;
+        editing = false;
+        creating = false;
+      }
+    });
+    showAppNotice(context, 'Encargo eliminado.');
+  }
+
+  Future<void> _menu(AssignmentRecord record, Offset position) async {
+    final overlay =
+        Overlay.of(context).context.findRenderObject()! as RenderBox;
+    final action = await showMenu<String>(
+      context: context,
+      position: RelativeRect.fromRect(
+        position & const Size(1, 1),
+        Offset.zero & overlay.size,
+      ),
+      items: const [
+        PopupMenuItem(value: 'delete', child: Text('Eliminar encargo')),
+      ],
+    );
+    if (mounted && action == 'delete') await _delete(record);
+  }
+
   @override
   void dispose() {
     search.dispose();
@@ -108,21 +187,58 @@ class _AssignmentsViewState extends State<AssignmentsView> {
                             jsonDecode(r.document) as Map<String, dynamic>;
                         return Padding(
                           padding: const EdgeInsets.only(bottom: 2),
-                          child: Semantics(
-                            selected: selected == r.id,
-                            child: SidebarTile(
-                              leading: AssignmentLogo(document: d),
-                              title: d['title'] as String,
-                              subtitle:
-                                  '${assignmentKinds[d['kind']]} · ${assignmentStatuses[d['status']]}',
-                              selected: selected == r.id,
-                              onSelect: () => setState(() {
-                                selected = r.id;
-                                creating = false;
-                                editing = false;
-                                generation++;
-                              }),
-                            ),
+                          child: Builder(
+                            builder: (tileContext) {
+                              void keyboardMenu() {
+                                final box =
+                                    tileContext.findRenderObject()!
+                                        as RenderBox;
+                                _menu(
+                                  r,
+                                  box.localToGlobal(
+                                    box.size.center(Offset.zero),
+                                  ),
+                                );
+                              }
+
+                              return CallbackShortcuts(
+                                bindings: {
+                                  const SingleActivator(
+                                    LogicalKeyboardKey.f10,
+                                    shift: true,
+                                  ): keyboardMenu,
+                                  const SingleActivator(
+                                    LogicalKeyboardKey.contextMenu,
+                                  ): keyboardMenu,
+                                },
+                                child: Semantics(
+                                  selected: selected == r.id,
+                                  customSemanticsActions: {
+                                    const CustomSemanticsAction(
+                                      label: 'Eliminar encargo',
+                                    ): () =>
+                                        _delete(r),
+                                  },
+                                  child: GestureDetector(
+                                    onSecondaryTapUp: (details) =>
+                                        _menu(r, details.globalPosition),
+                                    child: SidebarTile(
+                                      leading: AssignmentIcon(document: d),
+                                      title: d['title'] as String,
+                                      subtitle:
+                                          '${assignmentKinds[d['kind']]} · ${assignmentStatuses[d['status']]}',
+                                      selected: selected == r.id,
+                                      onSelect: () => setState(() {
+                                        selected = r.id;
+                                        creating = false;
+                                        editing = false;
+                                        generation++;
+                                      }),
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
                           ),
                         );
                       },
@@ -238,6 +354,11 @@ class AssignmentProfile extends StatelessWidget {
     final preparation = d['preparation'] as Map<String, dynamic>? ?? {};
     final followUp = d['follow_up'] as Map<String, dynamic>?;
     final guidance = (followUp?['decision_guidance'] as String? ?? '').trim();
+    final method = d['method'] as Map<String, dynamic>?;
+    final authorization = d['authorization'] as Map<String, dynamic>?;
+    final resolution = record.methodResolution == null
+        ? null
+        : jsonDecode(record.methodResolution!) as Map<String, dynamic>;
     final ink = sidebarInk(context);
     final body = TextStyle(
       fontFamily: 'Inter',
@@ -310,7 +431,7 @@ class AssignmentProfile extends StatelessWidget {
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
-                        AssignmentLogo(document: d, size: 72),
+                        AssignmentIcon(document: d, size: 72),
                         const SizedBox(width: 16),
                         Expanded(
                           child: Column(
@@ -481,6 +602,48 @@ class AssignmentProfile extends StatelessWidget {
                     style: body.copyWith(fontWeight: FontWeight.w500),
                   ),
                   children: [
+                    section('Método', Icons.route_outlined, [
+                      detail(
+                        'Integración',
+                        method == null
+                            ? 'Pendiente de definir'
+                            : '${method['plugin_id']} · ${(method['functions'] as List).join(' → ')}',
+                      ),
+                      if (resolution != null &&
+                          resolution['status'] != null) ...[
+                        detail(
+                          'Estado técnico',
+                          assignmentMethodStates[resolution['status']] ??
+                              resolution['status'],
+                        ),
+                        for (final route in resolution['routes'] as List? ?? [])
+                          detail(
+                            route['function'] as String,
+                            '${assignmentRoutes[route['route']] ?? 'Sin vía disponible'} · ${assignmentMethodStates[route['status']] ?? route['status']}',
+                          ),
+                      ],
+                      for (final source
+                          in resolution?['sources'] as List? ?? [])
+                        detail(
+                          source['source'] as String,
+                          assignmentSourceStates[source['status']] ??
+                              'Estado desconocido',
+                        ),
+                    ]),
+                    section('Autorización', Icons.verified_user_outlined, [
+                      detail(
+                        'Alcance delegado',
+                        authorization?['scope'] ??
+                            'Sin autorización registrada',
+                      ),
+                      if (authorization != null)
+                        detail(
+                          'Vías permitidas',
+                          (authorization['allowed_routes'] as List)
+                              .map((r) => assignmentRoutes[r] ?? r)
+                              .join(' · '),
+                        ),
+                    ]),
                     if (hasValue(d['context']))
                       section('Contexto', Icons.notes_outlined, [
                         Padding(
@@ -859,6 +1022,7 @@ class _AssignmentEditorState extends State<AssignmentEditor> {
   DateTime? notifyAt;
   bool saving = false;
   bool followUpEnabled = false;
+  final allowedRoutes = <String>{};
   String? error;
   @override
   void initState() {
@@ -869,6 +1033,11 @@ class _AssignmentEditorState extends State<AssignmentEditor> {
     final recurrence = d['recurrence'] as Map<String, dynamic>? ?? {};
     final preparation = d['preparation'] as Map<String, dynamic>? ?? {};
     final followUp = d['follow_up'] as Map<String, dynamic>?;
+    final method = d['method'] as Map<String, dynamic>?;
+    final authorization = d['authorization'] as Map<String, dynamic>?;
+    allowedRoutes.addAll(
+      (authorization?['allowed_routes'] as List? ?? []).cast<String>(),
+    );
     followUpEnabled = followUp != null;
     kind = d['kind'] as String? ?? 'recurring';
     priority = d['priority'] as String? ?? 'normal';
@@ -880,6 +1049,9 @@ class _AssignmentEditorState extends State<AssignmentEditor> {
     requestKey =
         'ui-${DateTime.now().microsecondsSinceEpoch}-${Random.secure().nextInt(1 << 32)}';
     final values = <String, String>{
+      'pluginId': method?['plugin_id'] as String? ?? '',
+      'functions': (method?['functions'] as List? ?? []).join('\n'),
+      'authorization': authorization?['scope'] as String? ?? '',
       'title': d['title'] as String? ?? '',
       'description': d['description'] as String? ?? '',
       'context': d['context'] as String? ?? '',
@@ -1004,6 +1176,23 @@ class _AssignmentEditorState extends State<AssignmentEditor> {
   }
 
   Future<void> save() async {
+    final hasMethod =
+        optional('pluginId') != null || optional('functions') != null;
+    final hasAuthorization =
+        optional('authorization') != null || allowedRoutes.isNotEmpty;
+    if ((hasMethod &&
+            (optional('pluginId') == null ||
+                optional('functions') == null ||
+                !hasAuthorization)) ||
+        (hasAuthorization &&
+            (optional('authorization') == null || allowedRoutes.isEmpty))) {
+      setState(() {
+        opened.add('method');
+        error =
+            'Completa plugin y funciones, y registra el alcance con sus vías permitidas.';
+      });
+      return;
+    }
     if (followUpEnabled &&
         [
           'followUpScope',
@@ -1092,6 +1281,20 @@ class _AssignmentEditorState extends State<AssignmentEditor> {
           'action_scope': optional('actionScope'),
         },
       'applications': applications,
+      if (hasMethod)
+        'method': {
+          'plugin_id': optional('pluginId'),
+          'functions': fields['functions']!.text
+              .split('\n')
+              .map((v) => v.trim())
+              .where((v) => v.isNotEmpty)
+              .toList(),
+        },
+      if (hasAuthorization)
+        'authorization': {
+          'scope': optional('authorization'),
+          'allowed_routes': allowedRoutes.toList(),
+        },
     };
     try {
       final previousIds =
@@ -1105,7 +1308,7 @@ class _AssignmentEditorState extends State<AssignmentEditor> {
       );
       widget.state.accept(snapshot);
       if (!mounted) return;
-      showAppNotice(context, 'Encargo guardado.');
+      showAppNotice(context, snapshot.confirmation ?? 'Encargo guardado.');
       final created = snapshot.assignments.where(
         (r) => !previousIds.contains(r.id),
       );
@@ -1300,7 +1503,7 @@ class _AssignmentEditorState extends State<AssignmentEditor> {
                           children: [
                             Row(
                               children: [
-                                AssignmentLogo(
+                                AssignmentIcon(
                                   document: {
                                     'title': fields['title']!.text,
                                     'applications': applications,
@@ -1561,6 +1764,44 @@ class _AssignmentEditorState extends State<AssignmentEditor> {
                               label: const Text('Añadir aplicación'),
                             ),
                             const SizedBox(height: 20),
+                            sectionDivider(),
+                            disclosure(
+                              'method',
+                              'Método y autorización',
+                              Icons.route_outlined,
+                              optional('pluginId') ??
+                                  'Método pendiente; autorización independiente',
+                              [
+                                field('pluginId', 'Plugin (opcional)'),
+                                field(
+                                  'functions',
+                                  'Funciones alternativas, una por línea',
+                                  lines: 4,
+                                  hint:
+                                      'El constructor verifica sus vías; orden de preferencia.',
+                                ),
+                                field(
+                                  'authorization',
+                                  'Alcance autorizado',
+                                  lines: 3,
+                                ),
+                                for (final route in assignmentRoutes.entries)
+                                  CheckboxListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    title: Text(route.value, style: body),
+                                    value: allowedRoutes.contains(route.key),
+                                    onChanged: saving
+                                        ? null
+                                        : (v) => setState(() {
+                                            if (v == true) {
+                                              allowedRoutes.add(route.key);
+                                            } else {
+                                              allowedRoutes.remove(route.key);
+                                            }
+                                          }),
+                                  ),
+                              ],
+                            ),
                             sectionDivider(),
                             disclosure(
                               'context',
