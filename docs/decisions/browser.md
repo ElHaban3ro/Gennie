@@ -36,9 +36,46 @@ Diagnóstico del 26 de octubre: la instancia abierta ya publicaba seis herramien
 
 Fuentes del protocolo: [MCP en Codex](https://learn.chatgpt.com/docs/extend/mcp) y [App Server](https://learn.chatgpt.com/docs/app-server), consultadas el 26 de octubre de 2026. El registro de herramientas, las instrucciones de servidor y developerInstructions orientan al modelo; no ejecutan automáticamente una navegación por sí solos.
 
-Herramientas del MCP local: `browser_open`, `browser_snapshot` (pestañas/árbol accesible), `browser_navigate`, `browser_click`, `browser_fill` y `browser_press`. Solo operan sobre ese contexto y no exponen ejecución arbitraria de JavaScript ni acceso a cookies. Selectores Playwright e ID de pestaña permiten actuar sobre lo observado. Snapshot no abre un navegador cerrado. Navegación admite HTTP/HTTPS sin credenciales embebidas. El contenido web es dato no confiable. La ejecución de herramientas exige los permisos vigentes de control de aplicaciones y comandos locales; abrir mediante el botón es una acción directa del usuario y no depende de ese permiso de automatización.
+### Catálogo ampliado (21 herramientas)
 
-IPC JSON por stdin/stdout, líneas de 128 KiB, snapshot acotado y llamadas serializadas con rechazo ocupado, sin reintentos automáticos. Plazos Playwright: acciones 6 s, navegación 8 s, arranque 9 s; espera IPC 12 s. Timeout declara efecto incierto. Errores del navegador se traducen sin publicar excepciones/URLs. Cierre: EOF, `context.close()` y hasta 5 s para terminar; último recurso kill/wait del grupo propio y error de escritura final no confirmada. Los hijos de Chromium los administra Playwright. El lector se une antes de finalizar. El cierre global conserva el perfil y ocurre antes de SQLite.
+Todas siguen dentro del MCP local `gennie`, junto con `assignments_*`. No se añadió un servidor Playwright independiente ni un puerto de producto.
+
+| Herramientas | Función |
+|---|---|
+| browser_open, browser_snapshot, browser_navigate | Ventana compartida, pestañas/frames/árbol accesible y navegación con status HTTP |
+| browser_tabs | Listar, crear, seleccionar y cerrar pestañas observadas |
+| browser_history | Atrás, adelante y recarga |
+| browser_find, browser_read | Buscar texto y extraer texto/artículo/enlaces/tablas de un elemento/frame |
+| browser_wait_for | Esperar elemento o texto visible/oculto, URL o carga; hasta 8 s |
+| browser_click, browser_fill, browser_press | Interacción con elementos observados |
+| browser_hover, browser_scroll | Desplegar contenido y desplazarse por API |
+| browser_select_option, browser_check | Selects por valor/etiqueta y casillas/radios |
+| browser_dialog | Consultar, aceptar y descartar alert/confirm/prompt pendientes |
+| browser_screenshot | JPEG de viewport, página completa o elemento; imagen MCP y archivo local |
+| browser_request | HTTP GET/HEAD con cookie jar del contexto; sin extracción de cookies ni headers sensibles |
+| browser_download, browser_upload | Gestionar descargas persistidas y adjuntar archivos locales elegidos para la tarea |
+| browser_pdf | Exportar la página a PDF sin diálogo de impresión del sistema |
+
+Snapshot identifica hasta 200 elementos visibles de hasta 16 frames y devuelve referencias asociadas a handles concretos; conserva selectores como alternativa explícita. Cada snapshot/find y cada acción invalida las referencias anteriores. Antes de usar una referencia se comprueba conexión e identidad del elemento; ante referencia caducada se exige observar de nuevo. No hay JavaScript arbitrario suministrado por el modelo. Find también localiza texto que no estaba entre los primeros targets del snapshot. La lectura y las respuestas se acotan para no volcar páginas ilimitadas al modelo.
+
+Las acciones devuelven `needs_snapshot`. Si un diálogo interrumpe una acción, se conserva su promesa y se devuelve `modal`/`action_pending`; aceptar o descartar drena la acción anterior y comunica incertidumbre si no se confirmó. No se repite el click que abrió el diálogo. El selector de archivos se resuelve con `browser_upload`, incluido `files=[]` para cancelarlo.
+
+### Archivos, sesión y permisos
+
+Capturas, PDF y descargas se guardan en `~/Library/Application Support/Gennie/browser/artifacts`, con directorio 0700 y archivos 0600, nombres generados sin sobrescribir archivos elegidos por el usuario. Son resultados persistentes; no se borran al cerrar el contexto. Las descargas se copian a un archivo parcial propio y se renombran al completar; se retienen/observan sus tareas y se cancelan las pendientes al cerrar. `download wait` admite esperar la primera descarga sin conocer aún su ID y consulta explícita por ID en las siguientes.
+
+Upload acepta hasta 8 archivos regulares de 25 MiB cada uno, con rutas absolutas resueltas. Adjuntar archivos requiere el permiso vigente de lectura; cancelar/vaciar una selección no requiere leer archivos. El asistente solo adjunta archivos elegidos por el usuario para esa tarea, pues cambiar el campo puede iniciar una carga del sitio. Las demás herramientas requieren control de apps/comandos; el botón de apertura manual sigue siendo independiente. No se amplían permisos.
+
+`browser_request` admite GET/HEAD, usa `context.request`, sigue hasta cinco redirecciones, entrega status/tipo/cuerpo de texto acotado y libera cada respuesta. Comparte cookies con el contexto, pero no incorpora automáticamente tokens de localStorage ni garantiza acceso a APIs privadas. No devuelve headers de autenticación o Set-Cookie. Para otros tipos binarios se informa del tipo sin volcar el cuerpo. La respuesta textual se limita a 20.000 caracteres; recursos de más de 8 MiB se rechazan tras recibirlos. La captura JPEG se limita a 2 MiB y el PDF a 32 MiB; no se promete un límite de descarga de red previo a recibir esos bytes.
+
+### Transporte, plazos y cierre
+
+IPC JSON por stdin/stdout: peticiones de 128 KiB y respuestas de hasta 4 MiB. El transporte MCP común admite contenido `image` además del JSON de negocio, sin duplicar el base64 en structuredContent. El sobre interno `__gennie_mcp_output_v1` queda reservado a resultados multimodales construidos por herramientas propias. Encargos mantiene su contrato JSON. Los sockets aceptados se fijan explícitamente en modo bloqueante con timeout: en macOS podían heredar O_NONBLOCK y truncar una imagen a los primeros 8 KiB. La prueba del helper stdio conserva una imagen de 200.000 caracteres.
+
+Llamadas serializadas con rechazo ocupado y sin reintentos automáticos. Plazos Playwright: acciones 6 s, navegación 8 s, arranque 9 s; espera IPC 12 s. Esperas/descargas acotadas a 8 s por petición. Snapshot tiene presupuesto de exploración y conserva truncado explícito; no equivale a leer toda página. Timeout comunica resultado incierto, sin registrar excepciones/URLs. Cierre: EOF, cancelación de descargas pendientes, `context.close()` y drenaje de tareas propias, con hasta 5 s para terminar; último recurso kill/wait del grupo propio y error de escritura final no confirmada. Los hijos de Chromium los administra Playwright y el lector se une antes de finalizar. El perfil y los artifacts completados se conservan; el cierre global ocurre antes de SQLite.
+
+Fuentes públicas verificadas: [Locator](https://playwright.dev/docs/api/class-locator), [APIRequestContext](https://playwright.dev/docs/api/class-apirequestcontext), [Download](https://playwright.dev/docs/api/class-download) y [diálogos](https://playwright.dev/docs/dialogs). Reutiliza Playwright 1.64.1 y Node instalados, sin dependencias de registro nuevas.
+
 
 ## Preparación y uso
 
@@ -54,6 +91,12 @@ Ejecutar `./scripts/setup_browser.sh` con Node >=20 instalado. Usa `npm ci --ign
 
 Tests Rust: módulo desactivado, petición concurrente, runtime ausente y validación MCP sin crear procesos. Widgets: ubicación junto al menú a 640 × 420, progreso/bloqueo, recuperación tras error y aviso visible. Compilación/análisis no sustituyen una comprobación física del botón en una instancia recompilada.
 
-Comprobado el 26 de octubre: sonda real correcta con sandbox activado (incluida cookie de sesión), 20 tests Rust de browser/bootstrap y 21 widgets de escritorio correctos, análisis Dart sin incidencias, Clippy de browser/bootstrap con warnings denegados, invariantes y formato correctos. Paquete macOS release compilado y firma local verificada. Navegador dedicado abierto mediante el lanzador manual y perfil fijo; instancia del escritorio no reiniciada por petición del usuario. Pendientes la pulsación real del botón en la nueva versión, descubrimiento de estas herramientas en una sesión Codex real y autenticación en sitios concretos.
+Verificación inicial del 26 de octubre, antes de ampliar el catálogo: sonda real correcta con sandbox activado (incluida cookie de sesión), 20 tests Rust de browser/bootstrap y 21 widgets de escritorio correctos, análisis Dart sin incidencias, Clippy de browser/bootstrap con warnings denegados, invariantes y formato correctos. Paquete macOS release compilado y firma local verificada. Navegador dedicado abierto mediante el lanzador manual y perfil fijo; instancia del escritorio no reiniciada por petición del usuario. Pendientes la pulsación real del botón en la nueva versión, descubrimiento de estas herramientas en una sesión Codex real y autenticación en sitios concretos.
 
 Fuentes: [contexto persistente](https://playwright.dev/docs/api/class-browsertype#browser-type-launch-persistent-context), [perfiles y estado](https://playwright.dev/mcp/configuration/user-profile). Dependencias y límites en [dependencies](dependencies.md).
+
+## Evidencia de la ampliación — 26 de octubre de 2026
+
+La sonda real de capacidades pasó 71 operaciones con Chromium headless, un sitio local temporal y perfil independiente: incluyó frames/referencias, formularios, esperas, pestañas/historial, diálogos, subida/vaciado, descarga completa y cancelación en curso, capturas de viewport/página completa/elemento, PDF y HTTP con cookies compartidas/status 403. La sonda independiente por stdio conservó cookies/localStorage tras cerrar y reabrir el helper. El app-server Codex instalado descubrió las 21 herramientas con CODEX_HOME vacío y sin inferencia. El test del puente stdio preservó 200.000 caracteres de imagen y el JSON de datos por separado.
+
+El workspace Rust, Clippy, formato y comprobación del diff pasaron. `./scripts/build.sh` produjo el paquete macOS release con firma local ad hoc; no se instaló ni abrió. Estas pruebas no usan cuentas personales ni prueban decisiones del modelo con todo el catálogo, sesiones en sitios privados o interacción física en Safari. No se reinició la instancia del usuario; para cargar el catálogo ampliado y el helper nuevo hace falta arrancar la versión recompilada.

@@ -43,7 +43,7 @@ try {
   await page.evaluate(() => localStorage.setItem('gennie_probe', 'retained'));
   await context.close(); context = undefined;
 
-  child = spawn(path.join(runtime, 'node'), ['--input-type=module', '--eval', source, '--', runtime, profile], {
+  child = spawn(path.join(runtime, 'node'), ['--input-type=module', '--eval', source, '--', runtime, profile, '--gennie-browser-worker'], {
     env: process.env, stdio: ['pipe', 'pipe', 'pipe'],
   });
   const lines = createInterface({ input: child.stdout });

@@ -104,3 +104,7 @@ Editor progresivo: comprobar secciones cerradas inicialmente, borrador conservad
 
 
 Confirmaciones: `notice_test.dart` comprueba ancho acotado al mínimo de ventana, claro/oscuro, sustitución de avisos y cierre manual, con capturas notice-{light,dark}.png bajo CAPTURE_UI. `assignments_test.dart` conserva la comprobación de que el guardado fallido no confirma éxito y que reintentar confirma tras el backend. Son widgets y material Flutter; no prueban composición nativa.
+
+## Capacidades completas del navegador
+
+`node scripts/probes/browser_capabilities.mjs` usa Chromium real headless con perfil temporal y un servidor de fixtures en 127.0.0.1:puerto efímero, que se cierran al terminar. Comprueba referencias caducadas, frames, pestañas, historial, búsqueda/extracción, esperas, formularios, hover/scroll, diálogos, carga/descarga, imágenes, PDF y HTTP con cookie jar compartido. No consulta cuentas ni usa el perfil real. El servidor es solo una herramienta de prueba, no un endpoint del producto. `cargo test -p gennie --test browser_media_bridge --locked` recorre el helper stdio con una imagen mayor que el antiguo límite; verifica contenido image y structuredContent separado. Tests Rust de browser validan argumentos estructurados e impedimento de upload sin lectura. La sonda de persistencia conserva cobertura independiente de reapertura.

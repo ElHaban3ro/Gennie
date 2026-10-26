@@ -39,3 +39,5 @@ El navegador propio usa `~/Library/Application Support/Gennie/browser/profile`, 
 `./scripts/dev.sh` entrega rutas de biblioteca, helper y `.env` mediante dart-defines. No añade preferencias ni modifica `.env`. `--build-only` prepara Rust y paquetes sin abrir UI; `--generate` regenera FRB. Flutter debug puede abrir servicios temporales locales de depuración; el producto no abre HTTP entrante.
 
 Al abrir Gennie se solicita automáticamente la conexión de Codex en segundo plano. Se verifica el inventario MCP del hilo antes de declarar Conectado; la primera intervención reutiliza la sesión. No hay mensaje de calentamiento ni inferencia. Falta de autenticación o fallo de descubrimiento producen error visible y reintento explícito con Conectar.
+
+Capturas, PDF y descargas de Gennie Web pertenecen a `browser/artifacts` y persisten tras cerrar; directorio 0700, archivos 0600 y nombres generados. Upload requiere lectura de archivos activada y rutas explícitas elegidas para la tarea; vaciar/cancelar una selección no lee archivos. No añade preferencias ni variables de entorno. Ver D-026.
