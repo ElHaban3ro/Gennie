@@ -26,7 +26,11 @@ Snapshot snapshot({
   ModelState modelState = ModelState.unloaded,
   String? modelDetail,
   List<Message>? messages,
+  List<AssignmentRecord>? plans,
 }) => Snapshot(
+  assignments: plans ?? const [],
+  timezone: 'America/Bogota',
+  assignmentsEnabled: true,
   models: [
     for (final model in LocalModel.values)
       ModelInfo(
@@ -167,6 +171,13 @@ class FakeBackend implements DesktopBackend {
   Future<Snapshot> newChat() async => value;
   @override
   Future<Snapshot> connect() async => value;
+  @override
+  Future<Snapshot> saveAssignment(
+    String? id,
+    int? revision,
+    String requestKey,
+    String document,
+  ) async => value;
   @override
   Future<Snapshot> delete(String id) async => value;
   @override

@@ -120,6 +120,11 @@ pub fn register(db: &Database, modules: &[Arc<dyn AppModule>]) -> Result<BTreeSe
                 [],
             )?;
         }
+        if modules.iter().any(|module| module.name() == "assignments") {
+            // Conserva la elección anterior y retira solo la identidad de módulo sustituida.
+            tx.execute("INSERT INTO modules(name,active) SELECT 'assignments',active FROM modules WHERE name='events' ON CONFLICT(name) DO NOTHING", [])?;
+            tx.execute("DELETE FROM modules WHERE name='events'", [])?;
+        }
         let mut active = BTreeSet::new();
         for module in modules {
             tx.execute(
@@ -231,6 +236,51 @@ mod tests {
             shutdown: Shutdown::default(),
         }
     }
+    #[test]
+    fn renamed_assignments_preserve_selection_and_retire_legacy_module() {
+        for was_active in [false, true] {
+            let db = Database::memory().unwrap();
+            let old = Arc::new(Fake {
+                name: "events",
+                fail_start: false,
+                fail_stop: false,
+                events: Arc::new(Mutex::new(Vec::new())),
+            });
+            register(&db, &[old]).unwrap();
+            db.with_connection(|c| {
+                c.execute(
+                    "UPDATE modules SET active=?1 WHERE name='events'",
+                    [was_active],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+            let module = Arc::new(gennie_assignments::AssignmentsModule) as Arc<dyn AppModule>;
+            let active = register(&db, std::slice::from_ref(&module)).unwrap();
+            assert_eq!(active.contains("assignments"), was_active);
+            db.with_connection(|c| {
+                assert_eq!(
+                    c.query_row(
+                        "SELECT count(*) FROM modules WHERE name='events'",
+                        [],
+                        |r| r.get::<_, i64>(0)
+                    )?,
+                    0
+                );
+                c.execute(
+                    "UPDATE modules SET active=?1 WHERE name='assignments'",
+                    [!was_active],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+            assert_eq!(
+                register(&db, &[module]).unwrap().contains("assignments"),
+                !was_active
+            );
+        }
+    }
+
     #[test]
     fn registration_preserves_selection_and_excludes_orphans() {
         let state = state();

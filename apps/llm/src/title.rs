@@ -39,7 +39,8 @@ pub(crate) fn start_request(cwd: &Path, model: &str) -> Value {
             "features.apply_patch_freeform":false,"features.multi_agent":false,
             "features.computer_use":false,"features.browser_use":false,
             "features.browser_use_external":false,"features.apps":false,
-            "features.plugins":false,"web_search":"disabled"
+            "features.plugins":false,"web_search":"disabled",
+            "mcp_servers.gennie.enabled":false
         }
     }})
 }

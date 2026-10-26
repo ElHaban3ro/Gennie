@@ -2,6 +2,20 @@ use gennie_backend::startup;
 fn main() {
     let mut arguments = std::env::args_os().skip(1);
     if let Some(flag) = arguments.next() {
+        if flag == "--mcp" {
+            let result = (|| -> gennie_core::Result<()> {
+                let socket = arguments.next().ok_or("Falta socket MCP")?;
+                if arguments.next().is_some() {
+                    return Err("Argumentos sobrantes".into());
+                }
+                gennie_mcp::bridge(std::path::Path::new(&socket))
+            })();
+            if result.is_err() {
+                eprintln!("No se pudo completar la conexión MCP local");
+                std::process::exit(1);
+            }
+            return;
+        }
         if flag == "--voice-review" {
             if arguments.next().is_some() {
                 eprintln!("Argumentos sobrantes");

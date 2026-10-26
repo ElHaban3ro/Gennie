@@ -28,6 +28,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   String dco_decode_String(dynamic raw);
 
   @protected
+  AssignmentRecord dco_decode_assignment_record(dynamic raw);
+
+  @protected
   AssistantSettings dco_decode_assistant_settings(dynamic raw);
 
   @protected
@@ -59,6 +62,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<String> dco_decode_list_String(dynamic raw);
+
+  @protected
+  List<AssignmentRecord> dco_decode_list_assignment_record(dynamic raw);
 
   @protected
   List<Conversation> dco_decode_list_conversation(dynamic raw);
@@ -132,6 +138,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   String sse_decode_String(SseDeserializer deserializer);
 
   @protected
+  AssignmentRecord sse_decode_assignment_record(SseDeserializer deserializer);
+
+  @protected
   AssistantSettings sse_decode_assistant_settings(SseDeserializer deserializer);
 
   @protected
@@ -169,6 +178,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<String> sse_decode_list_String(SseDeserializer deserializer);
+
+  @protected
+  List<AssignmentRecord> sse_decode_list_assignment_record(
+    SseDeserializer deserializer,
+  );
 
   @protected
   List<Conversation> sse_decode_list_conversation(SseDeserializer deserializer);
@@ -252,6 +266,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_String(String self, SseSerializer serializer);
 
   @protected
+  void sse_encode_assignment_record(
+    AssignmentRecord self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_assistant_settings(
     AssistantSettings self,
     SseSerializer serializer,
@@ -298,6 +318,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_list_String(List<String> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_assignment_record(
+    List<AssignmentRecord> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_conversation(

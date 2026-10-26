@@ -59,6 +59,7 @@ fn reuse_empty_chat(
 
 pub struct LlmModule {
     journal: Option<Arc<dyn ConversationJournal>>,
+    tools: Mutex<Option<gennie_mcp::Launch>>,
     worker: Mutex<Option<Worker>>,
 }
 struct Worker {
@@ -103,11 +104,23 @@ impl Default for LlmModule {
     fn default() -> Self {
         Self {
             journal: None,
+            tools: Mutex::new(None),
             worker: Mutex::new(None),
         }
     }
 }
 impl LlmModule {
+    /// Composición antes de start; no se modifica una sesión en marcha.
+    pub fn configure_tools(&self, tools: gennie_mcp::Launch) -> Result<()> {
+        if self.worker.lock().map_err(|_| "Worker inválido")?.is_some() {
+            return Err("Configura MCP antes de iniciar LLM".into());
+        }
+        *self
+            .tools
+            .lock()
+            .map_err(|_| "Configuración MCP inválida")? = Some(tools);
+        Ok(())
+    }
     pub fn with_journal(journal: Arc<dyn ConversationJournal>) -> Self {
         Self {
             journal: Some(journal),
@@ -155,6 +168,11 @@ impl AppModule for LlmModule {
         let process = codex::ProcessHandle::default();
         let db = state.db.clone();
         let journal = self.journal.clone();
+        let tools = self
+            .tools
+            .lock()
+            .map_err(|_| "Configuración MCP inválida")?
+            .clone();
         let settings = Arc::new(Mutex::new(settings::load(&db)?));
         let worker_settings = settings.clone();
         let worker_pending = pending.clone();
@@ -212,6 +230,7 @@ impl AppModule for LlmModule {
                                     &current,
                                     true,
                                     journal.clone(),
+                                    tools.clone(),
                                 )?
                             } else {
                                 codex::Session::connect_recorded(
@@ -220,6 +239,7 @@ impl AppModule for LlmModule {
                                     &current,
                                     false,
                                     journal.clone(),
+                                    tools.clone(),
                                 )?
                             });
                             let _ = event_sender.send(Event::Connected);

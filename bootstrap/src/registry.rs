@@ -13,11 +13,20 @@ pub fn build(
     tts: Arc<gennie_tts::TtsModule>,
     reminders: Arc<gennie_reminders_plugin::RemindersPluginModule>,
 ) -> Vec<Arc<dyn AppModule>> {
-    vec![transcription, decisions, llm, tts, reminders, presence]
+    vec![
+        transcription,
+        decisions,
+        llm,
+        tts,
+        reminders,
+        presence,
+        Arc::new(gennie_assignments::AssignmentsModule),
+    ]
 }
 
 pub fn order(modules: &[Arc<dyn AppModule>]) -> Result<Vec<usize>> {
     let mut names = BTreeMap::new();
+    let mut migration_namespaces = BTreeSet::new();
     for (i, module) in modules.iter().enumerate() {
         let name = module.name();
         if name.is_empty()
@@ -26,6 +35,15 @@ pub fn order(modules: &[Arc<dyn AppModule>]) -> Result<Vec<usize>> {
                 .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'_')
         {
             return Err(format!("Nombre de módulo inválido: {name}").into());
+        }
+        let namespace = module.migration_namespace();
+        if namespace.is_empty()
+            || !namespace
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+            || !migration_namespaces.insert(namespace)
+        {
+            return Err("Identidad de migraciones inválida o repetida".into());
         }
         if names.insert(name, i).is_some() {
             return Err(format!("Módulo duplicado: {name}").into());
@@ -118,6 +136,31 @@ mod tests {
     ) -> Arc<dyn AppModule> {
         Arc::new(Module(name, required, optional))
     }
+    #[test]
+    fn rejects_overlapping_migration_namespaces() {
+        struct Alias(&'static str, &'static str);
+        impl AppModule for Alias {
+            fn name(&self) -> &'static str {
+                self.0
+            }
+            fn migration_namespace(&self) -> &'static str {
+                self.1
+            }
+            fn start(&self, _: &AppState) -> Result<()> {
+                Ok(())
+            }
+            fn stop(&self, _: &AppState) -> Result<()> {
+                Ok(())
+            }
+        }
+        let modules: Vec<Arc<dyn AppModule>> = vec![
+            Arc::new(Alias("first", "legacy")),
+            Arc::new(Alias("second", "legacy")),
+        ];
+        assert!(order(&modules).is_err());
+        assert!(order(&[Arc::new(Alias("valid", "../bad"))]).is_err());
+    }
+
     #[test]
     fn rejects_duplicates_cycles_and_missing() {
         assert!(order(&[m("a", &[], &[]), m("a", &[], &[])]).is_err());

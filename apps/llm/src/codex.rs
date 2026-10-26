@@ -18,7 +18,7 @@ const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(30);
 const TURN_TIMEOUT: Duration = Duration::from_secs(180);
 const MAX_REPLY_BYTES: usize = 32_000;
 const VOICE_PROFILE: &str = "gennie_voice";
-const VOICE_INSTRUCTIONS: &str = "Eres Gennie, un asistente conversacional en español. Recibes transcripciones de voz que pueden contener errores: si el tema no está claro, pide una aclaración breve antes de asumirlo. Responde directamente y con brevedad para un globo de voz. Usa la búsqueda web cuando el usuario pida buscar o cuando necesites información actual; cita las fuentes al final con títulos cortos y enlaces Markdown. No afirmes que Internet no está disponible sin intentar la búsqueda web. Respeta los permisos configurados por el usuario en Gennie. Los plugins y apps conectadas no están disponibles en esta conversación.";
+const ASSISTANT_INSTRUCTIONS: &str = include_str!("assistant-instructions.md");
 
 fn turn_start_request(thread_id: &str, cwd: &Path, model: &str, effort: &str, text: &str) -> Value {
     json!({"jsonrpc":"2.0","id":4,"method":"turn/start","params":{
@@ -172,6 +172,7 @@ impl Session {
         settings: &Settings,
         new_chat: bool,
         journal: Option<Arc<dyn ConversationJournal>>,
+        tools: Option<gennie_mcp::Launch>,
     ) -> Result<Self> {
         Self::connect_in_with_mode(
             db,
@@ -180,6 +181,7 @@ impl Session {
             new_chat,
             settings,
             journal,
+            tools,
         )
     }
     #[cfg(test)]
@@ -189,7 +191,7 @@ impl Session {
         base: PathBuf,
         settings: &Settings,
     ) -> Result<Self> {
-        Self::connect_in_with_mode(db, process, base, true, settings, None)
+        Self::connect_in_with_mode(db, process, base, true, settings, None, None)
     }
     #[cfg(test)]
     pub(crate) fn connect_in(
@@ -198,7 +200,7 @@ impl Session {
         base: PathBuf,
         settings: &Settings,
     ) -> Result<Self> {
-        Self::connect_in_with_mode(db, process, base, false, settings, None)
+        Self::connect_in_with_mode(db, process, base, false, settings, None, None)
     }
     fn connect_in_with_mode(
         db: &Database,
@@ -207,6 +209,7 @@ impl Session {
         new_chat: bool,
         settings: &Settings,
         journal: Option<Arc<dyn ConversationJournal>>,
+        tools: Option<gennie_mcp::Launch>,
     ) -> Result<Self> {
         settings.validate()?;
         let cwd = base.join("workspace");
@@ -236,6 +239,9 @@ impl Session {
             "-c",
             "web_search=\"live\"",
         ]);
+        if let Some(tools) = &tools {
+            command.args(["-c", &tools.config()?]);
+        }
         for feature in ["shell_tool", "unified_exec"] {
             command.args([
                 "-c",
@@ -360,7 +366,19 @@ impl Session {
             session.journal.as_deref(),
         )?;
         session.thread_id = thread_id.into();
+        if let Some(tools) = &tools {
+            session.discover_tools(tools)?;
+        }
         Ok(session)
+    }
+
+    fn discover_tools(&mut self, tools: &gennie_mcp::Launch) -> Result<()> {
+        self.send(
+            json!({"jsonrpc":"2.0","id":13,"method":"mcpServerStatus/list","params":{
+                "threadId":self.thread_id,"serverName":"gennie","detail":"toolsAndAuthOnly"
+            }}),
+        )?;
+        tools.validate_inventory(&self.response(13, HANDSHAKE_TIMEOUT)?)
     }
 
     pub fn new_chat(&mut self, db: &Database) -> Result<()> {
@@ -687,7 +705,8 @@ fn filesystem_config(settings: &Settings, binary_rule: &str) -> String {
     )
 }
 fn instructions(settings: &Settings) -> String {
-    let mut text = VOICE_INSTRUCTIONS.to_owned();
+    let mut text = ASSISTANT_INSTRUCTIONS.to_owned();
+    text.push_str(" Si el MCP local gennie ofrece herramientas assignments_*, úsalas para registrar, consultar y actualizar encargos a petición del usuario o cuando acepte claramente una propuesta tuya. No escribas directamente sus archivos ni SQLite. Hay encargos puntuales, recurrentes y objetivos. Antes de crear, consulta assignments_list para obtener fecha UTC, zona horaria del sistema y encargos existentes; usa esa referencia salvo que el usuario indique otra zona. Separa estrictamente el horario de aviso al usuario de la cadencia de preparación interna; revisiones frecuentes no implican avisos frecuentes. Elige prioridad, pasos e intervalo según el objetivo y justifica la cadencia. Usa la referencia horaria de assignments_list sin preguntar la zona salvo contradicción. Completa tú título, descripción, tipo, prioridad, pasos y seguimiento a partir de la necesidad aceptada; no conviertas los campos del registro en preguntas. Pregunta solo por el principal dato indispensable que siga faltando, como un horario obligatorio o una fuente ambigua. No inventes horarios ni cuentas. El motivo y otros campos opcionales pueden quedar vacíos. Conserva el contexto e identifica las inferencias. No inventes plugins ni acceso a Gmail: todos los destinos están pendientes de integración y requieren operación manual. Registrar un encargo solo acredita su guardado. Confirma los datos acordados, sin añadir avisos de implementación o integración pendiente. No deduzcas del registro que una revisión se ejecutó o una conexión quedó activada. Confirma el guardado únicamente cuando assignments_create/assignments_update devuelva éxito; ante errores corrige datos o pide lo que falte. Antes de editar consulta assignments_get y usa su revision. Reutiliza request_key solo para repetir la misma creación; una solicitud nueva necesita otra clave. Estas herramientas registran datos propios de Gennie y son independientes de los permisos de archivos/comandos del ordenador. No hay herramientas de memoria todavía.");
     text.push_str("\n\n");
     text.push_str(include_str!("web-research-instructions.md"));
     if settings.local_actions {
@@ -1026,6 +1045,7 @@ done
                 true,
                 &Settings::default(),
                 Some(journal.clone()),
+                None,
             )?;
             let active = session.thread_id.clone();
             session.generate_title()?;

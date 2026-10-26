@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/semantics.dart';
 import 'backend.dart';
+import 'sidebar.dart';
 
 // Comparar días de calendario evita errores por horas y cambios de horario.
 String conversationDateLabel(String timestamp, {required DateTime now}) {
@@ -95,69 +96,24 @@ class ChatHistoryTile extends StatelessWidget {
         },
         child: GestureDetector(
           onSecondaryTapUp: (details) => _menu(context, details.globalPosition),
-          child: Material(
-            color: selected ? const Color(0x24808080) : Colors.transparent,
-            borderRadius: BorderRadius.circular(8),
-            child: InkWell(
-              onTap: onSelect,
-              borderRadius: BorderRadius.circular(8),
-              child: SizedBox(
-                height: 64,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 9,
+          child: SidebarTile(
+            title: chat.title,
+            subtitle: preview,
+            selected: selected,
+            onSelect: onSelect,
+            trailing: date.isEmpty
+                ? null
+                : Text(
+                    date,
+                    maxLines: 1,
+                    softWrap: false,
+                    style: TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: ink.withValues(alpha: .65),
+                    ),
                   ),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              chat.title,
-                              maxLines: 1,
-                              softWrap: false,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: ink,
-                              ),
-                            ),
-                          ),
-                          if (date.isNotEmpty) ...[
-                            const SizedBox(width: 8),
-                            Text(
-                              date,
-                              maxLines: 1,
-                              softWrap: false,
-                              style: TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.w600,
-                                color: ink.withValues(alpha: .65),
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                      const SizedBox(height: 5),
-                      Text(
-                        preview,
-                        maxLines: 1,
-                        softWrap: false,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: ink.withValues(alpha: .62),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
           ),
         ),
       ),

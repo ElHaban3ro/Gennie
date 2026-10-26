@@ -16,6 +16,7 @@ use std::{
 type Reply = Sender<std::result::Result<Snapshot, String>>;
 pub(crate) enum Operation {
     Select(Option<String>),
+    SaveAssignment(Option<String>, Option<u32>, String, String),
     Send(String),
     NewChat,
     Connect,
@@ -179,6 +180,10 @@ pub(crate) fn stop() -> std::result::Result<(), String> {
 
 struct Backend {
     state: AppState,
+    assignments: gennie_assignments::Store,
+    assignments_observed: u64,
+    assignments_enabled: bool,
+    mcp: Option<gennie_mcp::Server>,
     modules: Vec<Arc<dyn AppModule>>,
     started: Vec<usize>,
     llm: Option<gennie_llm::Controller>,
@@ -197,7 +202,14 @@ struct Backend {
 impl Backend {
     fn open(env: &str, helper: &str) -> Result<Self> {
         let config = desktop_config(env)?;
-        Self::open_config(config, helper)
+        let mut backend = Self::open_config(config, helper)?;
+        // Adelantar conexión y descubrimiento al arranque, fuera del hilo Flutter.
+        if let Some(controller) = &backend.llm {
+            controller.connect()?;
+            backend.snapshot.connection = "Conectando…".into();
+            backend.refresh_controls();
+        }
+        Ok(backend)
     }
     fn open_config(config: gennie_config::Config, helper: &str) -> Result<Self> {
         gennie_transcription::configure_helper(helper.into())?;
@@ -207,6 +219,8 @@ impl Backend {
             db,
             shutdown: Shutdown::default(),
         };
+        let assignments = gennie_assignments::Store::new(state.db.clone());
+        let mut mcp = None;
         let presence = Arc::new(PresenceModule::default());
         let revision = presence.revision();
         let transcription = Arc::new(gennie_transcription::TranscriptionModule::default());
@@ -231,19 +245,33 @@ impl Backend {
             for i in &order {
                 state
                     .db
-                    .migrate(modules[*i].name(), modules[*i].migrations())?;
+                    .migrate(modules[*i].migration_namespace(), modules[*i].migrations())?;
             }
+            let mut tools = gennie_mcp::Registry::default();
+            if active.contains("assignments") {
+                tools.register(gennie_assignments::tools(assignments.clone()))?;
+            }
+            let server = gennie_mcp::Server::start(tools, Path::new(helper))?;
+            llm.configure_tools(server.launch())?;
+            mcp = Some(server);
             startup::start_all(&modules, &order, &active, &state).map(|started| (started, active))
         })();
         let (started, active) = match setup {
             Ok(v) => v,
             Err(e) => {
+                if let Some(mut server) = mcp.take() {
+                    let _ = server.stop();
+                }
                 let _ = state.db.close();
                 return Err(e);
             }
         };
         let mut backend = Self {
             state,
+            assignments,
+            assignments_observed: 0,
+            assignments_enabled: active.contains("assignments"),
+            mcp,
             modules,
             started,
             llm: None,
@@ -252,6 +280,7 @@ impl Backend {
             dictation: None,
             snapshot: Snapshot {
                 connection: "Sin conectar".into(),
+                timezone: gennie_assignments::system_timezone(),
                 ..Snapshot::default()
             },
             revision,
@@ -308,6 +337,23 @@ impl Backend {
             .collect();
         self.snapshot.active_id = history.active_id.map(|id| id.to_string());
         self.snapshot.selected_id = history.selected_id.map(|id| id.to_string());
+        self.snapshot.assignments_enabled = self.assignments_enabled;
+        let assignments_revision = self.assignments.revision();
+        self.snapshot.assignments = self
+            .assignments
+            .list(0, 100)?
+            .into_iter()
+            .map(|r| {
+                Ok(AssignmentRecord {
+                    id: r.id.to_string(),
+                    revision: r.revision,
+                    document: serde_json::to_string(&r.document)?,
+                    created_at: r.created_at,
+                    updated_at: r.updated_at,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        self.assignments_observed = assignments_revision;
         self.refresh_controls();
         self.snapshot.reduced_motion = gennie_presence::reduced_motion(&self.state.db)?;
         self.observed = revision;
@@ -421,6 +467,22 @@ impl Backend {
     }
     fn apply(&mut self, operation: Operation) -> Result<()> {
         match operation {
+            Operation::SaveAssignment(id, revision, key, document) => {
+                if !self.assignments_enabled {
+                    return Err("El módulo de encargos está desactivado".into());
+                }
+                let document = serde_json::from_str(&document)?;
+                match (id, revision) {
+                    (None, None) => {
+                        self.assignments.create(&key, document)?;
+                    }
+                    (Some(id), Some(revision)) => {
+                        self.assignments.update(id.parse()?, revision, document)?;
+                    }
+                    _ => return Err("Edición de encargo incompleta".into()),
+                }
+                self.snapshot.confirmation = Some("Encargo guardado.".into());
+            }
             Operation::Select(id) => {
                 if self.snapshot.selected_id != id {
                     self.snapshot.reply.clear();
@@ -723,9 +785,10 @@ impl Backend {
         }
         let history_changed =
             self.observed != self.revision.load(std::sync::atomic::Ordering::Acquire);
-        dirty |= history_changed;
+        let assignments_changed = self.assignments_observed != self.assignments.revision();
+        dirty |= history_changed || assignments_changed;
         if dirty {
-            if history_changed || refresh_history {
+            if history_changed || assignments_changed || refresh_history {
                 if let Err(e) = self.refresh() {
                     self.snapshot.error = Some(e.to_string());
                     self.snapshot.error_recorded = false;
@@ -756,7 +819,8 @@ impl Backend {
         self.voice.take();
         self.decisions.take();
         let result = startup::stop_all(&self.modules, &self.started, &self.state);
-        result.and(self.state.db.close())
+        let mcp_result = self.mcp.take().map(|mut mcp| mcp.stop()).unwrap_or(Ok(()));
+        result.and(mcp_result).and(self.state.db.close())
     }
 }
 impl Drop for Backend {

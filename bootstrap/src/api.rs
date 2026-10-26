@@ -65,8 +65,21 @@ pub struct ModelInfo {
     pub detail: Option<String>,
 }
 
+#[derive(Clone, Debug)]
+pub struct AssignmentRecord {
+    pub id: String,
+    pub revision: u32,
+    /// Documento JSON validado por el módulo assignments; el frontend solo lo presenta/edita.
+    pub document: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Snapshot {
+    pub assignments: Vec<AssignmentRecord>,
+    pub timezone: String,
+    pub assignments_enabled: bool,
     pub models: Vec<ModelInfo>,
     pub conversations: Vec<Conversation>,
     pub messages: Vec<Message>,
@@ -150,4 +163,19 @@ pub fn set_model_loaded(model: LocalModel, loaded: bool) -> Result<Snapshot, Str
 /// RSS del proceso propio del modelo. Solo se consulta al abrir su tooltip.
 pub fn model_memory_bytes(model: LocalModel) -> Result<Option<u64>, String> {
     runtime::model_memory(model)
+}
+
+/// Registra o sustituye un plan. No programa ejecuciones ni notificaciones.
+pub fn save_assignment(
+    id: Option<String>,
+    expected_revision: Option<u32>,
+    request_key: String,
+    document: String,
+) -> Result<Snapshot, String> {
+    runtime::request(Operation::SaveAssignment(
+        id,
+        expected_revision,
+        request_key,
+        document,
+    ))
 }

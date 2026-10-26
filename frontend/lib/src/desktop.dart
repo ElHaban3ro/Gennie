@@ -12,6 +12,8 @@ import 'chat_viewport.dart';
 import 'glass.dart';
 import 'settings.dart';
 import 'model_controls.dart';
+import 'assignments.dart';
+import 'sidebar.dart';
 
 class DesktopScreen extends StatefulWidget {
   const DesktopScreen({super.key, required this.state});
@@ -334,6 +336,15 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
                                       ),
                                       const SizedBox(height: 6),
                                       RailButton(
+                                        label: 'Encargos',
+                                        asset: 'assets/icons/assignments.svg',
+                                        icon: Icons.event_outlined,
+                                        selected: tab == 2,
+                                        onPressed: () =>
+                                            setState(() => tab = 2),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      RailButton(
                                         label: 'Plugins',
                                         asset: 'assets/icons/plug.svg',
                                         icon: Icons.extension_outlined,
@@ -366,377 +377,241 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
                           ),
                         ),
                       ),
-                      SizedBox(
-                        width: width,
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(
-                              alpha: dark ? .025 : .26,
-                            ),
+                      if (tab == 2)
+                        Expanded(
+                          child: AssignmentsView(
+                            state: state,
+                            sidebarWidth: width,
                           ),
+                        )
+                      else ...[
+                        AppSidebar(
+                          width: width,
+                          title: tab == 0 ? 'Historial de chats' : 'Plugins',
+                          actionLabel: tab == 0 ? 'Nuevo chat' : null,
+                          onAction: s?.assistant != null && !s!.busy
+                              ? () => state.perform(state.backend.newChat)
+                              : null,
+                          searchController: tab == 0 ? _historySearch : null,
+                          searchHint: 'Buscar chats…',
+                          searchKey: const ValueKey('history-search'),
+                          onSearch: (_) => setState(() {}),
+                          child: state.loading
+                              ? const Center(
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : tab == 1 || s == null || conversations.isEmpty
+                              ? SidebarEmpty(
+                                  message: tab == 0 && query.isNotEmpty
+                                      ? 'No se encontraron chats'
+                                      : 'No hay contenido disponible',
+                                )
+                              : ListView.builder(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    8,
+                                    0,
+                                    8,
+                                    0,
+                                  ),
+                                  itemCount: conversations.length,
+                                  itemBuilder: (context, index) {
+                                    final chat = conversations[index];
+                                    return Padding(
+                                      padding: const EdgeInsets.only(bottom: 2),
+                                      child: ChatHistoryTile(
+                                        chat: chat,
+                                        selected: s.selectedId == chat.id,
+                                        onSelect: () => state.perform(
+                                          () => state.backend.select(chat.id),
+                                        ),
+                                        onRename: () => _rename(chat),
+                                        onDelete: () => _delete(chat),
+                                      ),
+                                    );
+                                  },
+                                ),
+                        ),
+                        Expanded(
                           child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Container(
-                                key: const ValueKey('sidebar-header'),
+                                key: const ValueKey('chat-header'),
                                 height: 56,
                                 decoration: BoxDecoration(
+                                  color: Colors.white.withValues(
+                                    alpha: dark ? .025 : .26,
+                                  ),
                                   border: Border(bottom: panelDivider),
-                                ),
-                                padding: EdgeInsets.only(
-                                  left: Platform.isMacOS ? 84 : 20,
-                                  right: 10,
                                 ),
                                 child: Row(
                                   children: [
                                     Expanded(
                                       child: DragToMoveArea(
-                                        child: Align(
-                                          alignment: Alignment.centerLeft,
-                                          child: Text(
-                                            tab == 0
-                                                ? 'Historial de chats'
-                                                : 'Plugins',
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: const TextStyle(
-                                              fontSize: 12,
-                                              color: Color(0xff737373),
-                                            ),
+                                        child: Padding(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 24,
+                                          ),
+                                          child: Row(
+                                            children: [
+                                              if (tab == 0 &&
+                                                  (s?.conversations.any(
+                                                        (chat) =>
+                                                            chat.id ==
+                                                            s.selectedId,
+                                                      ) ??
+                                                      false)) ...[
+                                                SvgPicture.asset(
+                                                  'assets/pets/penguin.svg',
+                                                  width: 48,
+                                                  height: 48,
+                                                  semanticsLabel:
+                                                      'Gennie, avatar de pingüino',
+                                                ),
+                                                const SizedBox(width: 10),
+                                              ],
+                                              Flexible(
+                                                child: ConstrainedBox(
+                                                  constraints:
+                                                      const BoxConstraints(
+                                                        maxWidth: 320,
+                                                      ),
+                                                  child: Text(
+                                                    _title(s),
+                                                    maxLines: 1,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                    style: const TextStyle(
+                                                      fontSize: 14,
+                                                      fontWeight:
+                                                          FontWeight.w500,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
                                           ),
                                         ),
                                       ),
                                     ),
-                                    if (tab == 0)
-                                      AppTooltip(
-                                        label: 'Nuevo chat',
-                                        child: IconButton(
-                                          visualDensity: VisualDensity.compact,
-                                          icon: const Icon(Icons.add, size: 17),
-                                          onPressed:
-                                              s?.assistant != null && !s!.busy
-                                              ? () => state.perform(
-                                                  state.backend.newChat,
-                                                )
-                                              : null,
+                                    AppTooltip(
+                                      label: 'Opciones del sistema',
+                                      child: PopupMenuButton<String>(
+                                        tooltip: '',
+                                        icon: const Icon(
+                                          Icons.more_horiz,
+                                          size: 20,
                                         ),
+                                        onSelected: (action) {
+                                          if (action == 'settings') {
+                                            showDialog<void>(
+                                              context: context,
+                                              builder: (_) =>
+                                                  SettingsDialog(state: state),
+                                            );
+                                          }
+                                        },
+                                        itemBuilder: (_) => [
+                                          if (s != null)
+                                            PopupMenuItem<String>(
+                                              enabled: false,
+                                              child: Text(s.connection),
+                                            ),
+                                          PopupMenuItem(
+                                            value: 'settings',
+                                            enabled: s != null,
+                                            child: const Text('Configuración'),
+                                          ),
+                                        ],
                                       ),
+                                    ),
+                                    const SizedBox(width: 12),
                                   ],
                                 ),
                               ),
-                              if (tab == 0)
-                                Padding(
-                                  padding: const EdgeInsets.fromLTRB(
-                                    8,
-                                    12,
-                                    8,
-                                    10,
-                                  ),
-                                  child: SizedBox(
-                                    height: 40,
-                                    child: TextField(
-                                      key: const ValueKey('history-search'),
-                                      textAlignVertical:
-                                          TextAlignVertical.center,
-                                      controller: _historySearch,
-                                      onChanged: (_) => setState(() {}),
-                                      style: const TextStyle(fontSize: 12),
-                                      decoration: InputDecoration(
-                                        hintText: 'Buscar chats…',
-                                        hintStyle: TextStyle(
-                                          fontSize: 12,
-                                          color: ink.withValues(alpha: .5),
-                                        ),
-                                        filled: false,
-                                        isDense: true,
-                                        contentPadding:
-                                            const EdgeInsets.symmetric(
-                                              horizontal: 12,
-                                              vertical: 10,
-                                            ),
-                                        prefixIcon: Icon(
-                                          Icons.search_rounded,
-                                          size: 17,
-                                          color: ink.withValues(alpha: .55),
-                                        ),
-                                        prefixIconConstraints:
-                                            const BoxConstraints(minWidth: 36),
-                                        suffixIconConstraints:
-                                            const BoxConstraints(
-                                              minWidth: 36,
-                                              maxHeight: 40,
-                                            ),
-                                        suffixIcon: _historySearch.text.isEmpty
-                                            ? null
-                                            : AppTooltip(
-                                                label: 'Limpiar búsqueda',
-                                                child: IconButton(
-                                                  onPressed: () => setState(
-                                                    _historySearch.clear,
-                                                  ),
-                                                  icon: Icon(
-                                                    Icons.backspace_outlined,
-                                                    size: 16,
-                                                    color: ink.withValues(
-                                                      alpha: .55,
+                              Expanded(
+                                child: Column(
+                                  children: [
+                                    Expanded(
+                                      child: ChatViewport(
+                                        enabled: tab == 0,
+                                        child: tab == 1 || messages.isEmpty
+                                            ? _empty(s)
+                                            : Align(
+                                                alignment: Alignment.topCenter,
+                                                child: ConstrainedBox(
+                                                  constraints:
+                                                      const BoxConstraints(
+                                                        maxWidth: 840,
+                                                      ),
+                                                  child: SelectionArea(
+                                                    child: ListView.builder(
+                                                      controller: _scroll,
+                                                      padding:
+                                                          const EdgeInsets.fromLTRB(
+                                                            32,
+                                                            24,
+                                                            32,
+                                                            24,
+                                                          ),
+                                                      itemCount:
+                                                          messages.length,
+                                                      itemBuilder: (context, index) {
+                                                        final message =
+                                                            messages[index];
+                                                        final day =
+                                                            messageLocalDay(
+                                                              message.createdAt,
+                                                            );
+                                                        final previousDay =
+                                                            index > 0
+                                                            ? messageLocalDay(
+                                                                messages[index -
+                                                                        1]
+                                                                    .createdAt,
+                                                              )
+                                                            : null;
+                                                        return Column(
+                                                          children: [
+                                                            if (day != null &&
+                                                                day !=
+                                                                    previousDay)
+                                                              ChatDayBadge(
+                                                                label: chatDayLabel(
+                                                                  message
+                                                                      .createdAt,
+                                                                  now:
+                                                                      DateTime.now(),
+                                                                ),
+                                                              ),
+                                                            ChatMessage(
+                                                              message: message,
+                                                            ),
+                                                          ],
+                                                        );
+                                                      },
                                                     ),
                                                   ),
-                                                  padding: EdgeInsets.zero,
-                                                  constraints:
-                                                      const BoxConstraints.tightFor(
-                                                        width: 36,
-                                                        height: 36,
-                                                      ),
                                                 ),
                                               ),
-                                        enabledBorder: OutlineInputBorder(
-                                          borderRadius: BorderRadius.circular(
-                                            8,
-                                          ),
-                                          borderSide: BorderSide(
-                                            color: ink.withValues(alpha: .16),
-                                          ),
-                                        ),
-                                        focusedBorder: OutlineInputBorder(
-                                          borderRadius: BorderRadius.circular(
-                                            8,
-                                          ),
-                                          borderSide: BorderSide(
-                                            color: ink.withValues(alpha: .5),
-                                          ),
-                                        ),
                                       ),
                                     ),
-                                  ),
-                                ),
-                              Expanded(
-                                child: state.loading
-                                    ? const Center(
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
+                                    if (tab == 0 && s == null && !state.loading)
+                                      TextButton(
+                                        onPressed: state.start,
+                                        child: const Text(
+                                          'Reintentar conexión',
                                         ),
-                                      )
-                                    : tab == 1 ||
-                                          s == null ||
-                                          conversations.isEmpty
-                                    ? Center(
-                                        child: Text(
-                                          tab == 0 && query.isNotEmpty
-                                              ? 'No se encontraron chats'
-                                              : 'No hay contenido disponible',
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            color: Color(0xff737373),
-                                          ),
-                                        ),
-                                      )
-                                    : ListView.builder(
-                                        padding: const EdgeInsets.fromLTRB(
-                                          8,
-                                          0,
-                                          8,
-                                          0,
-                                        ),
-                                        itemCount: conversations.length,
-                                        itemBuilder: (context, index) {
-                                          final chat = conversations[index];
-                                          return Padding(
-                                            padding: const EdgeInsets.only(
-                                              bottom: 2,
-                                            ),
-                                            child: ChatHistoryTile(
-                                              chat: chat,
-                                              selected: s.selectedId == chat.id,
-                                              onSelect: () => state.perform(
-                                                () => state.backend.select(
-                                                  chat.id,
-                                                ),
-                                              ),
-                                              onRename: () => _rename(chat),
-                                              onDelete: () => _delete(chat),
-                                            ),
-                                          );
-                                        },
                                       ),
+                                    if (tab == 0 && s != null) _composer(s),
+                                  ],
+                                ),
                               ),
                             ],
                           ),
                         ),
-                      ),
-                      Expanded(
-                        child: Column(
-                          children: [
-                            Container(
-                              key: const ValueKey('chat-header'),
-                              height: 56,
-                              decoration: BoxDecoration(
-                                color: Colors.white.withValues(
-                                  alpha: dark ? .025 : .26,
-                                ),
-                                border: Border(bottom: panelDivider),
-                              ),
-                              child: Row(
-                                children: [
-                                  Expanded(
-                                    child: DragToMoveArea(
-                                      child: Padding(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 24,
-                                        ),
-                                        child: Row(
-                                          children: [
-                                            if (tab == 0 &&
-                                                (s?.conversations.any(
-                                                      (chat) =>
-                                                          chat.id ==
-                                                          s.selectedId,
-                                                    ) ??
-                                                    false)) ...[
-                                              SvgPicture.asset(
-                                                'assets/pets/penguin.svg',
-                                                width: 48,
-                                                height: 48,
-                                                semanticsLabel:
-                                                    'Gennie, avatar de pingüino',
-                                              ),
-                                              const SizedBox(width: 10),
-                                            ],
-                                            Flexible(
-                                              child: ConstrainedBox(
-                                                constraints:
-                                                    const BoxConstraints(
-                                                      maxWidth: 320,
-                                                    ),
-                                                child: Text(
-                                                  _title(s),
-                                                  maxLines: 1,
-                                                  overflow:
-                                                      TextOverflow.ellipsis,
-                                                  style: const TextStyle(
-                                                    fontSize: 14,
-                                                    fontWeight: FontWeight.w500,
-                                                  ),
-                                                ),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                  AppTooltip(
-                                    label: 'Opciones del sistema',
-                                    child: PopupMenuButton<String>(
-                                      tooltip: '',
-                                      icon: const Icon(
-                                        Icons.more_horiz,
-                                        size: 20,
-                                      ),
-                                      onSelected: (action) {
-                                        if (action == 'settings') {
-                                          showDialog<void>(
-                                            context: context,
-                                            builder: (_) =>
-                                                SettingsDialog(state: state),
-                                          );
-                                        }
-                                      },
-                                      itemBuilder: (_) => [
-                                        if (s != null)
-                                          PopupMenuItem<String>(
-                                            enabled: false,
-                                            child: Text(s.connection),
-                                          ),
-                                        PopupMenuItem(
-                                          value: 'settings',
-                                          enabled: s != null,
-                                          child: const Text('Configuración'),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                ],
-                              ),
-                            ),
-                            Expanded(
-                              child: Column(
-                                children: [
-                                  Expanded(
-                                    child: ChatViewport(
-                                      enabled: tab == 0,
-                                      child: tab == 1 || messages.isEmpty
-                                          ? _empty(s)
-                                          : Align(
-                                              alignment: Alignment.topCenter,
-                                              child: ConstrainedBox(
-                                                constraints:
-                                                    const BoxConstraints(
-                                                      maxWidth: 840,
-                                                    ),
-                                                child: SelectionArea(
-                                                  child: ListView.builder(
-                                                    controller: _scroll,
-                                                    padding:
-                                                        const EdgeInsets.fromLTRB(
-                                                          32,
-                                                          24,
-                                                          32,
-                                                          24,
-                                                        ),
-                                                    itemCount: messages.length,
-                                                    itemBuilder: (context, index) {
-                                                      final message =
-                                                          messages[index];
-                                                      final day =
-                                                          messageLocalDay(
-                                                            message.createdAt,
-                                                          );
-                                                      final previousDay =
-                                                          index > 0
-                                                          ? messageLocalDay(
-                                                              messages[index -
-                                                                      1]
-                                                                  .createdAt,
-                                                            )
-                                                          : null;
-                                                      return Column(
-                                                        children: [
-                                                          if (day != null &&
-                                                              day !=
-                                                                  previousDay)
-                                                            ChatDayBadge(
-                                                              label: chatDayLabel(
-                                                                message
-                                                                    .createdAt,
-                                                                now:
-                                                                    DateTime.now(),
-                                                              ),
-                                                            ),
-                                                          ChatMessage(
-                                                            message: message,
-                                                          ),
-                                                        ],
-                                                      );
-                                                    },
-                                                  ),
-                                                ),
-                                              ),
-                                            ),
-                                    ),
-                                  ),
-                                  if (tab == 0 && s == null && !state.loading)
-                                    TextButton(
-                                      onPressed: state.start,
-                                      child: const Text('Reintentar conexión'),
-                                    ),
-                                  if (tab == 0 && s != null) _composer(s),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
+                      ],
                     ],
                   ),
                   Positioned(
@@ -794,35 +669,17 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
     return 'Gennie';
   }
 
-  Widget _empty(Snapshot? s) => Center(
-    child: Padding(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            tab == 1 ? 'Plugins' : '¿En qué te ayudo?',
-            style: const TextStyle(
-              fontSize: 26,
-              fontWeight: FontWeight.w500,
-              letterSpacing: -.7,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            tab == 1
-                ? 'No hay contenido disponible'
-                : 'Un espacio para pensar, conversar y hacer.',
-            style: const TextStyle(fontSize: 13, color: Color(0xff737373)),
-          ),
-          if (s == null && !state.loading)
-            TextButton(
-              onPressed: state.start,
-              child: const Text('Reintentar conexión'),
-            ),
-        ],
-      ),
-    ),
+  Widget _empty(Snapshot? s) => ContentEmpty(
+    title: tab == 1 ? 'Plugins' : '¿En qué te ayudo?',
+    message: tab == 1
+        ? 'No hay contenido disponible'
+        : 'Un espacio para pensar, conversar y hacer.',
+    action: s == null && !state.loading
+        ? TextButton(
+            onPressed: state.start,
+            child: const Text('Reintentar conexión'),
+          )
+        : null,
   );
   Widget _composer(Snapshot s) {
     final readonly = s.selectedId != s.activeId;
@@ -846,7 +703,7 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
           children: [
             DecoratedBox(
               decoration: BoxDecoration(
-                color: Colors.grey.withValues(alpha: .08),
+                color: Colors.grey.withValues(alpha: .14),
                 borderRadius: BorderRadius.circular(18),
               ),
               child: Padding(

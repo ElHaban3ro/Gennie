@@ -42,6 +42,7 @@ impl Fixture {
             let tx = connection.transaction()?;
             for name in [
                 "presence",
+                "assignments",
                 "llm",
                 "transcription",
                 "decisions",
@@ -178,7 +179,10 @@ fn coordinator_preserves_read_selection_mutations_and_shutdown_across_reopen() {
             .db
             .with_connection(|connection| {
                 let count: i64 = connection.query_row(
-                    &format!("SELECT count(*) FROM _soc_migrations_{}", module.name()),
+                    &format!(
+                        "SELECT count(*) FROM _soc_migrations_{}",
+                        module.migration_namespace()
+                    ),
                     [],
                     |row| row.get(0),
                 )?;
@@ -490,4 +494,46 @@ fn memory_query_does_not_mutate_snapshot_or_create_processes() {
         Some("Conservar aviso")
     );
     backend.close().unwrap();
+}
+
+#[test]
+fn assignment_commit_refreshes_snapshot_and_survives_reopen_without_provider() {
+    let fixture = Fixture::new();
+    fixture.seed_selection();
+    let db = Database::open(&fixture.config.database_path, 500).unwrap();
+    db.with_connection(|c| {
+        c.execute("UPDATE modules SET active=1 WHERE name='assignments'", [])?;
+        Ok(())
+    })
+    .unwrap();
+    db.close().unwrap();
+    let mut backend = fixture.open();
+    let document=serde_json::json!({"title":"Investigar IA","description":"Comparar fuentes de autos autónomos","kind":"goal","priority":"high","status":"recorded","timezone":"America/Bogota"}).to_string();
+    backend
+        .apply(Operation::SaveAssignment(
+            None,
+            None,
+            "runtime-event".into(),
+            document.clone(),
+        ))
+        .unwrap();
+    backend.refresh().unwrap();
+    assert!(backend.snapshot.assignments_enabled);
+    assert_eq!(backend.snapshot.assignments.len(), 1);
+    assert!(backend.llm.is_none());
+    assert!(backend.snapshot.confirmation.is_some());
+    let record = backend.snapshot.assignments[0].clone();
+    let mut edited: gennie_assignments::Document = serde_json::from_str(&record.document).unwrap();
+    edited.status = gennie_assignments::Status::Paused;
+    backend
+        .assignments
+        .update(record.id.parse().unwrap(), record.revision, edited)
+        .unwrap();
+    backend.tick();
+    assert!(backend.snapshot.assignments[0].document.contains("paused"));
+    backend.close().unwrap();
+    let mut reopened = fixture.open();
+    assert_eq!(reopened.snapshot.assignments.len(), 1);
+    assert!(reopened.snapshot.assignments[0].document.contains("paused"));
+    reopened.close().unwrap();
 }

@@ -7,6 +7,7 @@ import 'rust/frb_generated.dart';
 export 'rust/api.dart'
     show
         Snapshot,
+        AssignmentRecord,
         LocalModel,
         ModelState,
         ModelInfo,
@@ -23,6 +24,12 @@ abstract class DesktopBackend {
   Future<api.Snapshot> send(String text);
   Future<api.Snapshot> newChat();
   Future<api.Snapshot> connect();
+  Future<api.Snapshot> saveAssignment(
+    String? id,
+    int? revision,
+    String requestKey,
+    String document,
+  );
   Future<api.Snapshot> rename(String id, String title);
   Future<api.Snapshot> delete(String id);
   Future<api.Snapshot> saveAssistant(api.AssistantSettings settings);
@@ -74,6 +81,18 @@ class RustBackend implements DesktopBackend {
   Future<api.Snapshot> newChat() => api.newChat();
   @override
   Future<api.Snapshot> connect() => api.connect();
+  @override
+  Future<api.Snapshot> saveAssignment(
+    String? id,
+    int? revision,
+    String requestKey,
+    String document,
+  ) => api.saveAssignment(
+    id: id,
+    expectedRevision: revision,
+    requestKey: requestKey,
+    document: document,
+  );
   @override
   Future<api.Snapshot> rename(String id, String title) =>
       api.renameConversation(id: id, title: title);

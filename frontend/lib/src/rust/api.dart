@@ -6,7 +6,7 @@
 import 'frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
 
 Future<Snapshot> initialize({
   required String envFile,
@@ -73,6 +73,56 @@ Future<Snapshot> setModelLoaded({
 /// RSS del proceso propio del modelo. Solo se consulta al abrir su tooltip.
 Future<BigInt?> modelMemoryBytes({required LocalModel model}) =>
     RustLib.instance.api.crateApiModelMemoryBytes(model: model);
+
+/// Registra o sustituye un plan. No programa ejecuciones ni notificaciones.
+Future<Snapshot> saveAssignment({
+  String? id,
+  int? expectedRevision,
+  required String requestKey,
+  required String document,
+}) => RustLib.instance.api.crateApiSaveAssignment(
+  id: id,
+  expectedRevision: expectedRevision,
+  requestKey: requestKey,
+  document: document,
+);
+
+class AssignmentRecord {
+  final String id;
+  final int revision;
+
+  /// Documento JSON validado por el módulo assignments; el frontend solo lo presenta/edita.
+  final String document;
+  final String createdAt;
+  final String updatedAt;
+
+  const AssignmentRecord({
+    required this.id,
+    required this.revision,
+    required this.document,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  @override
+  int get hashCode =>
+      id.hashCode ^
+      revision.hashCode ^
+      document.hashCode ^
+      createdAt.hashCode ^
+      updatedAt.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is AssignmentRecord &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          revision == other.revision &&
+          document == other.document &&
+          createdAt == other.createdAt &&
+          updatedAt == other.updatedAt;
+}
 
 class AssistantSettings {
   final String model;
@@ -256,6 +306,9 @@ enum ModelState {
 }
 
 class Snapshot {
+  final List<AssignmentRecord> assignments;
+  final String timezone;
+  final bool assignmentsEnabled;
   final List<ModelInfo> models;
   final List<Conversation> conversations;
   final List<Message> messages;
@@ -277,6 +330,9 @@ class Snapshot {
   final bool reducedMotion;
 
   const Snapshot({
+    required this.assignments,
+    required this.timezone,
+    required this.assignmentsEnabled,
     required this.models,
     required this.conversations,
     required this.messages,
@@ -303,6 +359,9 @@ class Snapshot {
 
   @override
   int get hashCode =>
+      assignments.hashCode ^
+      timezone.hashCode ^
+      assignmentsEnabled.hashCode ^
       models.hashCode ^
       conversations.hashCode ^
       messages.hashCode ^
@@ -328,6 +387,9 @@ class Snapshot {
       identical(this, other) ||
       other is Snapshot &&
           runtimeType == other.runtimeType &&
+          assignments == other.assignments &&
+          timezone == other.timezone &&
+          assignmentsEnabled == other.assignmentsEnabled &&
           models == other.models &&
           conversations == other.conversations &&
           messages == other.messages &&
