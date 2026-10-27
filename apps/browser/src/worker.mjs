@@ -1,4 +1,4 @@
-// Sesión Playwright privada: interfaz acotada por stdio, sin servidor HTTP/CDP.
+// Sesión Patchright privada: interfaz acotada por stdio, sin servidor HTTP/CDP.
 import { createRequire } from 'node:module';
 import { mkdir, chmod, writeFile, stat, realpath, rename, unlink } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
@@ -29,9 +29,10 @@ async function bounded(promise, milliseconds) {
 }
 export function createBrowserSession({ runtime, profile, headless = false, homepage = 'https://gennie.io/', onBrowserClose = () => {} }) {
   const require = createRequire(path.join(runtime, 'package.json'));
-  const { chromium } = require('playwright');
+  const { chromium } = require('patchright');
   const artifacts = path.join(path.dirname(profile), 'artifacts');
   const pages = new Map();
+  const taskPages = new Set();
   const downloads = new Map();
   const downloadWaiters = new Set();
   let context, selected, nextPage = 0, nextSnapshot = 0, closing = false;
@@ -54,7 +55,7 @@ export function createBrowserSession({ runtime, profile, headless = false, homep
     const state = { id: String(++nextPage), page, title: '', refs: new Map(), frames: new Map(), fullSnapshot: '', refsValid: false, dialog: null, chooser: null, pendingAction: null, onModal: null };
     pages.set(state.id, state);
     page.on('framenavigated', () => { state.refsValid = false; });
-    page.on('close', () => { pages.delete(state.id); if (selected === state) selected = undefined; });
+    page.on('close', () => { pages.delete(state.id); taskPages.delete(state.id); if (selected === state) selected = undefined; });
     page.on('dialog', dialog => { state.dialog = dialog; state.onModal?.({ kind: 'modal' }); });
     page.on('filechooser', chooser => { state.chooser = chooser; state.onModal?.({ kind: 'modal' }); });
     page.on('download', download => {
@@ -170,7 +171,8 @@ export function createBrowserSession({ runtime, profile, headless = false, homep
         headless: backgroundMode, viewport: backgroundMode ? { width: 1280, height: 800 } : null, timeout: 9000,
         executablePath: path.join(runtime, 'Gennie Web.app/Contents/MacOS/Google Chrome for Testing'),
         chromiumSandbox: true, acceptDownloads: true,
-        ignoreDefaultArgs: ['--unsafely-disable-devtools-self-xss-warnings'], args: ['--restore-last-session'],
+        ignoreDefaultArgs: ['--unsafely-disable-devtools-self-xss-warnings'],
+        args: backgroundMode ? ['--restore-last-session'] : ['--restore-last-session', '--window-size=1280,800'],
       });
       context = launched;
       context.setDefaultTimeout(6000);
@@ -178,7 +180,7 @@ export function createBrowserSession({ runtime, profile, headless = false, homep
       context.on('page', remember);
       context.on('response', observeNetwork);
       context.on('close', () => {
-        if (context === launched) { context = undefined; selected = undefined; pages.clear(); if (!switchingMode) onBrowserClose(); }
+        if (context === launched) { context = undefined; selected = undefined; pages.clear(); taskPages.clear(); if (!switchingMode) onBrowserClose(); }
       });
       context.pages().forEach(remember);
       const page = context.pages().find(p => [homepage, 'https://www.gennie.io/'].includes(p.url()))
@@ -240,14 +242,25 @@ export function createBrowserSession({ runtime, profile, headless = false, homep
   async function execute(request) {
     if (!request || typeof request !== 'object') fail('invalid_arguments');
     if (request.method === 'open') return open(request);
+    if (request.method === 'background') {
+      if (context && !backgroundMode) {
+        if (taskPages.size) fail('task_active');
+        if ([...downloads.values()].some(item => item.status === 'pending') || [...pages.values()].some(state => state.pendingAction || modal(state))) fail('action_pending');
+        switchingMode = true;
+        try { await context.close(); } finally { switchingMode = false; }
+      }
+      return { status: 'background_ready' };
+    }
     if (request.method === 'task_page') {
       if (request.action === 'create') {
         if (!context) await open({ background: true });
         const state = remember(await context.newPage());
+        taskPages.add(state.id);
         return { page_id: state.id };
       }
       const state = pages.get(request.page_id);
       if (state) { await clearRefs(state); await state.page.close(); }
+      taskPages.delete(request.page_id);
       return { status: 'closed' };
     }
     if (request.method === 'candidate') {
@@ -473,6 +486,7 @@ function errorMessage(error) {
     missing_target: 'Indica target del último snapshot o un selector Playwright.',
     modal_pending: 'Hay un diálogo o selector de archivos pendiente. Consulta browser_dialog y resuélvelo con browser_dialog o browser_upload.',
     action_pending: 'La acción anterior sigue pendiente; comprueba el diálogo antes de repetirla.',
+    task_active: 'Otra construcción está usando el navegador. Espera a que termine antes de reanudar este trabajo.',
     missing_dialog: 'No hay un diálogo JavaScript pendiente en esa pestaña.',
     missing_download: 'No se encuentra esa descarga. Consulta browser_download con action=list.',
     invalid_file: 'Selecciona hasta ocho archivos regulares con rutas absolutas existentes, de hasta 25 MiB cada uno.',
@@ -485,7 +499,7 @@ function errorMessage(error) {
   };
   if (messages[error.code]) return messages[error.code];
   if (error.name === 'TimeoutError') return 'La operación excedió el plazo; observa el estado antes de repetirla, pues el efecto podría haberse aplicado.';
-  return 'Playwright no pudo completar la operación. Comprueba pestaña, elemento, permisos e instalación.';
+  return 'El navegador no pudo completar la operación. Comprueba pestaña, elemento, permisos e instalación.';
 }
 async function runWorker() {
   const [runtime, profile, ...flags] = process.argv.slice(1);

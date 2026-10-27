@@ -1,10 +1,12 @@
 # Dependencias
 
-## Navegador Playwright — 26 de octubre de 2026
+## Navegador Patchright — 26 de octubre de 2026
 
-`playwright` y `playwright-core` **1.64.1**, Microsoft, Apache-2.0, Node >=20. Versión, engines, repositorio e integridad comprobados en el [registro npm](https://www.npmjs.com/package/playwright/v/1.64.1); [mantenedor](https://github.com/microsoft/playwright). Lock npm versionado en `apps/browser/runtime` y preparación con `npm ci --ignore-scripts`. No añade crates externos; `gennie-browser` reutiliza core/mcp/serde_json. Runtime probado con Node 26.4.0 y Chromium/Chrome for Testing 156.0.8078.4 (revisión Playwright 1248) en macOS arm64. Node se enlaza desde su instalación local para conservar las dependencias dyld de Homebrew; no se redistribuye en el paquete Flutter.
+`patchright` y `patchright-core` **1.64.2**, Apache-2.0, Node >=20. Versión, dependencias, engines e integridad comprobados en el [registro npm](https://registry.npmjs.org/patchright/1.64.2) y el [mantenedor](https://github.com/Kaliiiiiiiiii-Vinyzu/patchright-nodejs). Lock npm versionado en `apps/browser/runtime`; preparación con `npm ci --ignore-scripts`. Patchright modifica el controlador compatible con Playwright y afecta solo Chromium; el mantenedor advierte diferencias como la consola desactivada y que no pasan todas las pruebas de Playwright. No garantiza evitar bloqueos.
 
-`npm audit` durante la instalación de esos dos paquetes informó cero vulnerabilidades conocidas; no es auditoría de Chromium, Node, páginas visitadas ni garantía de ausencia de fallos. Chromium se descarga por el instalador del mantenedor y conserva sus condiciones/licencias de distribución; no se incluye en Git ni en Gennie.app. [Contexto persistente oficial](https://playwright.dev/docs/api/class-browsertype#browser-type-launch-persistent-context), diseño y límites en [D-026](browser.md).
+`npm audit` en la preparación informó cero vulnerabilidades conocidas para los paquetes npm; no audita Chromium, Node ni páginas visitadas y no garantiza ausencia de fallos. Chromium se descarga con el instalador del mantenedor; diseño y límites en [D-026](browser.md).
+
+**Pendiente de distribución:** Node.js >=20 y Chromium son dependencias externas. La aplicación release no los incluye; cada usuario necesita preparar el runtime, y el enlace a Node depende de que su instalación permanezca en la misma ruta. Una distribución autónoma con Node privado y Chromium incluido o descargado de forma guiada queda pendiente; no se implementa en este cambio. Python 3 y las herramientas macOS también son necesarias para preparar el bundle de Gennie Web.
 
 Actualización de interfaz del 24 de octubre de 2026: Flutter 3.47.8 con Dart 3.13.7; puente flutter_rust_bridge 2.13.0, licencia MIT. La biblioteca Rust y el paquete Dart usan la misma versión del puente. Rust mínimo del workspace: 1.92. Lockfiles versionados; no equivalen a certificación de seguridad.
 

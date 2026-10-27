@@ -4,12 +4,12 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
 const root = path.join(process.env.HOME, 'Library/Application Support/Gennie/browser');
-const runtime = path.join(root, 'runtime-1.64.1');
+const runtime = path.join(root, 'runtime-patchright-1.64.2');
 const worker = await readFile(new URL('../apps/browser/src/worker.mjs', import.meta.url), 'utf8');
 const child = spawn(path.join(runtime, 'node'), ['--input-type=module', '--eval', worker, '--', runtime, path.join(root, 'profile'), '--gennie-browser-worker', '--standalone'], {
   env: { ...process.env, PLAYWRIGHT_BROWSERS_PATH: path.join(root, 'browsers') }, stdio: ['pipe', 'pipe', 'ignore'],
 });
-child.on('error', () => { console.error('Falta preparar Playwright: ejecuta scripts/setup_browser.sh'); process.exitCode = 1; });
+child.on('error', () => { console.error('Falta preparar Patchright: ejecuta scripts/setup_browser.sh'); process.exitCode = 1; });
 child.on('exit', code => { process.exitCode ||= code ?? 1; });
 process.on('SIGINT', () => child.stdin.end());
 process.on('SIGTERM', () => child.stdin.end());

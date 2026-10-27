@@ -9,7 +9,7 @@ Gennie es un asistente personal con escritorio Flutter local en macOS y backend 
 - `kernel/core`: AppModule, AppState y señal de apagado. Kernel nunca importa apps ni contracts.
 - `frontend/lib`: interfaz Flutter, navegación, historial, conversación y ajustes; consume únicamente la API Rust generada.
 - `kernel/mcp`: biblioteca de protocolo y transporte local; cada app aporta sus herramientas, sin tablas ni módulo MCP monolítico.
-- `apps/browser`: navegador Playwright/Chromium visible o headless bajo demanda, perfil persistente exclusivo, recetas web de consulta y herramientas MCP sobre la misma instancia; sin HTTP/CDP ni perfil personal. Ver D-026 y D-027.
+- `apps/browser`: navegador Patchright/Chromium visible o headless bajo demanda, perfil persistente exclusivo, recetas web de consulta y herramientas MCP sobre la misma instancia; sin HTTP/CDP ni perfil personal. Ver D-026 y D-027.
 - `apps/plugins`: constructor Codex aislado bajo demanda, candidatos verificados, trabajos/outbox y progreso al chat de origen; sin ejecución periódica. Ver D-027.
 - `apps/assignments`: Encargos; registro de objetivo, método y autorización, políticas contextuales de seguimiento, horarios de aviso y preparación; MCP y SQLite propios, sin ejecutor ni notificaciones.
 - `apps/presence`: datos de historial, preparación de respuestas y narración; conserva sus migraciones SQL históricas, sin interfaz ni ventanas.

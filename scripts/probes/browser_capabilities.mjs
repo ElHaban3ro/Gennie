@@ -37,7 +37,7 @@ const server = createServer((request, response) => {
 server.listen(0, '127.0.0.1');
 await once(server, 'listening');
 const origin = `http://127.0.0.1:${server.address().port}`;
-const session = createBrowserSession({ runtime: path.join(root, 'runtime-1.64.1'), profile: path.join(directory, 'profile'), homepage: origin, headless: true });
+const session = createBrowserSession({ runtime: path.join(root, 'runtime-patchright-1.64.2'), profile: path.join(directory, 'profile'), homepage: origin, headless: true });
 let assertions = 0;
 async function call(method, args = {}) {
   const result = await session.dispatch({ method, ...args });

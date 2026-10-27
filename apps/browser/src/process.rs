@@ -18,6 +18,7 @@ fn worker_source() -> String {
 }
 const LIMIT: usize = 128 * 1024;
 const RESPONSE_LIMIT: usize = 4 * 1024 * 1024;
+const PLUGIN_RESPONSE_TIMEOUT_SECS: u64 = 60;
 pub struct Session {
     child: Child,
     input: Option<ChildStdin>,
@@ -30,16 +31,16 @@ impl Session {
         if !root.is_absolute() {
             return Err("No se encuentra el directorio de datos de Gennie".into());
         }
-        let runtime = root.join("runtime-1.64.1");
+        let runtime = root.join("runtime-patchright-1.64.2");
         if !runtime.join("node").is_file()
             || !runtime
                 .join("Gennie Web.app/Contents/MacOS/Google Chrome for Testing")
                 .is_file()
             || !runtime
-                .join("node_modules/playwright/package.json")
+                .join("node_modules/patchright/package.json")
                 .is_file()
         {
-            return Err("Falta preparar Playwright. Ejecuta scripts/setup_browser.sh y vuelve a abrir el navegador".into());
+            return Err("Falta preparar Patchright. Ejecuta scripts/setup_browser.sh y vuelve a abrir el navegador".into());
         }
         let mut child = Command::new(runtime.join("node"))
             .args(["--input-type=module", "--eval", &worker_source(), "--"])
@@ -52,9 +53,9 @@ impl Session {
             .stderr(Stdio::null())
             .process_group(0)
             .spawn()
-            .map_err(|_| "No se pudo iniciar el runtime de Playwright")?;
+            .map_err(|_| "No se pudo iniciar el runtime de Patchright")?;
         let input = child.stdin.take();
-        let output = child.stdout.take().ok_or("Falta el canal de Playwright")?;
+        let output = child.stdout.take().ok_or("Falta el canal del navegador")?;
         let (tx, replies) = mpsc::sync_channel(2);
         let reader = match std::thread::Builder::new()
             .name("gennie-browser-output".into())
@@ -102,12 +103,12 @@ impl Session {
         if line.len() > LIMIT - 1 {
             return Err("Petición de navegador demasiado grande".into());
         }
-        let input = self.input.as_mut().ok_or("Playwright está cerrado")?;
+        let input = self.input.as_mut().ok_or("El navegador está cerrado")?;
         input.write_all(&line)?;
         input.write_all(b"\n")?;
         input.flush()?;
-        let response = self.replies.recv_timeout(Duration::from_secs(if value["method"] == "plugin_run" || value["method"] == "candidate" { 24 } else { 12 }))
-            .map_err(|_| "Playwright dejó de responder; el resultado de la acción es incierto. Comprueba el navegador antes de repetirla")?;
+        let response = self.replies.recv_timeout(Duration::from_secs(if value["method"] == "plugin_run" || value["method"] == "candidate" { PLUGIN_RESPONSE_TIMEOUT_SECS } else { 12 }))
+            .map_err(|_| "El navegador dejó de responder; el resultado de la acción es incierto. Comprueba el navegador antes de repetirla")?;
         if let Some(error) = response["error"].as_str() {
             return Ok(serde_json::json!({"error":error,"code":response["code"],"ok":false}));
         }
@@ -136,11 +137,11 @@ impl Session {
             let _ = reader.join();
         }
         if forced {
-            return Err("Playwright requirió cierre forzado; la última escritura del perfil no está confirmada".into());
+            return Err("El navegador requirió cierre forzado; la última escritura del perfil no está confirmada".into());
         }
         if !status.success() {
             return Err(
-                "Playwright terminó con error; la última escritura del perfil no está confirmada"
+                "El navegador terminó con error; la última escritura del perfil no está confirmada"
                     .into(),
             );
         }
