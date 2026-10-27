@@ -302,9 +302,9 @@ fn build(controller: &Controller, job: &Job) -> Result<()> {
             }
         }
         let instruction = if current.attempts > 0 {
-            "Revisa el historial y el candidato guardado. Tras una interrupción, comprueba los efectos anteriores antes de actuar y no repitas acciones de resultado incierto. Investiga una alternativa distinta y pertinente para las partes que aún puedan resolverse. Mantén el objetivo activo y busca vías diferentes; documenta lo que sí puedes comprobar. Si no quedan alternativas pertinentes, comunica el bloqueo concreto. No repitas acciones con resultado incierto; modifica datos solo cuando el objetivo lo autorice. Declara ready solo con todas las funciones verificadas."
+            "Retoma el candidato y el registro de lo probado: qué aprendiste, qué sigue pendiente y qué experimento útil ejecutarás ahora. Contrasta las conclusiones anteriores con la petición; no las conviertas en requisitos nuevos. Tras una interrupción, comprueba los efectos antes de actuar y no repitas escrituras inciertas. Aplica el ciclo de recuperación y el criterio de finalización de tus instrucciones."
         } else {
-            "Continúa desde el candidato guardado. Explora y verifica todas las funciones. Declara state=ready solo después de comprobar que todas las funciones satisfacen el objetivo."
+            "Contrasta la petición, el resultado acordado y los hallazgos previos; elige la primera incertidumbre útil y ejecuta el ciclo de implementación y comprobación desde el candidato guardado."
         };
         let review = strategy
             .lock()
