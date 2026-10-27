@@ -1,5 +1,6 @@
 //! Construcción de plugins bajo demanda, independiente del chat y sin scheduler.
 mod store;
+mod strategy;
 mod tools;
 mod worker;
 use gennie_core::{AppModule, AppState, Migration, Result};
