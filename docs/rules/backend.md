@@ -72,3 +72,5 @@ Reanudar un hilo Codex usa excludeTurns=true: el cliente consume metadatos de id
 El límite de mensajes de app-server debe admitir una respuesta MCP válida encapsulada como JSON: deriva del máximo MCP (doble más margen de sobre), separado del límite de texto conversacional. Un resultado válido de herramientas no se rechaza por el antiguo límite arbitrario de 1 MB. Esto no habilita respuestas ilimitadas ni sustituye excludeTurns al reanudar.
 
 Proactivity expone clasificación bajo demanda por OpenRouter con Jev u OpenAI Decisions. El secreto se inyecta fuera de AppState; no hay observadores, consultas al inicio ni efectos automáticos. El cliente es bloqueante y debe llamarse fuera del hilo visual.
+
+Los presupuestos de ejecución de plugins deben permitir recorridos largos: navegador 15 min, puente MCP 15 min 15 s y cliente 15 min 30 s, derivados de MAX_TOOL_EXECUTION_SECS del transporte. Son límites de una operación, no de construcción. La composición aplica los permisos guardados al navegador antes de recuperar un trabajo, sin depender de que Flutter solicite primero un snapshot.
