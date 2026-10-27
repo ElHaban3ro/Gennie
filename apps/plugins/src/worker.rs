@@ -47,7 +47,7 @@ pub(crate) fn run(controller: Controller) {
                         .get(job.id)
                         .is_ok_and(|j| j.state == "running")
                 {
-                    let _=controller.transition(job.id,"blocked","No se pudo completar la construcción. El candidato se conserva para inspección; comprueba el acceso de Codex y las capacidades del sitio.");
+                    let _=controller.transition(job.id,"interrupted","La construcción se interrumpió por un fallo técnico. El candidato se conserva; comprueba el acceso de Codex y vuelve a continuar.");
                 }
                 if let Ok(mut active) = controller.0.active.lock() {
                     active.take();
@@ -103,60 +103,45 @@ impl Drop for TaskPage {
             .call(json!({"method":"task_page","action":"close","page_id":self.id}));
     }
 }
-struct BudgetWatch {
-    done: Arc<AtomicBool>,
-    thread: Option<std::thread::JoinHandle<()>>,
-    controller: Controller,
-    job: i64,
-    started: Instant,
-}
-impl Drop for BudgetWatch {
-    fn drop(&mut self) {
-        self.done.store(true, Ordering::Release);
-        if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
-        }
-        let _ = self
-            .controller
-            .0
-            .store
-            .account(self.job, self.started.elapsed().as_secs(), None);
+fn copy_retry_candidate(
+    job: &Job,
+    source_id: i64,
+    mut call: impl FnMut(Value) -> Result<Value>,
+) -> Result<bool> {
+    let source = call(
+        json!({"method":"candidate","action":"get","candidate_id":format!("job_{source_id}"),"plugin_id":job.plugin_id}),
+    )?;
+    let Some(manifest) = source["plugin"]["manifest"].as_object() else {
+        return Ok(false);
+    };
+    if manifest.get("id") != Some(&json!(job.plugin_id))
+        || manifest.get("origin") != Some(&json!(job.origin))
+    {
+        return Err("El candidato anterior no corresponde al plugin o al origen".into());
     }
+    let result = call(
+        json!({"method":"candidate","action":"save","candidate_id":format!("job_{}",job.id),"manifest":manifest,"expected_revision":0}),
+    )?;
+    if result["status"] != "saved" {
+        return Err("No se pudo copiar el candidato anterior".into());
+    }
+    Ok(true)
+}
+
+fn report_block(
+    store: &store::Store,
+    job_id: i64,
+    message: &str,
+    route: Option<&str>,
+) -> Result<()> {
+    if store.get(job_id)?.state != "running" {
+        return Err("El trabajo no está en ejecución".into());
+    }
+    store.transition_with_route(job_id, "blocked", message, route)?;
+    Ok(())
 }
 fn build(controller: &Controller, job: &Job) -> Result<()> {
     let settings = controller.permitted()?;
-    let started = Instant::now();
-    let done = Arc::new(AtomicBool::new(false));
-    let watching = done.clone();
-    let expired = Arc::new(AtomicBool::new(false));
-    let expired_watch = expired.clone();
-    let watched = controller.clone();
-    let id = job.id;
-    let remaining = job.max_seconds.saturating_sub(job.spent_seconds);
-    let watcher = std::thread::Builder::new()
-        .name("plugin-budget".into())
-        .spawn(move || {
-            while !watching.load(Ordering::Acquire) {
-                if started.elapsed().as_secs() >= remaining {
-                    expired_watch.store(true, Ordering::Release);
-                    if let Ok(active) = watched.0.active.lock()
-                        && let Some((current, control)) = active.as_ref()
-                        && *current == id
-                    {
-                        control.cancel();
-                    }
-                    break;
-                }
-                std::thread::sleep(Duration::from_millis(100));
-            }
-        })?;
-    let _budget = BudgetWatch {
-        done,
-        thread: Some(watcher),
-        controller: controller.clone(),
-        job: job.id,
-        started,
-    };
     controller.0.store.report(job.id,"Estoy explorando la web y preparando funciones reutilizables; conservaré la versión publicada hasta verificar el candidato.")?;
     controller.notify();
     let page = controller
@@ -181,14 +166,31 @@ fn build(controller: &Controller, job: &Job) -> Result<()> {
             if published["plugin"]["revision"] != job.base_revision {
                 return controller.transition(
                     job.id,
-                    "blocked",
+                    "interrupted",
                     "El plugin cambió antes de empezar; conservé la nueva versión.",
                 );
             }
-            controller.0.browser.automate(json!({"method":"candidate","action":"save","candidate_id":candidate_id,"manifest":published["plugin"]["manifest"],"expected_revision":0}))?;
+            if job.retry_of.is_none() {
+                controller.0.browser.automate(json!({"method":"candidate","action":"save","candidate_id":candidate_id,"manifest":published["plugin"]["manifest"],"expected_revision":0}))?;
+            }
         } else if published["revision"] != job.base_revision {
-            return controller.transition(job.id,"blocked","La identidad del plugin cambió antes de empezar. Conservé el candidato sin recrear una versión eliminada.");
+            return controller.transition(job.id,"interrupted","La identidad del plugin cambió antes de empezar. Conservé el candidato sin recrear una versión eliminada.");
         }
+    }
+    if candidate["plugin"].is_null()
+        && let Some(source_id) = job.retry_of
+    {
+        if copy_retry_candidate(job, source_id, |request| {
+            controller.0.browser.automate(request)
+        })? {
+            controller.0.store.report(job.id, "Retomé el candidato anterior; volveré a comprobar sus funciones antes de publicar cualquier cambio.")?;
+        } else {
+            controller.0.store.report(
+                job.id,
+                "El trabajo anterior no tenía un candidato guardado; investigaré desde el inicio.",
+            )?;
+        }
+        controller.notify();
     }
 
     let calls = Arc::new(AtomicU64::new(0));
@@ -204,17 +206,12 @@ fn build(controller: &Controller, job: &Job) -> Result<()> {
     let mut server = Server::start(registry, &controller.0.helper)?;
     let base = controller.0.root.join(&candidate_id);
     let mut session: Option<BuilderSession> = None;
-    let mut transport_failures = 0;
     loop {
         let current = controller.0.store.get(job.id)?;
         if current.state != "running" || controller.0.stopping.load(Ordering::Acquire) {
             break;
         }
-        let remaining = current
-            .max_seconds
-            .saturating_sub(current.spent_seconds + started.elapsed().as_secs());
-        if remaining < 1 || !controller.0.store.begin_attempt(job.id)? {
-            controller.transition(job.id,"blocked","Se agotó el presupuesto sin verificar toda la integración. El candidato se conserva y la versión publicada no cambia.")?;
+        if !controller.0.store.begin_attempt(job.id)? {
             break;
         }
         controller.permitted()?;
@@ -222,24 +219,11 @@ fn build(controller: &Controller, job: &Job) -> Result<()> {
         ready.store(false, Ordering::Release);
         if session.is_none() {
             let control = BuilderControl::default();
-            if expired.load(Ordering::Acquire) {
-                control.cancel();
-                return controller.transition(
-                    job.id,
-                    "blocked",
-                    "Se agotó el tiempo antes de conectar el constructor.",
-                );
-            }
             *controller
                 .0
                 .active
                 .lock()
                 .map_err(|_| "Constructor inválido")? = Some((job.id, control.clone()));
-            if expired.load(Ordering::Acquire) || controller.0.store.get(job.id)?.state != "running"
-            {
-                control.cancel();
-                break;
-            }
             match BuilderSession::connect(
                 base.clone(),
                 &settings,
@@ -248,31 +232,45 @@ fn build(controller: &Controller, job: &Job) -> Result<()> {
                 current.thread_id.clone(),
                 control,
             ) {
-                Ok(connected) => {
+                Ok(mut connected) => {
                     controller
                         .0
                         .store
                         .account(job.id, 0, Some(connected.thread_id()))?;
+                    let goal = format!(
+                        "Prepara y verifica una integración web para este objetivo autorizado: {}. Solo declara completo el objetivo cuando la cobertura esté comprobada; conserva los permisos y comunica bloqueos reales.",
+                        current.objective
+                    );
+                    if let Err(error) = connected.set_goal(&goal) {
+                        if gennie_llm::builder::is_retryable(error.as_ref()) {
+                            controller.0.store.schedule_provider_retry(job.id)?;
+                            controller.notify();
+                            break;
+                        }
+                        return Err(error);
+                    }
                     session = Some(connected);
                 }
-                Err(_) => {
-                    transport_failures += 1;
-                    if transport_failures >= 2 {
-                        controller.transition(job.id,"blocked","No pude conectar el constructor tras dos procesos independientes. Comprueba la sesión de Codex; el candidato se conserva.")?;
+                Err(error) => {
+                    if gennie_llm::builder::is_retryable(error.as_ref()) {
+                        controller.0.store.schedule_provider_retry(job.id)?;
+                        controller.notify();
                         break;
                     }
-                    controller.0.store.report(job.id,"Falló la conexión del constructor. Probaré un proceso nuevo sin cambiar la conversación principal.")?;
-                    controller.notify();
-                    continue;
+                    return Err(error);
                 }
             }
         }
-        let prompt=json!({"plugin_id":current.plugin_id,"origin":current.origin,"objective":current.objective,"base_revision":current.base_revision,"attempt":current.attempts+1,"remaining_seconds":remaining,"instruction":"Continúa desde el candidato guardado. Explora y verifica todas las funciones. Si el intento anterior no resolvió la integración, prueba una vía distinta y explica el cambio con plugin_build_report. Declara state=ready solo después de comprobar que todas las funciones satisfacen el objetivo."}).to_string();
-        let turn = session
-            .as_mut()
-            .expect("sesión creada")
-            .turn(&prompt, remaining.min(120));
-        if controller.0.store.get(job.id)?.state != "running" {
+        let instruction = if current.attempts > 0 {
+            "Revisa el historial y el candidato guardado. Tras una interrupción, comprueba los efectos anteriores antes de actuar y no repitas acciones de resultado incierto. Investiga una alternativa distinta y pertinente para las partes que aún puedan resolverse. Mantén el objetivo activo y busca vías diferentes; documenta lo que sí puedes comprobar. Si no quedan alternativas pertinentes, comunica el bloqueo concreto. No repitas acciones con resultado incierto; modifica datos solo cuando el objetivo lo autorice. Declara ready solo con todas las funciones verificadas."
+        } else {
+            "Continúa desde el candidato guardado. Explora y verifica todas las funciones. Declara state=ready solo después de comprobar que todas las funciones satisfacen el objetivo."
+        };
+        let prompt=json!({"plugin_id":current.plugin_id,"origin":current.origin,"objective":current.objective,"base_revision":current.base_revision,"construction_scope":"Construye y verifica capacidades reutilizables. La ejecución periódica futura es independiente y su ausencia no bloquea por sí sola el plugin; no declares verificadas funciones que aún falten.","instruction":instruction}).to_string();
+        let turn = session.as_mut().expect("sesión creada").turn(&prompt);
+        if controller.0.store.get(job.id)?.state != "running"
+            || controller.0.stopping.load(Ordering::Acquire)
+        {
             break;
         }
         if ready.load(Ordering::Acquire) {
@@ -290,20 +288,27 @@ fn build(controller: &Controller, job: &Job) -> Result<()> {
                 break;
             }
             if result["status"] == "revision_conflict" {
-                controller.transition(job.id,"blocked","El plugin cambió durante la construcción. Conservé el candidato sin sobrescribir la nueva revisión.")?;
+                controller.transition(job.id,"interrupted","El plugin cambió durante la construcción. Conservé el candidato sin sobrescribir la nueva revisión.")?;
                 break;
             }
         }
-        if turn.is_err() {
-            transport_failures += 1;
-            session = None;
-            if transport_failures >= 2 {
-                controller.transition(job.id,"blocked","El proveedor interrumpió dos intentos de construcción. Conservé el candidato sin declarar éxito.")?;
+        if let Err(error) = turn {
+            if gennie_llm::builder::is_retryable(error.as_ref()) {
+                controller.0.store.schedule_provider_retry(job.id)?;
+                controller.notify();
                 break;
             }
+            return Err(error);
         }
-        controller.0.store.report(job.id,"El intento no completó todas las verificaciones. Voy a probar otra vía dentro del presupuesto disponible.")?;
-        controller.notify();
+    }
+    if let Some(session) = session.as_mut() {
+        let state = controller.0.store.get(job.id)?.state;
+        let status = if state == "completed" {
+            "complete"
+        } else {
+            "paused"
+        };
+        let _ = session.set_goal_status(status);
     }
     drop(session);
     server.stop()?;
@@ -392,7 +397,7 @@ fn scoped_tools(
             args["method"]=json!("candidate");args["candidate_id"]=json!(format!("job_{}",job.id));args["plugin_id"]=json!(job.plugin_id);
             let response=controller.0.browser.automate(args)?;
             if response["status"]=="authentication_required" {
-                controller.transition(job.id,"waiting_user","La función necesita una sesión válida. Abre Gennie Web, inicia sesión en el sitio de esta tarea y pulsa Continuar en Plugins.")?;
+                controller.transition(job.id,"waiting_user","La función necesita una sesión válida. Pulsa «Abrir Gennie Web» en este mensaje e inicia sesión en el sitio. Después pulsa «Continuar» aquí para retomar la comprobación.")?;
             }
             Ok(response)
         })});
@@ -400,17 +405,22 @@ fn scoped_tools(
     let controller = controller.clone();
     let job = job.clone();
     result.push(Tool {
-        definition:json!({"name":"plugin_build_report","description":"Informa un hito breve al chat que disparó el trabajo. state progress/ready/waiting_user/blocked. No incluye contenido privado ni credenciales; no declara éxito por sí solo.","inputSchema":{"type":"object","properties":{"state":{"type":"string","enum":["progress","ready","waiting_user","blocked"]},"message":{"type":"string","minLength":1,"maxLength":600}},"required":["state","message"],"additionalProperties":false}}),
+        definition:json!({"name":"plugin_build_report","description":"Informa un hito breve al chat que disparó el trabajo. Si está bloqueado, puede proponer recommended_route http/web/computer_use como método pendiente de comprobación, sin afirmar que esté autorizado ni disponible.","inputSchema":{"type":"object","properties":{"state":{"type":"string","enum":["progress","ready","waiting_user","blocked"]},"message":{"type":"string","minLength":1,"maxLength":600},"recommended_route":{"type":"string","enum":["http","web","computer_use"]}},"required":["state","message"],"additionalProperties":false}}),
         call:Box::new(move|args|{
             let message=args["message"].as_str().ok_or("Falta el avance")?;
             if message.trim().is_empty()||message.len()>1200||message.contains('\0') {return Err("Avance no válido".into());}
+            if args.get("recommended_route").is_some() && args["state"] != "blocked" { return Err("La vía propuesta solo se admite al comunicar un bloqueo".into()); }
+            if args.get("recommended_route").is_some() && !matches!(args["recommended_route"].as_str(),Some("http"|"web"|"computer_use")) { return Err("Vía propuesta inválida".into()); }
             let count=controller.0.store.0.with_connection(|c|Ok(c.query_row("SELECT count(*) FROM plugin_build_events WHERE job_id=?1",[job.id],|r|r.get::<_,u32>(0))?))?;
-            if count>24 {return Err("Agrupa los avances: se alcanzó el límite de hitos".into());}
+            if count>200 && args["state"] == "progress" {return Err("Agrupa los avances: se alcanzó el límite de hitos".into());}
             match args["state"].as_str() {
                 Some("ready")=>{ready.store(true,Ordering::Release);controller.0.store.report(job.id,"El constructor terminó el candidato; comprobaré las verificaciones antes de publicarlo.")?;controller.notify();}
                 Some("progress")=>{controller.0.store.report(job.id,message)?;controller.notify();}
                 Some("waiting_user")=>controller.transition(job.id,"waiting_user",message)?,
-                Some("blocked")=>controller.transition(job.id,"blocked",message)?,
+                Some("blocked")=>{
+                    report_block(&controller.0.store,job.id,message,args["recommended_route"].as_str())?;
+                    controller.notify();
+                },
                 _=>return Err("Estado de avance no válido".into()),
             }
             Ok(json!({"status":"recorded","job_id":job.id}))
@@ -427,4 +437,94 @@ fn gate(controller: &Controller, job: &Job, calls: &AtomicU64) -> Result<()> {
         return Err("Se agotó el presupuesto de herramientas de este intento; cambia de vía o informa el bloqueo".into());
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod retry_tests {
+    use super::*;
+    #[test]
+    fn block_stops_without_waiting_for_a_deadline() {
+        let db = gennie_db::Database::memory().unwrap();
+        db.migrate(
+            "plugins",
+            &[
+                gennie_core::Migration {
+                    version: 1,
+                    sql: include_str!("../migrations/0001_build_jobs.sql"),
+                },
+                gennie_core::Migration {
+                    version: 2,
+                    sql: include_str!("../migrations/0002_assignment_queue.sql"),
+                },
+                gennie_core::Migration {
+                    version: 3,
+                    sql: include_str!("../migrations/0003_retry_source.sql"),
+                },
+                gennie_core::Migration {
+                    version: 4,
+                    sql: include_str!("../migrations/0004_recommended_route.sql"),
+                },
+                gennie_core::Migration {
+                    version: 5,
+                    sql: include_str!("../migrations/0005_retry_schedule.sql"),
+                },
+            ],
+        )
+        .unwrap();
+        let store = store::Store(db);
+        let request = BuildRequest {
+            request_key: "review".into(),
+            plugin_id: "mail".into(),
+            origin: "https://example.com".into(),
+            objective: "Revisar".into(),
+            max_attempts: 4,
+            max_seconds: 600,
+            retry_of: None,
+        };
+        let job = store.create(&request, 7, 0).unwrap();
+        store.claim().unwrap();
+        assert!(store.begin_attempt(job.id).unwrap());
+        report_block(&store, job.id, "No hay otra vía", Some("computer_use")).unwrap();
+        let result = store.get(job.id).unwrap();
+        assert_eq!(result.state, "blocked");
+        assert_eq!(result.recommended_route.as_deref(), Some("computer_use"));
+        let waiting = BuildRequest {
+            request_key: "waiting".into(),
+            plugin_id: "other".into(),
+            ..request
+        };
+        let waiting = store.create(&waiting, 7, 0).unwrap();
+        store.claim().unwrap();
+        store
+            .transition(waiting.id, "waiting_user", "Necesita acceso")
+            .unwrap();
+        assert!(report_block(&store, waiting.id, "Tardío", None).is_err());
+        assert_eq!(store.get(waiting.id).unwrap().state, "waiting_user");
+    }
+    #[test]
+    fn copies_only_manifest_to_new_candidate_and_rejects_other_origins() {
+        let job: Job = serde_json::from_value(json!({
+            "id": 8, "plugin_id":"mail", "origin":"https://example.com", "objective":"Leer", "trigger_conversation_id":7,
+            "base_revision":0, "refresh_base":false, "retry_of":3, "state":"running", "attempts":0, "max_attempts":4,
+            "max_seconds":600, "spent_seconds":0, "thread_id":null, "summary":"", "created_at":"", "updated_at":"", "events":[]
+        })).unwrap();
+        let mut requests = Vec::new();
+        assert!(copy_retry_candidate(&job, 3, |request| {
+            requests.push(request.clone());
+            Ok(if request["action"] == "get" { json!({"plugin":{"manifest":{"id":"mail","origin":"https://example.com"},"verified":{"list":{"revision":1}}}}) } else { json!({"status":"saved"}) })
+        }).unwrap());
+        assert_eq!(requests[0]["candidate_id"], "job_3");
+        assert_eq!(requests[1]["candidate_id"], "job_8");
+        assert_eq!(requests[1]["expected_revision"], 0);
+        assert!(requests[1].get("verified").is_none());
+        assert!(
+            copy_retry_candidate(&job, 3, |_| Ok(
+                json!({"plugin":{"manifest":{"id":"mail","origin":"https://other.example"}}})
+            ))
+            .is_err()
+        );
+        assert!(
+            !copy_retry_candidate(&job, 3, |_| Ok(json!({"status":"plugin_not_found"}))).unwrap()
+        );
+    }
 }

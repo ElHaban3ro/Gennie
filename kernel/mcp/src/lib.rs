@@ -18,6 +18,9 @@ use std::{
 };
 const LIMIT: usize = 128 * 1024;
 const RESPONSE_LIMIT: usize = 4 * 1024 * 1024;
+// Mayor que la espera del navegador, menor que la espera del cliente Codex.
+const BRIDGE_RESPONSE_TIMEOUT_SECS: u64 = 75;
+const CLIENT_TOOL_TIMEOUT_SECS: u64 = 90;
 
 /// Sobre interno para resultados multimodales de herramientas propias, separado de sus datos.
 pub fn with_image(data: Value, image: String, mime_type: &str) -> Result<Value> {
@@ -135,7 +138,7 @@ impl Launch {
     pub fn config(&self) -> Result<String> {
         // Las cadenas JSON de rutas también son cadenas básicas TOML válidas.
         Ok(format!(
-            "mcp_servers.gennie={{command={},args=[\"--mcp\",{}],required=true,startup_timeout_sec=10,tool_timeout_sec=30,default_tools_approval_mode=\"approve\"}}",
+            "mcp_servers.gennie={{command={},args=[\"--mcp\",{}],required=true,startup_timeout_sec=10,tool_timeout_sec={CLIENT_TOOL_TIMEOUT_SECS},default_tools_approval_mode=\"approve\"}}",
             serde_json::to_string(&self.helper.to_string_lossy())?,
             serde_json::to_string(&self.socket.to_string_lossy())?
         ))
@@ -301,7 +304,7 @@ fn serve(mut stream: UnixStream, registry: &Registry, stopping: &AtomicBool) -> 
 /// Helper stdio sin SQLite ni acceso a recursos de las apps. El host ejecuta las herramientas.
 pub fn bridge(socket: &Path) -> Result<()> {
     let mut stream = UnixStream::connect(socket)?;
-    stream.set_read_timeout(Some(Duration::from_secs(30)))?;
+    stream.set_read_timeout(Some(Duration::from_secs(BRIDGE_RESPONSE_TIMEOUT_SECS)))?;
     let mut response = BufReader::new(stream.try_clone()?);
     let stdin = std::io::stdin();
     let mut input = stdin.lock();

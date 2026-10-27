@@ -88,3 +88,7 @@ El editor permite configurar referencia y permisos en un despliegue, conservando
 Un horario recurrente usa exclusivamente recurrence y no notify_at: si llega una fecha puntual, la validación señala ambos nombres antes de analizar su formato y orienta a corregir con null/omisión. MCP e instrucciones del asistente incluyen el ejemplo diario y el reintento con la misma clave después de un rechazo sin escritura. No se inventa una fecha ni se modifica silenciosamente una petición.
 
 Crear o editar desde MCP solicita la revisión del plugin de cada fuente web una vez confirmado el encargo y devuelve plugin_preparation. Un fallo o falta de origen se informa sin revertir el guardado. Desde el editor se usa el chat seleccionado para recibir avances; sin chat seleccionado el aviso explica que debe elegirse uno. El constructor sigue separado y no activa la ejecución periódica.
+
+## Método previsto al bloquear una investigación
+
+El constructor puede registrar una vía propuesta (`http`, `web` o `computer_use`) junto al bloqueo. La resolución de la fuente muestra esa vía como método previsto pendiente de comprobación, separada de las vías autorizadas y sin modificar el documento del encargo ni declarar ejecutor disponible. Una vía no autorizada se identifica expresamente. Las fuentes siguen la cadena de reintentos, incluidas claves históricas conocidas con alcance, chat y revisión coincidentes, y muestran el estado del último trabajo. La propuesta requiere un reporte estructurado; los bloqueos históricos sin propuesta no se interpretan automáticamente.

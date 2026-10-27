@@ -21,6 +21,7 @@ struct Inner {
     enabled: AtomicBool,
     automation_allowed: AtomicBool,
     file_access_allowed: AtomicBool,
+    program_allowed: AtomicBool,
     session: Mutex<Option<process::Session>>,
 }
 impl Controller {
@@ -31,6 +32,7 @@ impl Controller {
                 enabled: AtomicBool::new(false),
                 automation_allowed: AtomicBool::new(false),
                 file_access_allowed: AtomicBool::new(false),
+                program_allowed: AtomicBool::new(false),
                 session: Mutex::new(None),
             }),
         }
@@ -47,6 +49,9 @@ impl Controller {
         self.inner
             .file_access_allowed
             .store(allowed, Ordering::Release);
+    }
+    pub fn set_program_allowed(&self, allowed: bool) {
+        self.inner.program_allowed.store(allowed, Ordering::Release);
     }
     pub fn automate(&self, request: Value) -> Result<Value> {
         if !self.inner.automation_allowed.load(Ordering::Acquire) {
@@ -80,7 +85,13 @@ impl Controller {
             "plugin_id":plugin_id, "function_name":function_name,
             "expected_revision":revision, "arguments":arguments}))
     }
-    pub fn call(&self, request: Value) -> Result<Value> {
+    pub fn call(&self, mut request: Value) -> Result<Value> {
+        if let Some(object) = request.as_object_mut() {
+            object.insert(
+                "program_allowed".into(),
+                json!(self.inner.program_allowed.load(Ordering::Acquire)),
+            );
+        }
         let mut guard = self
             .inner
             .session

@@ -31,7 +31,29 @@ impl BuilderSession {
     pub fn thread_id(&self) -> &str {
         self.0.thread_id()
     }
-    pub fn turn(&mut self, text: &str, seconds: u64) -> Result<()> {
-        self.0.build_turn(text, seconds)
+    pub fn set_goal(&mut self, objective: &str) -> Result<()> {
+        self.0.builder_goal(objective)
     }
+    pub fn set_goal_status(&mut self, status: &str) -> Result<()> {
+        self.0.builder_goal_status(status)
+    }
+    pub fn turn(&mut self, text: &str) -> Result<()> {
+        self.0.build_turn(text)
+    }
+}
+
+/// Solo errores de comunicación identificados; no deducir fallos del proveedor a partir de texto libre.
+pub fn is_retryable(error: &(dyn std::error::Error + 'static)) -> bool {
+    if error.is::<codex::RetryableProviderError>() {
+        return true;
+    }
+    error.downcast_ref::<std::io::Error>().is_some_and(|e| {
+        matches!(
+            e.kind(),
+            std::io::ErrorKind::BrokenPipe
+                | std::io::ErrorKind::ConnectionReset
+                | std::io::ErrorKind::ConnectionAborted
+                | std::io::ErrorKind::UnexpectedEof
+        )
+    })
 }

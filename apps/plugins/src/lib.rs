@@ -33,8 +33,18 @@ pub struct BuildRequest {
     pub plugin_id: String,
     pub origin: String,
     pub objective: String,
+    #[serde(default = "default_build_attempts")]
     pub max_attempts: u32,
+    #[serde(default = "default_build_seconds")]
     pub max_seconds: u64,
+    #[serde(default)]
+    pub retry_of: Option<i64>,
+}
+fn default_build_attempts() -> u32 {
+    8
+}
+fn default_build_seconds() -> u64 {
+    600
 }
 #[derive(Clone)]
 pub struct Controller(Arc<Inner>);
@@ -106,6 +116,18 @@ impl AppModule for PluginsModule {
                 version: 2,
                 sql: include_str!("../migrations/0002_assignment_queue.sql"),
             },
+            Migration {
+                version: 3,
+                sql: include_str!("../migrations/0003_retry_source.sql"),
+            },
+            Migration {
+                version: 4,
+                sql: include_str!("../migrations/0004_recommended_route.sql"),
+            },
+            Migration {
+                version: 5,
+                sql: include_str!("../migrations/0005_retry_schedule.sql"),
+            },
         ]
     }
     fn start(&self, _: &AppState) -> Result<()> {
@@ -164,12 +186,13 @@ impl Controller {
                     "unsupported".to_owned()
                 } else if web_origin(app).is_none() {
                     "origin_required".to_owned()
-                } else if let Some((_, state)) = self
+                } else if let Some((job_id, state)) = self
                     .0
                     .store
                     .assignment_job(&format!("assignment_{id}_{revision}_{index}"))?
                 {
-                    state
+                    let job = self.0.store.get(job_id)?;
+                    return Ok(json!({"source":app["name"],"kind":app["kind"],"status":state,"recommended_route":job.recommended_route}));
                 } else {
                     "not_investigated".to_owned()
                 };
@@ -326,8 +349,9 @@ impl Controller {
                 plugin_id,
                 origin,
                 objective,
-                max_attempts: 4,
+                max_attempts: 8,
                 max_seconds: 600,
+                retry_of: None,
             };
             let outcome = (|| -> Result<Job> {
                 self.permitted()?;
@@ -433,9 +457,7 @@ impl Controller {
                 "Solo se puede continuar un trabajo esperando acceso o interrumpido".into(),
             );
         }
-        if job.attempts >= job.max_attempts || job.spent_seconds >= job.max_seconds {
-            return Err("El trabajo agotó su presupuesto. Crea una nueva construcción si quieres ampliar el alcance".into());
-        }
+        self.0.browser.automate(json!({"method":"background"}))?;
         self.0.store.transition(
             id,
             "queued",

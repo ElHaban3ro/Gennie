@@ -1,9 +1,9 @@
-// Recetas de lectura con vocabulario cerrado; nunca evalúa código del asistente.
+// Recetas y bloques ejecutables reutilizables de plugins.
 import * as pluginFs from 'node:fs/promises';
 import pluginPath from 'node:path';
 import { randomUUID as pluginUUID } from 'node:crypto';
 
-const PLUGIN_LIMIT = 65536;
+const PLUGIN_LIMIT = 128 * 1024;
 const pluginId = value => typeof value === 'string' && /^[a-z][a-z0-9_]{0,63}$/.test(value);
 const pluginObject = value => value && typeof value === 'object' && !Array.isArray(value);
 function pluginFail(code) { const error = new Error(code); error.code = code; throw error; }
@@ -38,17 +38,17 @@ export function validateWebPlugin(manifest) {
     if (!Array.isArray(manifest.login_urls) || manifest.login_urls.length > 8) pluginFail('invalid_plugin');
     for (const url of manifest.login_urls) if (pluginURL(url).search) pluginFail('invalid_plugin');
   }
-  if (!Array.isArray(manifest.functions) || !manifest.functions.length || manifest.functions.length > 20) pluginFail('invalid_plugin');
+  if (!Array.isArray(manifest.functions) || !manifest.functions.length) pluginFail('invalid_plugin');
   const names = new Set();
   for (const fn of manifest.functions) {
-    pluginKeys(fn, ['name', 'description', 'parameters', 'transport', 'path', 'query', 'result_type', 'result_pointer', 'fields', 'selector', 'ready_selector', 'login_selector'], ['name', 'description', 'parameters', 'transport', 'path', 'result_type']);
+    pluginKeys(fn, ['name', 'description', 'parameters', 'transport', 'path', 'query', 'result_type', 'result_pointer', 'fields', 'selector', 'ready_selector', 'login_selector', 'code'], ['name', 'description', 'parameters', 'transport', 'path', 'result_type']);
     if (!pluginId(fn.name) || names.has(fn.name)) pluginFail('invalid_plugin');
     names.add(fn.name); pluginText(fn.description, 1000);
-    if (!pluginObject(fn.parameters) || Object.keys(fn.parameters).length > 12) pluginFail('invalid_plugin');
+    if (!pluginObject(fn.parameters)) pluginFail('invalid_plugin');
     for (const [key, type] of Object.entries(fn.parameters)) if (!pluginId(key) || !['string', 'integer'].includes(type)) pluginFail('invalid_plugin');
     pluginText(fn.path);
     if (!fn.path.startsWith('/') || fn.path.startsWith('//') || /[?#\\]/u.test(fn.path)) pluginFail('invalid_plugin');
-    if (fn.query !== undefined && (!pluginObject(fn.query) || Object.keys(fn.query).length > 12)) pluginFail('invalid_plugin');
+    if (fn.query !== undefined && (!pluginObject(fn.query))) pluginFail('invalid_plugin');
     for (const [key, value] of Object.entries(fn.query || {})) {
       if (!/^[a-zA-Z0-9_.-]{1,100}$/.test(key) || /token|secret|password|cookie|authorization|session|api.?key/i.test(key)) pluginFail('invalid_plugin');
       pluginText(value);
@@ -61,11 +61,17 @@ export function validateWebPlugin(manifest) {
       });
       if (/[{}]/u.test(remaining)) pluginFail('invalid_plugin');
     }
-    if (Object.keys(fn.parameters).some(key => !used.has(key))) pluginFail('invalid_plugin');
-    if (fn.transport === 'http') {
+    if (fn.transport !== 'program' && Object.keys(fn.parameters).some(key => !used.has(key))) pluginFail('invalid_plugin');
+    if (fn.transport === 'program') {
+      pluginText(fn.code, 48000);
+      if (!['array', 'object', 'string', 'number', 'boolean'].includes(fn.result_type) || fn.query !== undefined || fn.fields !== undefined || fn.selector !== undefined || fn.ready_selector !== undefined || fn.result_pointer !== undefined) pluginFail('invalid_plugin');
+      try { new (Object.getPrototypeOf(async function(){}).constructor)('context', 'page', 'args', 'origin', 'runtime', fn.code); } catch { pluginFail('invalid_plugin'); }
+    } else if (fn.transport === 'http') {
+      if (fn.code !== undefined) pluginFail('invalid_plugin');
       if (!['array', 'object', 'string', 'number', 'boolean'].includes(fn.result_type) || fn.selector !== undefined || fn.ready_selector !== undefined || fn.login_selector !== undefined) pluginFail('invalid_plugin');
       if (fn.result_pointer !== undefined) pluginPointer(fn.result_pointer);
     } else if (fn.transport === 'page') {
+      if (fn.code !== undefined) pluginFail('invalid_plugin');
       if (!['array', 'string'].includes(fn.result_type) || fn.result_pointer !== undefined) pluginFail('invalid_plugin');
       pluginText(fn.selector, 1000);
       if (fn.ready_selector !== undefined) pluginText(fn.ready_selector, 1000);
@@ -118,6 +124,89 @@ function pluginTarget(manifest, fn, args) {
   return url.href;
 }
 
+function programErrorCode(error) {
+  if (error?.code === 'postcondition_failed') return 'postcondition_failed';
+  if (error?.name === 'TimeoutError') return 'timeout';
+  if (['ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EPIPE', 'ENOTFOUND', 'EAI_AGAIN'].includes(error?.code)) return 'connection_failed';
+  if (error instanceof TypeError) return 'type_error';
+  if (error instanceof ReferenceError) return 'reference_error';
+  return 'program_error';
+}
+
+function programRuntime() {
+  // Solo etiquetas técnicas cerradas: nunca incluir mensajes, selectores ni contenido del sitio.
+  const diagnostic = { stage:'program', phase:'prepare', action_status:'unknown', read_attempts:0 };
+  function stage(name) {
+    if (typeof name !== 'string' || !/^[a-z][a-z0-9_]{0,63}$/.test(name)) throw new TypeError();
+    diagnostic.stage = name;
+  }
+  async function read(name, operation) {
+    stage(name);
+    diagnostic.phase = 'read';
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      diagnostic.read_attempts = attempt;
+      try { return await operation(); }
+      catch (error) {
+        if (attempt === 3 || !['timeout', 'connection_failed'].includes(programErrorCode(error))) throw error;
+        await new Promise(resolve => setTimeout(resolve, attempt * 100));
+      }
+    }
+  }
+  return {
+    diagnostic,
+    api: {
+      read,
+      async action(name, perform, verify) {
+        stage(name);
+        const confirmedBefore = await read(name, verify);
+        if (typeof confirmedBefore !== 'boolean') throw new TypeError();
+        if (confirmedBefore) {
+          diagnostic.action_status = 'confirmed';
+          return { verified:true, already_satisfied:true, recovered:false };
+        }
+        diagnostic.phase = 'action';
+        diagnostic.action_status = 'uncertain';
+        let failed = false;
+        try { await perform(); }
+        catch (error) { failed = true; diagnostic.action_error_code = programErrorCode(error); }
+        let confirmedAfter = false;
+        for (let observation = 0; observation < 3; observation++) {
+          if (observation) await new Promise(resolve => setTimeout(resolve, observation * 250));
+          confirmedAfter = await read(name, verify);
+          if (typeof confirmedAfter !== 'boolean' || confirmedAfter) break;
+        }
+        if (typeof confirmedAfter !== 'boolean') throw new TypeError();
+        if (!confirmedAfter) {
+          diagnostic.phase = 'verify';
+          const error = new Error(); error.code = 'postcondition_failed'; throw error;
+        }
+        diagnostic.action_status = 'confirmed';
+        return { verified:true, already_satisfied:false, recovered:failed };
+      },
+    },
+  };
+}
+
+async function executeProgram(context, manifest, fn, args) {
+  const { api, diagnostic } = programRuntime();
+  let page, result;
+  try {
+    page = await context.newPage();
+    diagnostic.phase = 'execute';
+    const fnBody = new (Object.getPrototypeOf(async function(){}).constructor)('context', 'page', 'args', 'origin', 'runtime', fn.code);
+    const data = await fnBody(context, page, args, manifest.origin, api);
+    if (pluginType(data) !== fn.result_type) {
+      result = { status:'result_uncertain', diagnostic:{ ...diagnostic, code:'result_type_mismatch' }, message:'El resultado no coincide con el contrato; comprueba el efecto antes de repetir la acción.' };
+    } else result = { status:'ok', data };
+  } catch (error) {
+    result = { status:'result_uncertain', diagnostic:{ ...diagnostic, code:programErrorCode(error) }, message:'El bloque falló; el diagnóstico identifica el paso. Comprueba el resultado antes de repetir una acción.' };
+  } finally {
+    try { await page?.close(); }
+    catch { result.cleanup_status = 'failed'; }
+  }
+  return result;
+}
+
 export function createWebPlugins({ directory, getContext }) {
   async function prepare() {
     await pluginFs.mkdir(directory, { recursive: true, mode: 0o700 });
@@ -159,6 +248,9 @@ export function createWebPlugins({ directory, getContext }) {
     const target = pluginTarget(manifest, fn, args);
     const context = await getContext();
     if (!context) return { status: 'browser_closed' };
+    if (fn.transport === 'program') {
+      return executeProgram(context, manifest, fn, args);
+    }
     const deadline = Date.now() + 6500;
     const timeout = () => Math.max(1, deadline - Date.now());
     if (fn.transport === 'http') {
@@ -278,13 +370,14 @@ export function createWebPlugins({ directory, getContext }) {
       if (!['run', 'verify'].includes(request.action)) pluginFail('invalid_plugin_arguments');
       const fn = record.manifest.functions.find(fn => fn.name === request.function_name);
       if (!fn) return { status: 'function_not_found' };
+      if (fn.transport === 'program' && request.program_allowed !== true) return { status: 'permission_required', message: 'El bloque programable requiere activar lectura y escritura de archivos, comandos y control de aplicaciones.' };
       if (request.expected_revision !== record.revision) return { status: 'revision_conflict' };
       if (request.action === 'run' && !Object.hasOwn(record.verified, fn.name)) return { status: 'verification_required' };
       let result;
       try { result = await execute(record.manifest, fn, request.arguments || {}); }
       catch (error) {
         if (error.code === 'invalid_plugin_arguments') throw error;
-        result = { status: error.code === 'site_changed' ? 'site_changed' : error.name === 'TimeoutError' ? 'timeout' : 'execution_failed' };
+        result = fn.transport === 'program' ? { status: 'result_uncertain', message: 'El bloque pudo realizar cambios antes de fallar. Comprueba el resultado antes de repetirlo.' } : { status: error.code === 'site_changed' ? 'site_changed' : error.name === 'TimeoutError' ? 'timeout' : 'execution_failed' };
       }
       if (request.action === 'verify') {
         delete record.verified[fn.name];

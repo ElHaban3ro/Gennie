@@ -16,6 +16,38 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[derive(Debug)]
+pub(crate) struct RetryableProviderError;
+impl std::fmt::Display for RetryableProviderError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Se interrumpió la comunicación con Codex")
+    }
+}
+impl std::error::Error for RetryableProviderError {}
+
+fn retryable_provider_info(info: &Value) -> bool {
+    if matches!(
+        info.as_str(),
+        Some("serverOverloaded" | "internalServerError" | "rateLimitExceeded")
+    ) {
+        return true;
+    }
+    for kind in [
+        "httpConnectionFailed",
+        "responseStreamConnectionFailed",
+        "responseStreamDisconnected",
+        "responseTooManyFailedAttempts",
+    ] {
+        if let Some(value) = info.get(kind) {
+            return value
+                .get("httpStatusCode")
+                .and_then(Value::as_u64)
+                .is_none_or(|status| status == 408 || status == 429 || status >= 500);
+        }
+    }
+    false
+}
+
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(30);
 const TURN_TIMEOUT: Duration = Duration::from_secs(180);
 const MAX_REPLY_BYTES: usize = 32_000;
@@ -456,18 +488,10 @@ impl Session {
         instructions: String,
         saved_thread: Option<String>,
     ) -> Result<Self> {
-        let restricted = Settings {
-            model: settings.model.clone(),
-            effort: settings.effort.clone(),
-            read_files: false,
-            write_files: false,
-            run_commands: false,
-            local_actions: false,
-        };
         Self::connect_scoped(
             process,
             base,
-            &restricted,
+            settings,
             None,
             Some(tools),
             ConnectionMode::Builder {
@@ -479,11 +503,33 @@ impl Session {
     pub(crate) fn thread_id(&self) -> &str {
         &self.thread_id
     }
-    pub(crate) fn build_turn(&mut self, text: &str, seconds: u64) -> Result<()> {
+    pub(crate) fn builder_goal(&mut self, objective: &str) -> Result<()> {
+        self.send(json!({"jsonrpc":"2.0","id":20,"method":"thread/goal/get","params":{"threadId":self.thread_id}}))?;
+        let current = self.response(20, HANDSHAKE_TIMEOUT)?;
+        if let Some(goal) = current.get("goal").filter(|goal| !goal.is_null())
+            && goal["objective"].as_str() != Some(objective)
+        {
+            return Err("El objetivo guardado del constructor no coincide con este trabajo".into());
+        }
+        // El app-server inicia turnos automáticos con un objetivo activo. Gennie
+        // controla la continuación y el reloj, por lo que lo conserva en pausa.
+        self.send(json!({"jsonrpc":"2.0","id":21,"method":"thread/goal/set","params":{"threadId":self.thread_id,"origin":"user","objective":objective,"status":"paused"}}))?;
+        let result = self.response(21, HANDSHAKE_TIMEOUT)?;
+        if result.pointer("/goal/status").and_then(Value::as_str) != Some("paused") {
+            return Err("No se pudo guardar el objetivo del constructor".into());
+        }
+        Ok(())
+    }
+    pub(crate) fn builder_goal_status(&mut self, status: &str) -> Result<()> {
+        self.send(json!({"jsonrpc":"2.0","id":22,"method":"thread/goal/set","params":{"threadId":self.thread_id,"origin":"automatic","status":status}}))?;
+        self.response(22, HANDSHAKE_TIMEOUT)?;
+        Ok(())
+    }
+    pub(crate) fn build_turn(&mut self, text: &str) -> Result<()> {
         let mut request =
             turn_start_request(&self.thread_id, &self.cwd, &self.model, &self.effort, text);
         request["id"] = json!(9); // Activa el drenaje de turn/interrupt en errores del constructor.
-        self.run_turn(request, Duration::from_secs(seconds), &mut |_| Ok(()))
+        self.run_turn(request, None, &mut |_| Ok(()))
     }
     fn discover_tools(&mut self, tools: &gennie_mcp::Launch) -> Result<()> {
         self.send(
@@ -627,7 +673,7 @@ impl Session {
                     &user,
                     &assistant,
                 ),
-                Duration::from_secs(10),
+                Some(Duration::from_secs(10)),
                 &mut |event| {
                     if let StreamEvent::Completed(text) = event {
                         if !output.is_empty() {
@@ -656,7 +702,7 @@ impl Session {
     ) -> Result<()> {
         self.run_turn(
             turn_start_request(&self.thread_id, &self.cwd, &self.model, &self.effort, text),
-            TURN_TIMEOUT,
+            Some(TURN_TIMEOUT),
             on_message,
         )
     }
@@ -664,7 +710,7 @@ impl Session {
     fn run_turn(
         &mut self,
         request: Value,
-        timeout: Duration,
+        timeout: Option<Duration>,
         on_message: &mut impl FnMut(StreamEvent) -> Result<()>,
     ) -> Result<()> {
         let id = request["id"]
@@ -675,15 +721,19 @@ impl Session {
             .ok_or("Falta hilo de petición")?
             .to_owned();
         self.send(request)?;
-        let turn = self.response(id, timeout.min(HANDSHAKE_TIMEOUT))?;
+        let turn = self.response(
+            id,
+            timeout.unwrap_or(HANDSHAKE_TIMEOUT).min(HANDSHAKE_TIMEOUT),
+        )?;
         let turn_id = turn
             .pointer("/turn/id")
             .and_then(Value::as_str)
             .ok_or("El proveedor no inició el turno")?;
         let result = self.receive_turn(turn_id, timeout, on_message);
-        if result.is_err() && id == 9 {
-            self.send(json!({"jsonrpc":"2.0","id":12,"method":"turn/interrupt","params":{"threadId":thread_id,"turnId":turn_id}}))?;
-            self.response(12, Duration::from_secs(3))?;
+        if result.is_err() && id == 9
+            && self.send(json!({"jsonrpc":"2.0","id":12,"method":"turn/interrupt","params":{"threadId":thread_id,"turnId":turn_id}})).is_ok()
+        {
+            let _ = self.response(12, Duration::from_secs(3));
         }
         result
     }
@@ -691,10 +741,10 @@ impl Session {
     fn receive_turn(
         &mut self,
         turn_id: &str,
-        timeout: Duration,
+        timeout: Option<Duration>,
         on_message: &mut impl FnMut(StreamEvent) -> Result<()>,
     ) -> Result<()> {
-        let deadline = Instant::now() + timeout;
+        let deadline = timeout.map(|duration| Instant::now() + duration);
         let mut messages = MessageCollector::default();
         loop {
             let event = self.next(deadline)?;
@@ -713,6 +763,13 @@ impl Session {
             {
                 let status = event.pointer("/params/turn/status").and_then(Value::as_str);
                 if status != Some("completed") {
+                    if status == Some("failed")
+                        && event
+                            .pointer("/params/turn/error/codexErrorInfo")
+                            .is_some_and(retryable_provider_info)
+                    {
+                        return Err(Box::new(RetryableProviderError));
+                    }
                     return Err("El proveedor no completó la respuesta".into());
                 }
                 if let Some(message) = messages.finish() {
@@ -735,7 +792,7 @@ impl Session {
     fn response(&mut self, id: i64, timeout: Duration) -> Result<Value> {
         let deadline = Instant::now() + timeout;
         loop {
-            let value = self.next(deadline)?;
+            let value = self.next(Some(deadline))?;
             if value.get("id").and_then(Value::as_i64) == Some(id) {
                 return response_result(&value);
             }
@@ -744,19 +801,24 @@ impl Session {
             }
         }
     }
-    fn next(&self, deadline: Instant) -> Result<Value> {
-        let wait = deadline.saturating_duration_since(Instant::now());
-        if wait.is_zero() {
-            return Err("El proveedor excedió el tiempo de espera".into());
-        }
-        let line = match self.lines.recv_timeout(wait) {
-            Ok(line) => line,
-            Err(RecvTimeoutError::Timeout) => {
-                return Err("El proveedor excedió el tiempo de espera".into());
+    fn next(&self, deadline: Option<Instant>) -> Result<Value> {
+        let line = match deadline {
+            Some(deadline) => {
+                let wait = deadline.saturating_duration_since(Instant::now());
+                if wait.is_zero() {
+                    return Err(Box::new(RetryableProviderError));
+                }
+                match self.lines.recv_timeout(wait) {
+                    Ok(line) => line,
+                    Err(RecvTimeoutError::Timeout) => {
+                        return Err(Box::new(RetryableProviderError));
+                    }
+                    Err(RecvTimeoutError::Disconnected) => {
+                        return Err(Box::new(RetryableProviderError));
+                    }
+                }
             }
-            Err(RecvTimeoutError::Disconnected) => {
-                return Err("El proceso Codex CLI terminó antes de responder".into());
-            }
+            None => self.lines.recv().map_err(|_| RetryableProviderError)?,
         };
         if line.len() > 1_000_000 {
             return Err("Mensaje del proveedor demasiado grande".into());
@@ -986,6 +1048,111 @@ mod tests {
             ]
         );
         assert_eq!(messages.finish(), None);
+    }
+
+    #[test]
+    fn provider_retry_classification_uses_structured_errors() {
+        for info in [
+            json!("serverOverloaded"),
+            json!("internalServerError"),
+            json!("rateLimitExceeded"),
+            json!({"responseStreamDisconnected":{"httpStatusCode":null}}),
+            json!({"httpConnectionFailed":{"httpStatusCode":503}}),
+        ] {
+            assert!(super::retryable_provider_info(&info));
+        }
+        for info in [
+            json!("unauthorized"),
+            json!("usageLimitExceeded"),
+            json!("badRequest"),
+            json!({"httpConnectionFailed":{"httpStatusCode":401}}),
+            json!(null),
+        ] {
+            assert!(!super::retryable_provider_info(&info));
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn builder_failures_cross_stdio_and_keep_the_retry_classification() {
+        use super::*;
+
+        // Proceso propio: habla el mismo protocolo, sin Codex real ni inferencia.
+        for (info, disconnect, retryable) in [
+            (json!("serverOverloaded"), false, true),
+            (
+                json!({"httpConnectionFailed":{"httpStatusCode":503}}),
+                false,
+                true,
+            ),
+            (
+                json!({"responseStreamDisconnected":{"httpStatusCode":null}}),
+                false,
+                true,
+            ),
+            (json!("unauthorized"), false, false),
+            (json!("usageLimitExceeded"), false, false),
+            (json!(null), true, true),
+        ] {
+            let failure = json!({"method":"turn/completed","params":{"turn":{
+                "id":"fixture-turn", "status":"failed", "error":{
+                    "message":"private-provider-detail", "codexErrorInfo":info
+                }
+            }}});
+            let mut child = Command::new("sh")
+                .args(["-c", r#"
+IFS= read -r request || exit 1
+case "$request" in *'"id":9,'*) ;; *) exit 2 ;; esac
+printf '%s\n' '{"id":9,"result":{"turn":{"id":"fixture-turn"}}}'
+if [ "$DISCONNECT" = true ]; then exit 0; fi
+printf '%s\n' "$FAILURE"
+IFS= read -r request || exit 0
+case "$request" in *'"method":"turn/interrupt"'*) printf '%s\n' '{"id":12,"result":{}}' ;; *) exit 3 ;; esac
+"#])
+                .env("FAILURE", failure.to_string())
+                .env("DISCONNECT", disconnect.to_string())
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .process_group(0)
+                .spawn()
+                .unwrap();
+            let stdin = child.stdin.take().unwrap();
+            let stdout = child.stdout.take().unwrap();
+            let process = ProcessHandle::default();
+            *process.0.lock().unwrap() = Some(child);
+            let (sender, lines) = mpsc::channel();
+            let reader = std::thread::spawn(move || {
+                for line in BufReader::new(stdout).lines() {
+                    if sender.send(line.unwrap()).is_err() {
+                        break;
+                    }
+                }
+            });
+            let mut session = Session {
+                stdin,
+                lines,
+                reader: Some(reader),
+                process,
+                thread_id: "fixture-thread".into(),
+                journal: None,
+                cwd: std::env::temp_dir(),
+                model: "fixture-model".into(),
+                effort: "medium".into(),
+                title_effort: None,
+                settings: Settings::default(),
+                tool_names: Vec::new(),
+            };
+            let error = session
+                .build_turn("Prueba sin acciones externas")
+                .unwrap_err();
+            assert_eq!(
+                crate::builder::is_retryable(error.as_ref()),
+                retryable,
+                "{info}"
+            );
+            assert!(!error.to_string().contains("private-provider-detail"));
+            assert_eq!(session.thread_id(), "fixture-thread");
+        }
     }
 
     #[test]

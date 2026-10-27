@@ -623,6 +623,14 @@ impl Backend {
                 let settings = c.settings();
                 settings.local_actions && settings.run_commands
             }));
+        self.browser
+            .set_program_allowed(self.llm.as_ref().is_some_and(|c| {
+                let settings = c.settings();
+                settings.read_files
+                    && settings.write_files
+                    && settings.run_commands
+                    && settings.local_actions
+            }));
         self.snapshot.models = self.model_info();
         self.snapshot.busy = self.llm.as_ref().is_some_and(|c| c.is_pending());
         self.snapshot.assistant = self.llm.as_ref().map(|c| {

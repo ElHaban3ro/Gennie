@@ -146,3 +146,32 @@ fn plugin_schema_accepts_the_builder_manifest_without_browser_access() {
     let schema = crate::tools::plugin_schema();
     crate::validate_arguments(&schema,&json!({"id":"fixture","name":"Prueba local","origin":"http://127.0.0.1:1234","description":"Consulta local de prueba","capabilities":["Listar elementos"],"limitations":["Solo lectura local"],"functions":[{"name":"list_items","description":"Consultar elementos","parameters":{},"transport":"http","path":"/items","result_type":"array","result_pointer":"/items","fields":{"id":"/id","subject":"/subject"}}]})).unwrap();
 }
+
+#[test]
+fn plugin_mcp_schema_accepts_program_blocks() {
+    let schema = crate::tools::plugin_schema();
+    crate::validate_arguments(
+        &schema,
+        &json!({
+            "id":"fixture", "name":"Prueba", "origin":"https://example.com",
+            "functions":[{"name":"write", "description":"Acción", "parameters":{"id":"string"},
+                "transport":"program", "path":"/", "result_type":"object",
+                "code":"return {ok: true, id: args.id};"}]
+        }),
+    )
+    .unwrap();
+}
+
+#[test]
+fn plugin_mcp_accepts_many_functions_and_parameters() {
+    let parameters = (0..25)
+        .map(|i| (format!("p{i}"), json!("string")))
+        .collect::<serde_json::Map<_, _>>();
+    let functions = (0..25).map(|i| json!({"name":format!("f{i}"),"description":"Prueba","parameters":parameters,"transport":"program","path":"/","result_type":"object","code":"return args;"})).collect::<Vec<_>>();
+    let schema = crate::tools::plugin_schema();
+    crate::validate_arguments(
+        &schema,
+        &json!({"id":"many","name":"Prueba","origin":"https://example.com","functions":functions}),
+    )
+    .unwrap();
+}
