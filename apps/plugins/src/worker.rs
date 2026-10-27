@@ -40,14 +40,18 @@ pub(crate) fn run(controller: Controller) {
                     }
                     build(&controller, &job)
                 })();
-                if result.is_err()
+                if let Err(error) = result
                     && controller
                         .0
                         .store
                         .get(job.id)
                         .is_ok_and(|j| j.state == "running")
                 {
-                    let _=controller.transition(job.id,"interrupted","La construcción se interrumpió por un fallo técnico. El candidato se conserva; comprueba el acceso de Codex y vuelve a continuar.");
+                    let _ = controller.transition(
+                        job.id,
+                        "interrupted",
+                        interruption_message(error.as_ref()),
+                    );
                 }
                 if let Ok(mut active) = controller.0.active.lock() {
                     active.take();
@@ -68,6 +72,20 @@ pub(crate) fn run(controller: Controller) {
     }
     let _ = controller.0.store.recover();
     controller.notify();
+}
+fn interruption_message(error: &(dyn std::error::Error + 'static)) -> &'static str {
+    // Solo causas locales conocidas; no publicar mensajes libres del proveedor o herramientas.
+    match error.to_string().as_str() {
+        "Mensaje del proveedor demasiado grande" => {
+            "No pude continuar porque Codex devolvió un mensaje mayor que el admitido por Gennie. El candidato se conserva; este error no demuestra un problema de acceso a tu cuenta."
+        }
+        "El objetivo guardado del constructor no coincide con este trabajo" => {
+            "El objetivo guardado en el hilo técnico no coincide con el trabajo. Conservé el candidato y detuve la reanudación para no construir con otro objetivo."
+        }
+        _ => {
+            "La construcción se interrumpió por un fallo técnico. El candidato se conserva; puedes volver a continuar. No se ha comprobado que sea un problema de acceso a Codex."
+        }
+    }
 }
 pub(crate) fn reconcile_pending(
     controller: &Controller,
@@ -673,6 +691,17 @@ fn gate(controller: &Controller, job: &Job, calls: &AtomicU64) -> Result<()> {
 #[cfg(test)]
 mod retry_tests {
     use super::*;
+    #[test]
+    fn local_interruption_reports_do_not_expose_private_errors_or_infer_login_failure() {
+        let oversized: Box<dyn std::error::Error + Send + Sync> =
+            "Mensaje del proveedor demasiado grande".into();
+        let message = interruption_message(oversized.as_ref());
+        assert!(message.contains("mensaje mayor"));
+        let private: Box<dyn std::error::Error + Send + Sync> = "private-provider-detail".into();
+        let message = interruption_message(private.as_ref());
+        assert!(!message.contains("private-provider-detail"));
+        assert!(!message.contains("comprueba el acceso"));
+    }
     #[test]
     fn disconnected_tool_channel_schedules_recovery_instead_of_another_turn() {
         use std::io::{BufRead, BufReader, Write};

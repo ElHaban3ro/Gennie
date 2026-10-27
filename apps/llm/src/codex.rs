@@ -51,6 +51,8 @@ fn retryable_provider_info(info: &Value) -> bool {
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(30);
 const TURN_TIMEOUT: Duration = Duration::from_secs(180);
 const MAX_REPLY_BYTES: usize = 32_000;
+// Una notificación puede encapsular como JSON escapado una respuesta MCP completa.
+const MAX_PROVIDER_MESSAGE_BYTES: usize = 2 * gennie_mcp::MAX_RESPONSE_BYTES + 64 * 1024;
 const VOICE_PROFILE: &str = "gennie_voice";
 const ASSISTANT_INSTRUCTIONS: &str = include_str!("assistant-instructions.md");
 
@@ -440,18 +442,7 @@ impl Session {
             ConnectionMode::Conversation { .. } => instructions(settings, &session.tool_names),
             ConnectionMode::Builder { instructions, .. } => instructions.clone(),
         };
-        let (method, params) = match saved.as_deref() {
-            Some(thread_id) => (
-                "thread/resume",
-                json!({"threadId":thread_id,"cwd":session.cwd,"approvalPolicy":"never","permissions":VOICE_PROFILE,"model":session.model,"developerInstructions":instructions}),
-            ),
-            None => (
-                "thread/start",
-                json!({"cwd":session.cwd,"approvalPolicy":"never","permissions":VOICE_PROFILE,"model":session.model,"developerInstructions":instructions}),
-            ),
-        };
-        session.send(json!({"jsonrpc":"2.0","id":3,"method":method,"params":params}))?;
-        let thread = session.response(3, HANDSHAKE_TIMEOUT)?;
+        let thread = session.open_thread(saved.as_deref(), &instructions)?;
         let thread_id = thread
             .pointer("/thread/id")
             .and_then(Value::as_str)
@@ -478,6 +469,22 @@ impl Session {
             session.discover_tools(tools)?;
         }
         Ok(session)
+    }
+
+    fn open_thread(&mut self, saved: Option<&str>, instructions: &str) -> Result<Value> {
+        let (method, params) = match saved {
+            Some(thread_id) => (
+                "thread/resume",
+                // El contexto sigue en Codex; Gennie solo consume metadatos del hilo.
+                json!({"threadId":thread_id,"cwd":self.cwd,"approvalPolicy":"never","permissions":VOICE_PROFILE,"model":self.model,"developerInstructions":instructions,"excludeTurns":true}),
+            ),
+            None => (
+                "thread/start",
+                json!({"cwd":self.cwd,"approvalPolicy":"never","permissions":VOICE_PROFILE,"model":self.model,"developerInstructions":instructions}),
+            ),
+        };
+        self.send(json!({"jsonrpc":"2.0","id":3,"method":method,"params":params}))?;
+        self.response(3, HANDSHAKE_TIMEOUT)
     }
 
     pub(crate) fn connect_builder(
@@ -820,10 +827,7 @@ impl Session {
             }
             None => self.lines.recv().map_err(|_| RetryableProviderError)?,
         };
-        if line.len() > 1_000_000 {
-            return Err("Mensaje del proveedor demasiado grande".into());
-        }
-        let event: Value = serde_json::from_str(&line)?;
+        let event = parse_provider_event(&line)?;
         if let Some(title) = notification_title(&event, &self.thread_id)
             && let Some(journal) = &self.journal
         {
@@ -831,6 +835,12 @@ impl Session {
         }
         Ok(event)
     }
+}
+fn parse_provider_event(line: &str) -> Result<Value> {
+    if line.len() > MAX_PROVIDER_MESSAGE_BYTES {
+        return Err("Mensaje del proveedor demasiado grande".into());
+    }
+    Ok(serde_json::from_str(line)?)
 }
 fn response_result(value: &Value) -> Result<Value> {
     if let Some(error) = value.get("error") {
@@ -1069,6 +1079,98 @@ mod tests {
             json!(null),
         ] {
             assert!(!super::retryable_provider_info(&info));
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn provider_accepts_notifications_carrying_a_valid_mcp_result() {
+        let event = json!({"method":"item/completed","params":{"item":{
+            "type":"mcpToolCall","result":{"structuredContent":{"data":"x".repeat(2 * 1024 * 1024)}}
+        }}});
+        let oversized = "x".repeat(super::MAX_PROVIDER_MESSAGE_BYTES + 1);
+        assert_eq!(
+            super::parse_provider_event(&oversized)
+                .unwrap_err()
+                .to_string(),
+            "Mensaje del proveedor demasiado grande"
+        );
+        let decoded = super::parse_provider_event(&event.to_string()).unwrap();
+        assert_eq!(
+            decoded["params"]["item"]["result"]["structuredContent"]["data"]
+                .as_str()
+                .unwrap()
+                .len(),
+            2 * 1024 * 1024
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn long_thread_resumes_without_loading_its_history_into_the_client() {
+        use super::*;
+        // Proveedor stdio simulado: el historial completo excede el límite local.
+        for metadata_only in [false, true] {
+            let mut child = Command::new("sh")
+                .args(["-c", r#"
+IFS= read -r request || exit 1
+case "$request" in
+  *'"excludeTurns":true'*)
+    printf '%s\n' '{"id":3,"result":{"thread":{"id":"preserved-thread","name":"Historial largo","turns":[]}}}' ;;
+  *)
+    printf '%s' '{"id":3,"result":{"thread":{"id":"preserved-thread","turns":[{"text":"'
+    head -c "$GENNIE_TEST_HISTORY_BYTES" /dev/zero | tr '\000' x
+    printf '%s\n' '"}]}}}' ;;
+esac
+"#])
+                .env("GENNIE_TEST_HISTORY_BYTES", (MAX_PROVIDER_MESSAGE_BYTES + 1).to_string())
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .process_group(0)
+                .spawn()
+                .unwrap();
+            let stdin = child.stdin.take().unwrap();
+            let stdout = child.stdout.take().unwrap();
+            let process = ProcessHandle::default();
+            *process.0.lock().unwrap() = Some(child);
+            let (sender, lines) = mpsc::channel();
+            let reader = std::thread::spawn(move || {
+                for line in BufReader::new(stdout).lines() {
+                    if sender.send(line.unwrap()).is_err() {
+                        break;
+                    }
+                }
+            });
+            let mut session = Session {
+                stdin,
+                lines,
+                reader: Some(reader),
+                process,
+                thread_id: "preserved-thread".into(),
+                journal: None,
+                cwd: std::env::temp_dir(),
+                model: "fixture-model".into(),
+                effort: "medium".into(),
+                title_effort: None,
+                settings: Settings::default(),
+                tool_names: Vec::new(),
+            };
+            if metadata_only {
+                let result = session
+                    .open_thread(Some("preserved-thread"), "Instrucciones vigentes")
+                    .unwrap();
+                assert_eq!(result["thread"]["id"], "preserved-thread");
+                assert_eq!(result["thread"]["name"], "Historial largo");
+            } else {
+                session.send(json!({"id":3,"method":"thread/resume","params":{"threadId":"preserved-thread"}})).unwrap();
+                assert_eq!(
+                    session
+                        .response(3, Duration::from_secs(2))
+                        .unwrap_err()
+                        .to_string(),
+                    "Mensaje del proveedor demasiado grande"
+                );
+            }
         }
     }
 
