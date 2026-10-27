@@ -4,7 +4,7 @@ Estado actual: escritorio Flutter + flutter_rust_bridge; ver [arquitectura](../a
 
 - [Plugins web D-027](web-plugins.md): recetas HTTP/DOM verificadas, sesión bajo demanda y plan del constructor aislado.
 
-- [Navegador persistente D-026](browser.md): perfil exclusivo, apertura desde chat, herramientas Playwright y preparación del runtime local.
+- [Navegador persistente D-026](browser.md): perfil exclusivo, apertura desde chat, herramientas compatibles con Playwright mediante Patchright y preparación del runtime local.
 
 - [Encargos y MCP modular D-025](assignments.md): registro de planes y políticas contextuales de seguimiento, preparación/aviso separados y transporte local compartido.
 

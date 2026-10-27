@@ -13,7 +13,7 @@
 | gennie-llm | Preferencias, worker de conversación, proceso Codex app-server y thread_id |
 | gennie-tts | Preferencias y worker Kokoro MLX; audio no persistido |
 | gennie-mcp | Biblioteca MCP reutilizable, registro de herramientas y transporte privado sin datos de negocio |
-| gennie-browser | Contexto Playwright persistente y proceso Node propios; apertura FRB y 24 herramientas MCP comparten el controlador; referencias, imágenes, HTTP de sesión, artifacts y recetas de plugins verificadas, sin tablas |
+| gennie-browser | Contexto Patchright persistente y proceso Node propios; apertura FRB y 24 herramientas MCP comparten el controlador; referencias, imágenes, HTTP de sesión, artifacts y recetas de plugins verificadas, sin tablas |
 | gennie-plugins | Constructor Codex aislado bajo demanda, candidatos, trabajos/outbox y avances al chat de origen; sin scheduler |
 | gennie-assignments | Planes y políticas contextuales de seguimiento persistidos, validación y herramientas de registro; sin ejecución ni avisos |
 | gennie-reminders-plugin | Controlador y observador EventKit local; sin consumidor UI/IA |
