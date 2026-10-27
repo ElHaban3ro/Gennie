@@ -63,4 +63,12 @@ Browser posee la ejecución HTTP/DOM y de bloques JavaScript programables, y su 
 
 La resolución técnica de Encargos cruza referencias del plan con verificaciones de revisión vigente del catálogo y las vías autorizadas. No decide permisos ni escribe el plan durante un fallo; ready describe disponibilidad técnica, no ejecución. El catálogo se inyecta desde bootstrap y se consulta después de liberar SQLite.
 
+Las instrucciones de delegación distinguen petición literal, resultado/restricciones acordados y hallazgos previos; no elevan una hipótesis o bloqueo anterior a requisito del usuario. El constructor conserva lo probado, lo aprendido y el siguiente experimento, y completa implementación, ejecución y comprobación antes de declarar éxito. La brevedad de los avances no limita la continuidad del trabajo. Una corrección de objetivo necesita una solicitud nueva; reintentar conserva el anterior. Estos criterios son instrucciones al modelo, no una validación semántica del host.
+
+La pérdida comprobada del cliente MCP del constructor no se trata como progreso: entre turnos se conserva el trabajo, se comunica el fallo de herramientas por outbox y se programa la sesión nueva mediante el reintento persistido. No atribuir ese fallo local al proveedor. Una respuesta demasiado grande devuelve un error explícito sin cerrar el transporte ni deducir que la operación falló o autorizar repetir su efecto.
+
+Reanudar un hilo Codex usa excludeTurns=true: el cliente consume metadatos de identidad/nombre, no el historial completo. Se conserva el contexto del proveedor y el historial propio de presence; no ampliar el límite de mensajes para cargar turnos que Gennie no necesita. Los avisos del constructor solo traducen causas locales conocidas y no publican errores libres con contenido privado.
+
+El límite de mensajes de app-server debe admitir una respuesta MCP válida encapsulada como JSON: deriva del máximo MCP (doble más margen de sobre), separado del límite de texto conversacional. Un resultado válido de herramientas no se rechaza por el antiguo límite arbitrario de 1 MB. Esto no habilita respuestas ilimitadas ni sustituye excludeTurns al reanudar.
+
 Proactivity expone clasificación bajo demanda por OpenRouter con Jev u OpenAI Decisions. El secreto se inyecta fuera de AppState; no hay observadores, consultas al inicio ni efectos automáticos. El cliente es bloqueante y debe llamarse fuera del hilo visual.
