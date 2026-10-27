@@ -439,7 +439,7 @@ export function createBrowserSession({ runtime, profile, headless = false, homep
         const options = { type: 'jpeg', quality: 65, scale: 'css', timeout: 8000 };
         const image = request.target || request.selector ? await (await target(state, request)).screenshot(options) : await page.screenshot({ ...options, fullPage: request.full_page ?? false });
         if (image.length > 2 * 1024 * 1024) fail('image_limit');
-        return { page_id: state.id, artifact: await artifact('screenshot', 'jpg', image), image: { data: image.toString('base64'), mime_type: 'image/jpeg' } };
+        return { page_id: state.id, ...(request.background_scope ? {} : { artifact: await artifact('screenshot', 'jpg', image) }), image: { data: image.toString('base64'), mime_type: 'image/jpeg' } };
       }
       case 'pdf': {
         const bytes = await page.pdf({ format: request.format || 'A4', printBackground: true, preferCSSPageSize: true, ...(request.page_ranges ? { pageRanges: request.page_ranges } : {}) });

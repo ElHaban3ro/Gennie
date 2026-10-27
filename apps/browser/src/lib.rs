@@ -10,7 +10,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
 };
-pub use tools::{tools, validate as validate_arguments};
+pub use tools::{tool_output, tools, validate as validate_arguments};
 
 #[derive(Debug)]
 pub struct BusyError;

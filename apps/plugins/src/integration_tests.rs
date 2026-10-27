@@ -4,6 +4,128 @@ use std::{
     net::TcpListener,
     time::{Duration, Instant},
 };
+
+#[test]
+#[ignore = "Consume una respuesta visual real de Codex; imagen sintética sin datos personales. Requiere Python con Pillow"]
+fn real_builder_interprets_an_image_delivered_only_by_mcp() {
+    let started = Instant::now();
+    let seed = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let alphabet = b"ACEFGHJKMNPQRTUVWXYZ23456789";
+    let code: String = (0..6)
+        .map(|i| alphabet[((seed >> (i * 8)) as usize) % alphabet.len()] as char)
+        .collect();
+    let python = std::env::var_os("GENNIE_VISUAL_TEST_PYTHON").unwrap_or_else(|| "python3".into());
+    let font = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../frontend/assets/fonts/Inter-SemiBold.ttf");
+    let output = std::process::Command::new(python)
+        .args([
+            "-c",
+            r#"
+from PIL import Image, ImageDraw, ImageFont
+import io,base64,sys
+image=Image.new('RGB',(800,240),'white')
+draw=ImageDraw.Draw(image)
+draw.text((36,26),'Panel de prueba',fill='black',font=ImageFont.truetype(sys.argv[2],24))
+draw.text((36,76),sys.argv[1],fill='black',font=ImageFont.truetype(sys.argv[2],82))
+buffer=io.BytesIO();image.save(buffer,format='PNG')
+sys.stdout.write(base64.b64encode(buffer.getvalue()).decode())
+"#,
+            &code,
+            font.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "La fixture necesita Python con Pillow"
+    );
+    let pixels = String::from_utf8(output.stdout).unwrap();
+    let screenshot_called = Arc::new(AtomicBool::new(false));
+    let observed = Arc::new(Mutex::new(None));
+    let mut registry = gennie_mcp::Registry::default();
+    let called = screenshot_called.clone();
+    let received = observed.clone();
+    registry.register([
+        gennie_mcp::Tool {
+            definition:json!({"name":"browser_screenshot","description":"Captura del panel de prueba. La información relevante solo está en la imagen; emite el bloque image para verla.","inputSchema":{"type":"object","properties":{},"additionalProperties":false}}),
+            call:Box::new(move |_| {
+                called.store(true,Ordering::Release);
+                gennie_browser::tool_output("screenshot",json!({"page_id":"fixture","image":{"data":pixels,"mime_type":"image/png"}}))
+            })
+        },
+        gennie_mcp::Tool {
+            definition:json!({"name":"probe_result","description":"Registra el código que has leído visualmente en el panel.","inputSchema":{"type":"object","properties":{"observed_code":{"type":"string"}},"required":["observed_code"],"additionalProperties":false}}),
+            call:Box::new(move |args| {
+                let mut result=received.lock().unwrap();
+                if result.is_some() { return Err("La sonda ya recibió una respuesta".into()); }
+                *result=Some(args["observed_code"].as_str()==Some(code.as_str()));
+                Ok(json!({"status":"recorded"}))
+            })
+        }
+    ]).unwrap();
+    let helper = std::env::var_os("GENNIE_TEST_HELPER")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/flutter/debug/gennie")
+        });
+    let mut server = gennie_mcp::Server::start(registry, &helper).unwrap();
+    let root =
+        std::env::temp_dir().join(format!("gennie-visual-probe-{}-{seed}", std::process::id()));
+    struct Directory(PathBuf);
+    impl Drop for Directory {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let _directory = Directory(root.clone());
+    let settings = Settings {
+        read_files: false,
+        write_files: false,
+        run_commands: false,
+        local_actions: false,
+        model: std::env::var("GENNIE_PUBLIC_TEST_MODEL")
+            .unwrap_or_else(|_| Settings::default().model),
+        effort: std::env::var("GENNIE_PUBLIC_TEST_EFFORT")
+            .unwrap_or_else(|_| Settings::default().effort),
+    };
+    let control = gennie_llm::builder::BuilderControl::default();
+    let watchdog_control = control.clone();
+    let (finished, finish) = std::sync::mpsc::channel();
+    let watchdog = std::thread::spawn(move || {
+        if finish.recv_timeout(Duration::from_secs(30)).is_err() {
+            watchdog_control.cancel();
+        }
+    });
+    let result = (|| -> Result<()> {
+        let instructions = "Eres un verificador visual de una fixture. Usa solo las herramientas MCP de la prueba. Consulta browser_screenshot y examina la imagen real; si orquestas con exec, emite los bloques content de type=image con image(bloque), no imprimas base64 como texto. Luego llama probe_result con el código de seis caracteres que ves. No hay información textual alternativa ni hace falta investigar APIs, archivos o sitios web. Termina con una frase breve.";
+        let mut session = gennie_llm::builder::BuilderSession::connect(
+            root,
+            &settings,
+            server.launch(),
+            instructions.into(),
+            None,
+            control,
+        )?;
+        session.turn("Lee el código visible del panel y comunícalo a probe_result.")
+    })();
+    let _ = finished.send(());
+    watchdog.join().unwrap();
+    server.stop().unwrap();
+    result.unwrap();
+    assert!(screenshot_called.load(Ordering::Acquire));
+    assert_eq!(
+        *observed.lock().unwrap(),
+        Some(true),
+        "El modelo no interpretó correctamente la imagen MCP"
+    );
+    eprintln!(
+        "visual_probe image_requested=true visual_only_code_correct=true elapsed_seconds={:.2}",
+        started.elapsed().as_secs_f64()
+    );
+}
 #[derive(Default)]
 struct Journal(Mutex<Vec<(i64, String)>>);
 impl BuildJournal for Journal {

@@ -1,6 +1,31 @@
 use super::*;
 
 #[test]
+fn screenshot_output_transports_pixels_as_an_mcp_image() {
+    let mut registry = gennie_mcp::Registry::default();
+    registry.register([gennie_mcp::Tool {
+        definition:json!({"name":"browser_screenshot"}),
+        call:Box::new(|_| tool_output("screenshot", json!({"page_id":"task-page","artifact":"fixture.jpg","image":{"data":"aA==","mime_type":"image/jpeg"}})))
+    }]).unwrap();
+    let result = registry.respond(json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"browser_screenshot","arguments":{}}})).unwrap();
+    assert_eq!(result["result"]["content"][1]["type"], "image");
+    assert_eq!(result["result"]["content"][1]["mimeType"], "image/jpeg");
+    assert_eq!(result["result"]["content"][1]["data"], "aA==");
+    assert_eq!(
+        result["result"]["structuredContent"]["page_id"],
+        "task-page"
+    );
+    assert!(result["result"]["structuredContent"]["image"].is_null());
+    assert!(
+        !result["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("aA==")
+    );
+    assert!(tool_output("screenshot", json!({"page_id":"task-page"})).is_err());
+}
+
+#[test]
 fn disabled_and_busy_calls_never_start_a_process() {
     let controller = Controller::new("/missing/gennie-browser-test".into());
     assert!(

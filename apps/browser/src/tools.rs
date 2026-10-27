@@ -3,6 +3,24 @@ use gennie_core::Result;
 use gennie_mcp::Tool;
 use serde_json::{Value, json};
 
+/// Conserva la imagen MCP separada de los metadatos también en consumidores con pestaña acotada.
+pub fn tool_output(method: &str, mut response: Value) -> Result<Value> {
+    if method != "screenshot" {
+        return Ok(response);
+    }
+    let image = response
+        .as_object_mut()
+        .and_then(|object| object.remove("image"))
+        .ok_or("El navegador no devolvió la imagen")?;
+    gennie_mcp::with_image(
+        response,
+        image["data"].as_str().ok_or("Imagen inválida")?.to_owned(),
+        image["mime_type"]
+            .as_str()
+            .ok_or("Formato de imagen inválido")?,
+    )
+}
+
 fn string(max: u32) -> Value {
     json!({"type":"string","minLength":1,"maxLength":max})
 }
@@ -282,12 +300,8 @@ pub fn tools(controller: Controller) -> Vec<Tool> {
                 } { return Err("Faltan datos de la receta web".into()); }
                 let mut request = value;
                 request["method"] = json!(method);
-                let mut response = if method == "plugins" { controller.call(request)? } else { controller.automate(request)? };
-                if method == "screenshot" {
-                    let image = response.as_object_mut().and_then(|object| object.remove("image")).ok_or("Playwright no devolvió la imagen")?;
-                    return gennie_mcp::with_image(response, image["data"].as_str().ok_or("Imagen inválida")?.to_owned(), image["mime_type"].as_str().ok_or("Formato de imagen inválido")?);
-                }
-                Ok(response)
+                let response = if method == "plugins" { controller.call(request)? } else { controller.automate(request)? };
+                tool_output(method, response)
             }),
         }
     }).collect()
