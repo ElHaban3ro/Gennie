@@ -265,7 +265,8 @@ export function createBrowserSession({ runtime, profile, headless = false, homep
     }
     if (request.method === 'candidate') {
       if (!/^job_[0-9]+$/.test(request.candidate_id || '')) fail('invalid_arguments');
-      const candidate = createWebPlugins({ directory: path.join(path.dirname(profile), 'plugins', 'candidates', request.candidate_id), getContext: async () => { if (!context) await open({ background: true }); return context; } });
+      const base = (await plugins.dispatch({ action: 'get', plugin_id: request.plugin_id || request.manifest?.id })).plugin;
+      const candidate = createWebPlugins({ directory: path.join(path.dirname(profile), 'plugins', 'candidates', request.candidate_id), verificationBase: base, getContext: async () => { if (!context) await open({ background: true }); return context; } });
       return candidate.dispatch(request);
     }
     if (request.method === 'plugins' || request.method === 'plugin_run') return plugins.dispatch(request);

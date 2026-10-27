@@ -1,0 +1,40 @@
+// Fixture local sin navegador: conservar funciones publicadas sin repetir escrituras.
+import assert from 'node:assert/strict';
+import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { createWebPlugins } from '../../apps/browser/src/plugins.mjs';
+const root=await mkdtemp(path.join(tmpdir(),'gennie-verification-reuse-'));
+const fn=name=>({name,description:'Función existente',parameters:{},transport:'program',path:'/',result_type:'object',code:'return {};'});
+const manifest={id:'fixture',name:'Fixture',origin:'https://example.com',functions:[fn('read'),fn('write')]};
+const base={manifest,revision:7,updated_at:'2026-10-27T00:00:00Z',verified:{read:{revision:7,verified_at:'2026-10-27T00:00:00Z'},write:{revision:7,verified_at:'2026-10-27T00:00:00Z'}}};
+const getContext=()=>{throw Error('No debe ejecutar funciones para heredar evidencia');};
+try{
+ await writeFile(path.join(root,'fixture.json'),JSON.stringify(base));
+ const candidateDir=path.join(root,'candidates','job_1');
+ const candidate=createWebPlugins({directory:candidateDir,getContext,verificationBase:base});
+ const next={...manifest,functions:[...manifest.functions,{...fn('new_read'),description:'Función nueva'}]};
+ assert.equal((await candidate.dispatch({action:'save',manifest:next,expected_revision:0})).status,'saved');
+ const saved=(await candidate.dispatch({action:'get',plugin_id:'fixture'})).plugin;
+ assert.deepEqual(Object.keys(saved.verified).sort(),['read','write']);
+ assert.equal(saved.verified.write.source_revision,7);
+ const published=createWebPlugins({directory:root,getContext});
+ assert.equal((await published.dispatch({action:'promote',candidate_id:'job_1',plugin_id:'fixture',expected_revision:7})).status,'verification_required');
+ saved.verified.new_read={revision:saved.revision,verified_at:'2026-10-27T01:00:00Z'};
+ await writeFile(path.join(candidateDir,'fixture.json'),JSON.stringify(saved));
+ const promoted=await published.dispatch({action:'promote',candidate_id:'job_1',plugin_id:'fixture',expected_revision:7});
+ assert.equal(promoted.status,'promoted');assert.equal(promoted.plugin.revision,8);
+ assert.deepEqual(Object.keys(promoted.plugin.verified).sort(),['new_read','read','write']);
+ const changed={...manifest,functions:[fn('read'),{...fn('write'),code:'return {changed:true};'}]};
+ await candidate.dispatch({action:'save',manifest:changed,expected_revision:1});
+ assert.deepEqual(Object.keys((await candidate.dispatch({action:'get',plugin_id:'fixture'})).plugin.verified),['read']);
+ const invalidBase={...base,verified:{...base.verified,write:{revision:6}}};
+ const invalid=createWebPlugins({directory:path.join(root,'candidates','job_2'),getContext,verificationBase:invalidBase});
+ await invalid.dispatch({action:'save',manifest,expected_revision:0});
+ assert.equal((await invalid.dispatch({action:'get',plugin_id:'fixture'})).plugin.verified.write,undefined);
+ const otherOrigin=createWebPlugins({directory:path.join(root,'candidates','job_3'),getContext,verificationBase:base});
+ await otherOrigin.dispatch({action:'save',manifest:{...manifest,origin:'https://other.example.com'},expected_revision:0});
+ assert.deepEqual((await otherOrigin.dispatch({action:'get',plugin_id:'fixture'})).plugin.verified,{});
+ assert.equal((await published.dispatch({action:'promote',candidate_id:'job_1',plugin_id:'fixture',expected_revision:7})).status,'revision_conflict');
+ console.log('OK: herencia exacta, nueva/modificada pendiente, promoción y conflicto sin ejecutar escrituras.');
+}finally{await rm(root,{recursive:true,force:true});}

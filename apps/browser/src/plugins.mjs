@@ -207,7 +207,7 @@ async function executeProgram(context, manifest, fn, args) {
   return result;
 }
 
-export function createWebPlugins({ directory, getContext }) {
+export function createWebPlugins({ directory, getContext, verificationBase }) {
   async function prepare() {
     await pluginFs.mkdir(directory, { recursive: true, mode: 0o700 });
     const info = await pluginFs.lstat(directory);
@@ -234,6 +234,16 @@ export function createWebPlugins({ directory, getContext }) {
     }
     validateWebPlugin(record.manifest);
     if (record.manifest.id !== id || !Number.isSafeInteger(record.revision) || record.revision < 1 || !pluginObject(record.verified)) pluginFail('plugin_storage_error');
+    // Solo evidencia publicada vigente y funciones idénticas, nunca pruebas de otro candidato.
+    if (verificationBase?.manifest?.id === id && verificationBase.manifest.origin === record.manifest.origin) {
+      for (const fn of record.manifest.functions) {
+        const previous = verificationBase.manifest.functions.find(item => item.name === fn.name);
+        const proof = verificationBase.verified?.[fn.name];
+        if (proof?.revision === verificationBase.revision && JSON.stringify(previous) === JSON.stringify(fn)) {
+          record.verified[fn.name] = { ...proof, revision: record.revision, source_revision: verificationBase.revision };
+        }
+      }
+    }
     return record;
   }
   async function store(record) {
@@ -339,11 +349,11 @@ export function createWebPlugins({ directory, getContext }) {
       if (request.action === 'list') return { plugins: await catalogueRecords() };
       if (request.action === 'promote') {
         if (!pluginId(request.candidate_id)) pluginFail('invalid_plugin_arguments');
-        const candidateStore = createWebPlugins({ directory: pluginPath.join(directory, 'candidates', request.candidate_id), getContext });
-        const candidate = (await candidateStore.dispatch({ action: 'get', plugin_id: request.plugin_id })).plugin;
-        if (!candidate || candidate.manifest.functions.some(fn => candidate.verified[fn.name]?.revision !== candidate.revision)) return { status: 'verification_required' };
         const previous = await load(request.plugin_id);
         if (request.expected_revision !== (previous?.revision || 0)) return { status: 'revision_conflict' };
+        const candidateStore = createWebPlugins({ directory: pluginPath.join(directory, 'candidates', request.candidate_id), getContext, verificationBase: previous });
+        const candidate = (await candidateStore.dispatch({ action: 'get', plugin_id: request.plugin_id })).plugin;
+        if (!candidate || candidate.manifest.functions.some(fn => candidate.verified[fn.name]?.revision !== candidate.revision)) return { status: 'verification_required' };
         await capacity(previous);
         const revision = (previous?.revision || 0) + 1;
         const record = { manifest: candidate.manifest, revision, updated_at: new Date().toISOString(), verified: Object.fromEntries(candidate.manifest.functions.map(fn => [fn.name, { ...candidate.verified[fn.name], revision }])) };
