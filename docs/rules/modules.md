@@ -34,6 +34,8 @@ Antes de añadir/actualizar: verificar versión exacta en registro oficial y man
 
 El transporte MCP admite resultados de imagen de herramientas propias mediante with_image; mantiene separado structuredContent y no conoce apps ni páginas. Requests siguen en 128 KiB y respuestas en 4 MiB. Los artifacts y la lectura/subida de archivos pertenecen a browser, sin acceso a tablas de otras apps. Ver D-026.
 
+Si la duplicación del resultado como texto excede el límite MCP, el transporte conserva structuredContent completo y sustituye solo el texto duplicado por una referencia breve. Si aun así no cabe, devuelve response_too_large con resultado de operación desconocido, sin cerrar el canal ni autorizar repetirla. Server expone si conserva clientes conectados, sin conocer trabajos o decidir reintentos; plugins usa esa señal entre turnos para programar recuperación de sus propias sesiones.
+
 `plugins` se compone explícitamente en bootstrap; posee trabajos/outbox y un worker serial bajo demanda, con diario y ajustes inyectados. Usa browser y las sesiones builder públicas de llm sin importar presence; bootstrap adapta el diario. Presence no conoce jobs y conserva sus recibos de mensajes. Kernel no importa plugins. Stop cancela y une el constructor antes de browser/MCP/SQLite. Ver [D-027](../decisions/web-plugins.md).
 
 Proactivity es una app independiente, compuesta en bootstrap con la clave opcional; no depende de assignments, plugins ni decisions local, y no ejecuta rutinas al arrancar.

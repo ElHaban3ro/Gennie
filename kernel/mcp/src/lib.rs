@@ -11,13 +11,14 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         Arc,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     thread::JoinHandle,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 const LIMIT: usize = 128 * 1024;
-const RESPONSE_LIMIT: usize = 4 * 1024 * 1024;
+/// Límite del mensaje de respuesta MCP, incluido su sobre y salto de línea.
+pub const MAX_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
 // Mayor que la espera del navegador, menor que la espera del cliente Codex.
 const BRIDGE_RESPONSE_TIMEOUT_SECS: u64 = 75;
 const CLIENT_TOOL_TIMEOUT_SECS: u64 = 90;
@@ -148,7 +149,14 @@ impl Launch {
 pub struct Server {
     launch: Launch,
     stopping: Arc<AtomicBool>,
+    clients: Arc<AtomicUsize>,
     worker: Option<JoinHandle<()>>,
+}
+struct ClientConnection(Arc<AtomicUsize>);
+impl Drop for ClientConnection {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::AcqRel);
+    }
 }
 impl Server {
     pub fn start(registry: Registry, helper: &Path) -> Result<Self> {
@@ -172,6 +180,8 @@ impl Server {
             listener.set_nonblocking(true)?;
             let stopping = Arc::new(AtomicBool::new(false));
             let stop = stopping.clone();
+            let connections = Arc::new(AtomicUsize::new(0));
+            let active_connections = connections.clone();
             let worker = std::thread::Builder::new()
                 .name("gennie-mcp".into())
                 .spawn(move || {
@@ -193,9 +203,12 @@ impl Server {
                                 }
                                 let registry = registry.clone();
                                 let stop = stop.clone();
+                                active_connections.fetch_add(1, Ordering::AcqRel);
+                                let connection = ClientConnection(active_connections.clone());
                                 if let Ok(client) = std::thread::Builder::new()
                                     .name("gennie-mcp-client".into())
                                     .spawn(move || {
+                                        let _connection = connection;
                                         let _ = serve(stream, &registry, &stop);
                                     })
                                 {
@@ -220,6 +233,7 @@ impl Server {
                     tool_names,
                 },
                 stopping,
+                clients: connections,
                 worker: Some(worker),
             })
         })();
@@ -231,6 +245,10 @@ impl Server {
     }
     pub fn launch(&self) -> Launch {
         self.launch.clone()
+    }
+    /// Clientes conectados al host privado; no acredita que una herramienta haya tenido éxito.
+    pub fn has_clients(&self) -> bool {
+        self.clients.load(Ordering::Acquire) > 0 && !self.stopping.load(Ordering::Acquire)
     }
     pub fn stop(&mut self) -> Result<()> {
         self.stopping.store(true, Ordering::Release);
@@ -287,10 +305,7 @@ fn serve(mut stream: UnixStream, registry: &Registry, stopping: &AtomicBool) -> 
                 ),
             };
             if let Some(response) = response {
-                let response = serde_json::to_vec(&response)?;
-                if response.len() > RESPONSE_LIMIT {
-                    return Err("Respuesta MCP demasiado grande".into());
-                }
+                let response = encode_response(response)?;
                 stream.write_all(&response)?;
                 stream.write_all(b"\n")?;
             }
@@ -300,6 +315,33 @@ fn serve(mut stream: UnixStream, registry: &Registry, stopping: &AtomicBool) -> 
         }
     }
     Ok(())
+}
+fn encode_response(mut response: Value) -> Result<Vec<u8>> {
+    let mut bytes = serde_json::to_vec(&response)?;
+    if bytes.len() < MAX_RESPONSE_BYTES {
+        return Ok(bytes);
+    }
+    // structuredContent conserva los datos completos; el texto no necesita duplicarlos.
+    if response["result"].get("structuredContent").is_some()
+        && let Some(content) = response["result"]["content"].as_array_mut()
+    {
+        for item in content {
+            if item["type"] == "text" {
+                item["text"] = json!("Resultado completo disponible en structuredContent.");
+            }
+        }
+        bytes = serde_json::to_vec(&response)?;
+        if bytes.len() < MAX_RESPONSE_BYTES {
+            return Ok(bytes);
+        }
+    }
+    // La operación ya pudo ejecutarse. Informar el límite sin cortar el canal ni simular éxito.
+    Ok(serde_json::to_vec(
+        &json!({"jsonrpc":"2.0","id":response["id"],"result":{
+            "content":[{"type":"text","text":"El resultado supera el tamaño del canal. La operación pudo completarse; consulta su estado antes de repetirla y recupera los datos por páginas o en una salida más pequeña."}],
+            "structuredContent":{"code":"response_too_large","outcome":"unknown"},"isError":true
+        }}),
+    )?)
 }
 /// Helper stdio sin SQLite ni acceso a recursos de las apps. El host ejecuta las herramientas.
 pub fn bridge(socket: &Path) -> Result<()> {
@@ -331,9 +373,9 @@ pub fn bridge(socket: &Path) -> Result<()> {
             let mut line = Vec::new();
             let n = response
                 .by_ref()
-                .take((RESPONSE_LIMIT + 1) as u64)
+                .take((MAX_RESPONSE_BYTES + 1) as u64)
                 .read_until(b'\n', &mut line)?;
-            if n == 0 || n > RESPONSE_LIMIT || line.last() != Some(&b'\n') {
+            if n == 0 || n > MAX_RESPONSE_BYTES || line.last() != Some(&b'\n') {
                 return Err("Respuesta MCP incompleta o demasiado grande".into());
             }
             output.write_all(&line)?;
@@ -346,6 +388,84 @@ pub fn bridge(socket: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn oversized_tool_result_does_not_close_the_transport() {
+        let mut registry = Registry::default();
+        registry
+            .register([Tool {
+                definition: json!({"name":"large_result"}),
+                call: Box::new(|_| Ok(json!({"data":"x".repeat(MAX_RESPONSE_BYTES / 2 + 1024)}))),
+            }])
+            .unwrap();
+        let mut server = Server::start(registry, &std::env::current_exe().unwrap()).unwrap();
+        let mut stream = UnixStream::connect(&server.launch.socket).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        stream.write_all(b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"large_result\"}}\n").unwrap();
+        let mut line = String::new();
+        let received = reader.read_line(&mut line).unwrap();
+        assert!(received > 0, "Una respuesta grande cerró el transporte MCP");
+        let result: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(result["id"], 1);
+        assert_eq!(result["result"]["isError"], false);
+        assert_eq!(
+            result["result"]["structuredContent"]["data"]
+                .as_str()
+                .unwrap()
+                .len(),
+            MAX_RESPONSE_BYTES / 2 + 1024
+        );
+        stream
+            .write_all(b"{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"ping\"}\n")
+            .unwrap();
+        line.clear();
+        reader.read_line(&mut line).unwrap();
+        let ping: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(ping["id"], 2);
+        assert!(ping.get("result").is_some());
+        server.stop().unwrap();
+    }
+
+    #[test]
+    fn unrepresentable_result_is_explicit_and_connected_clients_are_observed() {
+        let response = json!({"jsonrpc":"2.0","id":7,"result":{
+            "content":[{"type":"text","text":"large"}],
+            "structuredContent":{"data":"x".repeat(MAX_RESPONSE_BYTES)},"isError":false
+        }});
+        let result: Value = serde_json::from_slice(&encode_response(response).unwrap()).unwrap();
+        assert_eq!(result["id"], 7);
+        assert_eq!(result["result"]["isError"], true);
+        assert_eq!(
+            result["result"]["structuredContent"]["code"],
+            "response_too_large"
+        );
+        assert!(result["result"]["structuredContent"].get("data").is_none());
+
+        let mut server =
+            Server::start(Registry::default(), &std::env::current_exe().unwrap()).unwrap();
+        assert!(!server.has_clients());
+        let mut stream = UnixStream::connect(&server.launch.socket).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(1)))
+            .unwrap();
+        stream
+            .write_all(b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}\n")
+            .unwrap();
+        BufReader::new(stream.try_clone().unwrap())
+            .read_line(&mut String::new())
+            .unwrap();
+        assert!(server.has_clients());
+        drop(stream);
+        let deadline = std::time::Instant::now() + Duration::from_secs(1);
+        while server.has_clients() && std::time::Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(!server.has_clients());
+        server.stop().unwrap();
+    }
+
     #[test]
     fn image_results_are_multimodal_without_duplicating_binary_in_structured_data() {
         let mut registry = Registry::default();
@@ -373,7 +493,7 @@ mod tests {
             json!({"artifact":"private.jpg"})
         );
         assert!(with_image(json!({}), "data".into(), "text/html").is_err());
-        assert!(with_image(json!({}), "a".repeat(RESPONSE_LIMIT), "image/jpeg").is_err());
+        assert!(with_image(json!({}), "a".repeat(MAX_RESPONSE_BYTES), "image/jpeg").is_err());
     }
     #[test]
     fn multiple_clients_are_served_and_idle_connections_do_not_block_shutdown() {

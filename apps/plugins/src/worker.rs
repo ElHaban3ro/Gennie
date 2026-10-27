@@ -174,6 +174,13 @@ fn report_block(
         }
     }
 }
+fn tool_transport_available(store: &store::Store, job_id: i64, server: &Server) -> Result<bool> {
+    if server.has_clients() {
+        return Ok(true);
+    }
+    store.schedule_tool_retry(job_id)?;
+    Ok(false)
+}
 fn build(controller: &Controller, job: &Job) -> Result<()> {
     let settings = controller.permitted()?;
     controller.0.store.report(job.id,"Estoy explorando la web y preparando funciones reutilizables; conservaré la versión publicada hasta verificar el candidato.")?;
@@ -247,6 +254,10 @@ fn build(controller: &Controller, job: &Job) -> Result<()> {
         if current.state != "running" || controller.0.stopping.load(Ordering::Acquire) {
             break;
         }
+        if session.is_some() && !tool_transport_available(&controller.0.store, job.id, &server)? {
+            controller.notify();
+            break;
+        }
         if !controller.0.store.begin_attempt(job.id)? {
             break;
         }
@@ -315,6 +326,10 @@ fn build(controller: &Controller, job: &Job) -> Result<()> {
         if controller.0.store.get(job.id)?.state != "running"
             || controller.0.stopping.load(Ordering::Acquire)
         {
+            break;
+        }
+        if !tool_transport_available(&controller.0.store, job.id, &server)? {
+            controller.notify();
             break;
         }
         if let Err(error) = turn {
@@ -658,6 +673,52 @@ fn gate(controller: &Controller, job: &Job, calls: &AtomicU64) -> Result<()> {
 #[cfg(test)]
 mod retry_tests {
     use super::*;
+    #[test]
+    fn disconnected_tool_channel_schedules_recovery_instead_of_another_turn() {
+        use std::io::{BufRead, BufReader, Write};
+        use std::os::unix::net::UnixStream;
+        let (store, _, job) = running_build();
+        store.account(job.id, 0, Some("preserved-thread")).unwrap();
+        let mut server =
+            Server::start(Registry::default(), &std::env::current_exe().unwrap()).unwrap();
+        let mut stream = UnixStream::connect(server.launch().socket).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(1)))
+            .unwrap();
+        stream
+            .write_all(b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}\n")
+            .unwrap();
+        BufReader::new(stream.try_clone().unwrap())
+            .read_line(&mut String::new())
+            .unwrap();
+        assert!(tool_transport_available(&store, job.id, &server).unwrap());
+        assert_eq!(store.get(job.id).unwrap().state, "running");
+        drop(stream);
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while server.has_clients() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(!tool_transport_available(&store, job.id, &server).unwrap());
+        assert!(!tool_transport_available(&store, job.id, &server).unwrap());
+        let saved = store.get(job.id).unwrap();
+        assert_eq!(saved.state, "queued");
+        assert_eq!(saved.thread_id.as_deref(), Some("preserved-thread"));
+        assert_eq!(saved.attempts, 1);
+        assert!(!store.begin_attempt(job.id).unwrap());
+        assert!(store.claim().unwrap().is_none());
+        assert_eq!(
+            saved
+                .events
+                .iter()
+                .filter(|e| e.message.contains("conexión con las herramientas"))
+                .count(),
+            1
+        );
+        assert!(!saved.summary.contains("conexión con Codex"));
+        store.recover().unwrap();
+        assert_eq!(store.claim().unwrap().unwrap().id, job.id);
+        server.stop().unwrap();
+    }
     fn running_build() -> (store::Store, BuildRequest, Job) {
         let db = gennie_db::Database::memory().unwrap();
         db.migrate(

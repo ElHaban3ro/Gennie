@@ -169,9 +169,14 @@ impl Store {
         self.0.with_connection(|c| { c.execute("UPDATE plugin_build_jobs SET spent_seconds=spent_seconds+?2,thread_id=coalesce(?3,thread_id) WHERE id=?1",params![id,i64::try_from(seconds)?,thread])?; Ok(()) })
     }
     pub fn schedule_provider_retry(&self, id: i64) -> Result<bool> {
+        self.schedule_retry(id, "Se interrumpió la conexión con Codex. Conservaré el trabajo y volveré a intentarlo en unos cinco minutos; si cierras Gennie, continuaré al abrirlo.")
+    }
+    pub fn schedule_tool_retry(&self, id: i64) -> Result<bool> {
+        self.schedule_retry(id, "Se cerró la conexión con las herramientas de Gennie. Conservaré el trabajo y lo retomaré con una conexión nueva en unos cinco minutos; si cierras Gennie, continuaré al abrirlo. Antes de repetir operaciones comprobaré sus resultados anteriores.")
+    }
+    fn schedule_retry(&self, id: i64, message: &str) -> Result<bool> {
         self.0.with_connection(|c| {
             let tx = c.transaction()?;
-            let message = "Se interrumpió la conexión con Codex. Conservaré el trabajo y volveré a intentarlo en unos cinco minutos; si cierras Gennie, continuaré al abrirlo.";
             let changed = tx.execute("UPDATE plugin_build_jobs SET state='queued', retry_at=strftime('%Y-%m-%dT%H:%M:%fZ','now','+5 minutes'), summary=?2, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?1 AND state='running'",params![id,message])?;
             if changed > 0 { tx.execute("INSERT INTO plugin_build_events(job_id,message) VALUES(?1,?2)",params![id,message])?; }
             tx.commit()?; Ok(changed > 0)
