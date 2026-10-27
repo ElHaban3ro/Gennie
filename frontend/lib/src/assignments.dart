@@ -3,12 +3,12 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/semantics.dart';
-import 'package:window_manager/window_manager.dart';
 import 'backend.dart';
 import 'glass.dart';
 import 'notice.dart';
 import 'assignment_logo.dart';
 import 'sidebar.dart';
+import 'detail_view.dart';
 
 const assignmentRoutes = {
   'http': 'Peticiones HTTP',
@@ -144,9 +144,6 @@ class _AssignmentsViewState extends State<AssignmentsView> {
     final record = matches.isEmpty ? null : matches.first;
     final enabled = widget.state.snapshot?.assignmentsEnabled == true;
     final hasSelection = creating || record != null;
-    final ink = sidebarInk(context);
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    final divider = BorderSide(color: ink.withValues(alpha: .10));
     return LayoutBuilder(
       builder: (context, size) {
         final width = widget.sidebarWidth
@@ -245,68 +242,41 @@ class _AssignmentsViewState extends State<AssignmentsView> {
                     ),
             ),
             Expanded(
-              child: Column(
-                children: [
-                  Container(
-                    key: const ValueKey('assignment-content-header'),
-                    height: 56,
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: dark ? .025 : .26),
-                      border: Border(bottom: divider),
-                    ),
-                    padding: const EdgeInsets.symmetric(horizontal: 24),
-                    child: DragToMoveArea(
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: Text(
-                          creating
-                              ? 'Nuevo encargo'
-                              : record == null
-                              ? 'Encargos'
-                              : jsonDecode(record.document)['title'] as String,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontFamily: 'Inter',
-                            fontSize: 14,
-                            fontWeight: FontWeight.w500,
-                            color: ink,
-                          ),
-                        ),
+              child: AppDetailView(
+                headerKey: const ValueKey('assignment-content-header'),
+                title: creating
+                    ? 'Nuevo encargo'
+                    : record == null
+                    ? 'Encargos'
+                    : jsonDecode(record.document)['title'] as String,
+                child: hasSelection && enabled
+                    ? !editing && record != null
+                          ? AssignmentProfile(
+                              key: ValueKey(record.id),
+                              record: record,
+                              onEdit: () => setState(() => editing = true),
+                            )
+                          : AssignmentEditor(
+                              key: ValueKey('$selected-$generation'),
+                              state: widget.state,
+                              record: record,
+                              onBack: () => setState(() {
+                                creating = false;
+                                editing = false;
+                              }),
+                              onReload: () => setState(() => generation++),
+                              onSaved: (id) => setState(() {
+                                creating = false;
+                                editing = false;
+                                selected = id;
+                              }),
+                            )
+                    : ContentEmpty(
+                        title: 'Encargos',
+                        message: enabled
+                            ? 'No hay contenido disponible'
+                            : 'El módulo de encargos está desactivado.',
                       ),
-                    ),
-                  ),
-                  Expanded(
-                    child: hasSelection && enabled
-                        ? !editing && record != null
-                              ? AssignmentProfile(
-                                  key: ValueKey(record.id),
-                                  record: record,
-                                  onEdit: () => setState(() => editing = true),
-                                )
-                              : AssignmentEditor(
-                                  key: ValueKey('$selected-$generation'),
-                                  state: widget.state,
-                                  record: record,
-                                  onBack: () => setState(() {
-                                    creating = false;
-                                    editing = false;
-                                  }),
-                                  onReload: () => setState(() => generation++),
-                                  onSaved: (id) => setState(() {
-                                    creating = false;
-                                    editing = false;
-                                    selected = id;
-                                  }),
-                                )
-                        : ContentEmpty(
-                            title: 'Encargos',
-                            message: enabled
-                                ? 'No hay contenido disponible'
-                                : 'El módulo de encargos está desactivado.',
-                          ),
-                  ),
-                ],
               ),
             ),
           ],
@@ -359,6 +329,7 @@ class AssignmentProfile extends StatelessWidget {
     final resolution = record.methodResolution == null
         ? null
         : jsonDecode(record.methodResolution!) as Map<String, dynamic>;
+    final sources = resolution?['sources'] as List? ?? const [];
     final ink = sidebarInk(context);
     final body = TextStyle(
       fontFamily: 'Inter',
@@ -417,401 +388,342 @@ class AssignmentProfile extends StatelessWidget {
 
     return DefaultTextStyle(
       style: body,
-      child: Align(
-        alignment: Alignment.topCenter,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 760),
-          child: ListView(
-            padding: const EdgeInsets.all(24),
-            children: [
-              Stack(
+      child: AppViewScroll(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            AppDetailHeading(
+              icon: AssignmentIcon(document: d, size: 72),
+              label: 'Encargo',
+              labelKey: const ValueKey('assignment-profile-label'),
+              title: d['title'] as String,
+              subtitle: apps.isEmpty
+                  ? null
+                  : Text(apps.map((a) => a['name']).join(' · ')),
+              onEdit: onEdit,
+              editLabel: 'Editar encargo',
+              editKey: const ValueKey('assignment-edit'),
+            ),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final label in [
+                  assignmentStatuses[d['status']],
+                  assignmentKinds[d['kind']],
+                  'Importancia ${assignmentPriorities[d['priority']]?.toLowerCase()}',
+                ])
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: ink.withValues(alpha: .07),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      label ?? '',
+                      style: body.copyWith(fontSize: 11),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            SelectableText(d['description'] as String, style: body),
+            const SizedBox(height: 24),
+            detail('Para qué', d['reason']),
+            Container(
+              key: const ValueKey('assignment-delivery'),
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                border: Border.all(color: ink.withValues(alpha: .12)),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Padding(
-                    padding: const EdgeInsets.only(right: 44),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.center,
+                  Icon(Icons.schedule_outlined, size: 20, color: ink),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        AssignmentIcon(document: d, size: 72),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Encargo',
-                                key: const ValueKey('assignment-profile-label'),
-                                style: body.copyWith(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                  color: ink.withValues(alpha: .7),
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Semantics(
-                                header: true,
-                                child: Text(
-                                  d['title'] as String,
-                                  style: body.copyWith(
-                                    fontSize: 22,
-                                    height: 1.25,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ),
-                              if (apps.isNotEmpty) ...[
-                                const SizedBox(height: 6),
-                                Text(
-                                  apps.map((a) => a['name']).join(' · '),
-                                  style: body.copyWith(
-                                    fontSize: 12,
-                                    color: ink.withValues(alpha: .7),
-                                  ),
-                                ),
-                              ],
-                            ],
+                        Text(
+                          'Cuándo recibir la información',
+                          style: body.copyWith(
+                            fontSize: 12,
+                            color: ink.withValues(alpha: .7),
                           ),
                         ),
-                      ],
-                    ),
-                  ),
-                  Positioned(
-                    top: 0,
-                    right: 0,
-                    child: AppTooltip(
-                      label: 'Editar encargo',
-                      child: Semantics(
-                        label: 'Editar encargo',
-                        child: IconButton(
-                          key: const ValueKey('assignment-edit'),
-                          onPressed: onEdit,
-                          constraints: const BoxConstraints.tightFor(
-                            width: 32,
-                            height: 32,
-                          ),
-                          padding: EdgeInsets.zero,
-                          color: ink,
-                          icon: const Icon(Icons.edit_outlined, size: 16),
+                        const SizedBox(height: 4),
+                        Text(
+                          schedule(context, d),
+                          style: body.copyWith(fontWeight: FontWeight.w500),
                         ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (final label in [
-                    assignmentStatuses[d['status']],
-                    assignmentKinds[d['kind']],
-                    'Importancia ${assignmentPriorities[d['priority']]?.toLowerCase()}',
-                  ])
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: ink.withValues(alpha: .07),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Text(
-                        label ?? '',
-                        style: body.copyWith(fontSize: 11),
-                      ),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 24),
-              SelectableText(d['description'] as String, style: body),
-              const SizedBox(height: 24),
-              detail('Para qué', d['reason']),
-              Container(
-                key: const ValueKey('assignment-delivery'),
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  border: Border.all(color: ink.withValues(alpha: .12)),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(Icons.schedule_outlined, size: 20, color: ink),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
+                        if (d['kind'] == 'recurring')
                           Text(
-                            'Cuándo recibir la información',
+                            d['timezone'] as String? ?? '',
                             style: body.copyWith(
-                              fontSize: 12,
+                              fontSize: 11,
                               color: ink.withValues(alpha: .7),
                             ),
                           ),
-                          const SizedBox(height: 4),
+                        if (guidance.isNotEmpty) ...[
+                          Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            child: Divider(
+                              height: 1,
+                              color: ink.withValues(alpha: .12),
+                            ),
+                          ),
                           Text(
-                            schedule(context, d),
-                            style: body.copyWith(fontWeight: FontWeight.w500),
+                            'Criterio para avisarte entre entregas',
+                            style: body.copyWith(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
-                          if (d['kind'] == 'recurring')
-                            Text(
-                              d['timezone'] as String? ?? '',
-                              style: body.copyWith(
-                                fontSize: 11,
-                                color: ink.withValues(alpha: .7),
-                              ),
-                            ),
-                          if (guidance.isNotEmpty) ...[
-                            Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                              child: Divider(
-                                height: 1,
-                                color: ink.withValues(alpha: .12),
-                              ),
-                            ),
-                            Text(
-                              'Criterio para avisarte entre entregas',
-                              style: body.copyWith(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            _ExpandableGuidance(text: guidance, style: body),
-                          ],
+                          const SizedBox(height: 4),
+                          _ExpandableGuidance(text: guidance, style: body),
                         ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 24),
-              Theme(
-                data: Theme.of(
-                  context,
-                ).copyWith(dividerColor: Colors.transparent),
-                child: ExpansionTile(
-                  tilePadding: EdgeInsets.zero,
-                  childrenPadding: const EdgeInsets.only(top: 12),
-                  iconColor: ink,
-                  collapsedIconColor: ink,
-                  title: Text(
-                    'Detalles del encargo',
-                    style: body.copyWith(fontWeight: FontWeight.w500),
-                  ),
-                  children: [
-                    section('Método', Icons.route_outlined, [
-                      detail(
-                        'Integración',
-                        method == null
-                            ? 'Pendiente de definir'
-                            : '${method['plugin_id']} · ${(method['functions'] as List).join(' → ')}',
-                      ),
-                      if (resolution != null &&
-                          resolution['status'] != null) ...[
-                        detail(
-                          'Estado técnico',
-                          assignmentMethodStates[resolution['status']] ??
-                              resolution['status'],
-                        ),
-                        for (final route in resolution['routes'] as List? ?? [])
-                          detail(
-                            route['function'] as String,
-                            '${assignmentRoutes[route['route']] ?? 'Sin vía disponible'} · ${assignmentMethodStates[route['status']] ?? route['status']}',
-                          ),
                       ],
-                      for (final source
-                          in resolution?['sources'] as List? ?? [])
-                        detail(
-                          source['source'] as String,
-                          assignmentSourceStates[source['status']] ??
-                              'Estado desconocido',
-                        ),
-                    ]),
-                    section('Autorización', Icons.verified_user_outlined, [
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
+            Theme(
+              data: Theme.of(
+                context,
+              ).copyWith(dividerColor: Colors.transparent),
+              child: ExpansionTile(
+                tilePadding: EdgeInsets.zero,
+                childrenPadding: const EdgeInsets.only(top: 12),
+                iconColor: ink,
+                collapsedIconColor: ink,
+                title: Text(
+                  'Detalles del encargo',
+                  style: body.copyWith(fontWeight: FontWeight.w500),
+                ),
+                children: [
+                  section('Método', Icons.route_outlined, [
+                    detail(
+                      'Integración',
+                      method == null
+                          ? (sources.any(
+                                  (source) => assignmentRoutes.containsKey(
+                                    source['recommended_route'],
+                                  ),
+                                )
+                                ? 'Sin plugin publicado'
+                                : 'Pendiente de definir')
+                          : '${method['plugin_id']} · ${(method['functions'] as List).join(' → ')}',
+                    ),
+                    if (resolution != null && resolution['status'] != null) ...[
                       detail(
-                        'Alcance delegado',
-                        authorization?['scope'] ??
-                            'Sin autorización registrada',
+                        'Estado técnico',
+                        assignmentMethodStates[resolution['status']] ??
+                            resolution['status'],
                       ),
-                      if (authorization != null)
+                      for (final route in resolution['routes'] as List? ?? [])
                         detail(
-                          'Vías permitidas',
-                          (authorization['allowed_routes'] as List)
-                              .map((r) => assignmentRoutes[r] ?? r)
-                              .join(' · '),
+                          route['function'] as String,
+                          '${assignmentRoutes[route['route']] ?? 'Sin vía disponible'} · ${assignmentMethodStates[route['status']] ?? route['status']}',
                         ),
+                    ],
+                    for (final source in sources) ...[
+                      detail(
+                        source['source'] as String,
+                        assignmentSourceStates[source['status']] ??
+                            'Estado desconocido',
+                      ),
+                      if (assignmentRoutes[source['recommended_route']]
+                          case final route?)
+                        detail(
+                          'Método previsto para ${source['source']}',
+                          '$route · pendiente de comprobar${(authorization?['allowed_routes'] as List? ?? []).contains(source['recommended_route']) ? '' : ' · vía sin autorización registrada'}',
+                        ),
+                    ],
+                  ]),
+                  section('Autorización', Icons.verified_user_outlined, [
+                    detail(
+                      'Alcance delegado',
+                      authorization?['scope'] ?? 'Sin autorización registrada',
+                    ),
+                    if (authorization != null)
+                      detail(
+                        'Vías permitidas',
+                        (authorization['allowed_routes'] as List)
+                            .map((r) => assignmentRoutes[r] ?? r)
+                            .join(' · '),
+                      ),
+                  ]),
+                  if (hasValue(d['context']))
+                    section('Contexto', Icons.notes_outlined, [
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 16),
+                        child: SelectableText(
+                          d['context'] as String,
+                          style: body,
+                        ),
+                      ),
                     ]),
-                    if (hasValue(d['context']))
-                      section('Contexto', Icons.notes_outlined, [
+                  if (apps.isNotEmpty)
+                    section('Aplicaciones', Icons.apps_outlined, [
+                      for (final app in apps)
                         Padding(
                           padding: const EdgeInsets.only(bottom: 16),
-                          child: SelectableText(
-                            d['context'] as String,
-                            style: body,
-                          ),
-                        ),
-                      ]),
-                    if (apps.isNotEmpty)
-                      section('Aplicaciones', Icons.apps_outlined, [
-                        for (final app in apps)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 16),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.center,
-                              children: [
-                                AssignmentLogo(
-                                  document: {
-                                    'applications': [app],
-                                  },
-                                  size: 28,
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      SelectableText(
-                                        app['name'] as String,
-                                        style: body.copyWith(
-                                          fontWeight: FontWeight.w500,
-                                        ),
-                                      ),
-                                      if (hasValue(app['url']))
-                                        SelectableText(
-                                          app['url'] as String,
-                                          style: body.copyWith(
-                                            fontSize: 12,
-                                            color: ink.withValues(alpha: .7),
-                                          ),
-                                        ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                      ]),
-                    if (preparation.values.any(hasValue))
-                      _AssignmentDetailDisclosure(
-                        title: 'Preparación interna',
-                        icon: Icons.checklist_outlined,
-                        summary: [
-                          if (preparation['interval_minutes'] != null)
-                            'Cada ${preparation['interval_minutes']} minutos',
-                          if (hasValue(preparation['steps']))
-                            '${(preparation['steps'] as List).length} pasos de preparación',
-                        ].join(' · '),
-                        style: body,
-                        children: [
-                          if (preparation['interval_minutes'] != null)
-                            detail(
-                              'Cadencia',
-                              'Cada ${preparation['interval_minutes']} minutos. Esta cadencia no cambia la hora del aviso.',
-                            ),
-                          detail(
-                            'Motivo de la cadencia',
-                            preparation['rationale'],
-                          ),
-                          if (hasValue(preparation['steps'])) ...[
-                            Text(
-                              'Pasos de preparación',
-                              style: body.copyWith(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              AssignmentLogo(
+                                document: {
+                                  'applications': [app],
+                                },
+                                size: 28,
                               ),
-                            ),
-                            const SizedBox(height: 8),
-                            for (final (index, step)
-                                in (preparation['steps'] as List).indexed)
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 12),
-                                child: Row(
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    SizedBox(
-                                      width: 24,
-                                      child: Text(
-                                        '${index + 1}.',
+                                    SelectableText(
+                                      app['name'] as String,
+                                      style: body.copyWith(
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                    if (hasValue(app['url']))
+                                      SelectableText(
+                                        app['url'] as String,
                                         style: body.copyWith(
-                                          color: ink.withValues(alpha: .65),
+                                          fontSize: 12,
+                                          color: ink.withValues(alpha: .7),
                                         ),
                                       ),
-                                    ),
-                                    Expanded(
-                                      child: SelectableText(
-                                        step as String,
-                                        style: body,
-                                      ),
-                                    ),
                                   ],
                                 ),
                               ),
-                            const SizedBox(height: 4),
-                          ],
-                        ],
-                      ),
-                    if (followUp != null &&
-                        [
-                          followUp['scope'],
-                          followUp['signals'],
-                          followUp['action_scope'],
-                        ].any(hasValue))
-                      _AssignmentDetailDisclosure(
-                        title: 'Seguimiento',
-                        icon: Icons.visibility_outlined,
-                        summary: followUp['scope'] as String? ?? '',
-                        style: body,
-                        children: [
-                          detail('Qué observar', followUp['scope']),
-                          if (hasValue(followUp['signals'])) ...[
-                            Text(
-                              'Aspectos a valorar',
-                              style: body.copyWith(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                              ),
+                            ],
+                          ),
+                        ),
+                    ]),
+                  if (preparation.values.any(hasValue))
+                    _AssignmentDetailDisclosure(
+                      title: 'Preparación interna',
+                      icon: Icons.checklist_outlined,
+                      summary: [
+                        if (preparation['interval_minutes'] != null)
+                          'Cada ${preparation['interval_minutes']} minutos',
+                        if (hasValue(preparation['steps']))
+                          '${(preparation['steps'] as List).length} pasos de preparación',
+                      ].join(' · '),
+                      style: body,
+                      children: [
+                        if (preparation['interval_minutes'] != null)
+                          detail(
+                            'Cadencia',
+                            'Cada ${preparation['interval_minutes']} minutos. Esta cadencia no cambia la hora del aviso.',
+                          ),
+                        detail(
+                          'Motivo de la cadencia',
+                          preparation['rationale'],
+                        ),
+                        if (hasValue(preparation['steps'])) ...[
+                          Text(
+                            'Pasos de preparación',
+                            style: body.copyWith(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
                             ),
-                            const SizedBox(height: 8),
-                            for (final signal in followUp['signals'] as List)
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 12),
-                                child: Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      '•',
+                          ),
+                          const SizedBox(height: 8),
+                          for (final (index, step)
+                              in (preparation['steps'] as List).indexed)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  SizedBox(
+                                    width: 24,
+                                    child: Text(
+                                      '${index + 1}.',
                                       style: body.copyWith(
                                         color: ink.withValues(alpha: .65),
                                       ),
                                     ),
-                                    const SizedBox(width: 10),
-                                    Expanded(
-                                      child: SelectableText(
-                                        signal as String,
-                                        style: body,
-                                      ),
+                                  ),
+                                  Expanded(
+                                    child: SelectableText(
+                                      step as String,
+                                      style: body,
                                     ),
-                                  ],
-                                ),
+                                  ),
+                                ],
                               ),
-                            const SizedBox(height: 4),
-                          ],
-                          detail(
-                            'Acciones delegadas',
-                            followUp['action_scope'],
-                          ),
+                            ),
+                          const SizedBox(height: 4),
                         ],
-                      ),
-                  ],
-                ),
+                      ],
+                    ),
+                  if (followUp != null &&
+                      [
+                        followUp['scope'],
+                        followUp['signals'],
+                        followUp['action_scope'],
+                      ].any(hasValue))
+                    _AssignmentDetailDisclosure(
+                      title: 'Seguimiento',
+                      icon: Icons.visibility_outlined,
+                      summary: followUp['scope'] as String? ?? '',
+                      style: body,
+                      children: [
+                        detail('Qué observar', followUp['scope']),
+                        if (hasValue(followUp['signals'])) ...[
+                          Text(
+                            'Aspectos a valorar',
+                            style: body.copyWith(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          for (final signal in followUp['signals'] as List)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    '•',
+                                    style: body.copyWith(
+                                      color: ink.withValues(alpha: .65),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: SelectableText(
+                                      signal as String,
+                                      style: body,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          const SizedBox(height: 4),
+                        ],
+                        detail('Acciones delegadas', followUp['action_scope']),
+                      ],
+                    ),
+                ],
               ),
-              const SizedBox(height: 16),
-            ],
-          ),
+            ),
+            const SizedBox(height: 16),
+          ],
         ),
       ),
     );
@@ -1491,488 +1403,461 @@ class _AssignmentEditorState extends State<AssignmentEditor> {
           child: Column(
             children: [
               Expanded(
-                child: SingleChildScrollView(
+                child: AppViewScroll(
                   key: const ValueKey('assignment-editor-scroll'),
-                  child: Center(
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 760),
-                      child: Padding(
-                        padding: const EdgeInsets.all(24),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          AssignmentIcon(
+                            document: {
+                              'title': fields['title']!.text,
+                              'applications': applications,
+                            },
+                            size: 56,
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                AssignmentIcon(
-                                  document: {
-                                    'title': fields['title']!.text,
-                                    'applications': applications,
-                                  },
-                                  size: 56,
+                                Text(
+                                  widget.record == null
+                                      ? 'Nuevo encargo'
+                                      : 'Editar encargo',
+                                  style: body.copyWith(
+                                    fontSize: 22,
+                                    height: 1.25,
+                                    fontWeight: FontWeight.w600,
+                                  ),
                                 ),
-                                const SizedBox(width: 16),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        widget.record == null
-                                            ? 'Nuevo encargo'
-                                            : 'Editar encargo',
-                                        style: body.copyWith(
-                                          fontSize: 22,
-                                          height: 1.25,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 6),
-                                      Text(
-                                        'La tarea, sus fuentes y cuándo recibirla.',
-                                        style: body.copyWith(
-                                          fontSize: 12,
-                                          color: ink.withValues(alpha: .7),
-                                        ),
-                                      ),
-                                    ],
+                                const SizedBox(height: 6),
+                                Text(
+                                  'La tarea, sus fuentes y cuándo recibirla.',
+                                  style: body.copyWith(
+                                    fontSize: 12,
+                                    color: ink.withValues(alpha: .7),
                                   ),
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 32),
-                            field('title', 'Título', required: true),
-                            field(
-                              'description',
-                              'Qué debe hacer Gennie',
-                              lines: 3,
-                              required: true,
-                            ),
-                            field(
-                              'reason',
-                              'Para qué lo necesitas (opcional)',
-                              lines: 2,
-                            ),
-                            const SizedBox(height: 12),
-                            heading(
-                              'Cuándo recibir la información',
-                              Icons.schedule_outlined,
-                            ),
-                            choice(
-                              'Tipo',
-                              kind,
-                              assignmentKinds,
-                              (v) => kind = v,
-                            ),
-                            if (kind == 'recurring') ...[
-                              pair(
-                                choice('Repetición', frequency, const {
-                                  'daily': 'Todos los días',
-                                  'weekly': 'Cada semana',
-                                }, (v) => frequency = v),
-                                field(
-                                  'time',
-                                  'Hora del aviso',
-                                  required: true,
-                                  hint: 'Formato de 24 horas: 08:00',
-                                ),
-                              ),
-                              field(
-                                'timezone',
-                                'Zona horaria',
-                                required: true,
-                                hint: 'Ejemplo: America/Bogota',
-                              ),
-                              if (frequency == 'weekly')
-                                Padding(
-                                  padding: const EdgeInsets.only(bottom: 16),
-                                  child: Wrap(
-                                    spacing: 4,
-                                    children: [
-                                      for (var i = 1; i <= 7; i++)
-                                        FilterChip(
-                                          label: Text(
-                                            const [
-                                              'Lun',
-                                              'Mar',
-                                              'Mié',
-                                              'Jue',
-                                              'Vie',
-                                              'Sáb',
-                                              'Dom',
-                                            ][i - 1],
-                                          ),
-                                          selected: weekdays.contains(i),
-                                          onSelected: saving
-                                              ? null
-                                              : (v) => setState(() {
-                                                  if (v) {
-                                                    weekdays.add(i);
-                                                  } else {
-                                                    weekdays.remove(i);
-                                                  }
-                                                }),
-                                        ),
-                                    ],
-                                  ),
-                                ),
-                            ] else ...[
-                              Text(
-                                kind == 'goal'
-                                    ? 'Fecha límite opcional. Se elige en la hora local del sistema.'
-                                    : 'Elige fecha y hora de aviso en la hora local del sistema.',
-                              ),
-                              Wrap(
-                                crossAxisAlignment: WrapCrossAlignment.center,
-                                children: [
-                                  TextButton(
-                                    onPressed: saving ? null : pickDate,
-                                    child: Text(
-                                      notifyAt == null
-                                          ? 'Elegir fecha y hora'
-                                          : '${MaterialLocalizations.of(context).formatMediumDate(notifyAt!)} · ${TimeOfDay.fromDateTime(notifyAt!).format(context)}',
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 32),
+                      field('title', 'Título', required: true),
+                      field(
+                        'description',
+                        'Qué debe hacer Gennie',
+                        lines: 3,
+                        required: true,
+                      ),
+                      field(
+                        'reason',
+                        'Para qué lo necesitas (opcional)',
+                        lines: 2,
+                      ),
+                      const SizedBox(height: 12),
+                      heading(
+                        'Cuándo recibir la información',
+                        Icons.schedule_outlined,
+                      ),
+                      choice('Tipo', kind, assignmentKinds, (v) => kind = v),
+                      if (kind == 'recurring') ...[
+                        pair(
+                          choice('Repetición', frequency, const {
+                            'daily': 'Todos los días',
+                            'weekly': 'Cada semana',
+                          }, (v) => frequency = v),
+                          field(
+                            'time',
+                            'Hora del aviso',
+                            required: true,
+                            hint: 'Formato de 24 horas: 08:00',
+                          ),
+                        ),
+                        field(
+                          'timezone',
+                          'Zona horaria',
+                          required: true,
+                          hint: 'Ejemplo: America/Bogota',
+                        ),
+                        if (frequency == 'weekly')
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 16),
+                            child: Wrap(
+                              spacing: 4,
+                              children: [
+                                for (var i = 1; i <= 7; i++)
+                                  FilterChip(
+                                    label: Text(
+                                      const [
+                                        'Lun',
+                                        'Mar',
+                                        'Mié',
+                                        'Jue',
+                                        'Vie',
+                                        'Sáb',
+                                        'Dom',
+                                      ][i - 1],
                                     ),
-                                  ),
-                                  if (notifyAt != null && kind == 'goal')
-                                    TextButton(
-                                      onPressed: saving
-                                          ? null
-                                          : () =>
-                                                setState(() => notifyAt = null),
-                                      child: const Text('Sin fecha límite'),
-                                    ),
-                                ],
-                              ),
-                              const SizedBox(height: 16),
-                            ],
-
-                            const SizedBox(height: 12),
-                            sectionDivider(),
-                            heading('Aplicaciones', Icons.apps_outlined),
-                            if (applications.isEmpty)
-                              Text(
-                                'Ninguna aplicación añadida',
-                                style: body.copyWith(
-                                  fontSize: 12,
-                                  color: ink.withValues(alpha: .7),
-                                ),
-                              ),
-                            for (var i = 0; i < applications.length; i++) ...[
-                              Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Padding(
-                                    padding: const EdgeInsets.only(top: 12),
-                                    child: AssignmentLogo(
-                                      document: {
-                                        'applications': [applications[i]],
-                                      },
-                                      size: 32,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: TextFormField(
-                                      key: ValueKey(
-                                        'name-${identityHashCode(applications[i])}',
-                                      ),
-                                      initialValue:
-                                          applications[i]['name'] as String? ??
-                                          '',
-                                      enabled: !saving,
-                                      decoration: const InputDecoration(
-                                        labelText: 'Nombre de la aplicación',
-                                      ),
-                                      onChanged: (v) =>
-                                          applications[i]['name'] = v,
-                                    ),
-                                  ),
-                                  AppTooltip(
-                                    label: 'Quitar aplicación',
-                                    child: Semantics(
-                                      label: 'Quitar aplicación',
-                                      child: IconButton(
-                                        onPressed: saving
-                                            ? null
-                                            : () => setState(
-                                                () => applications.removeAt(i),
-                                              ),
-                                        icon: const Icon(Icons.close, size: 16),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 12),
-                              disclosure(
-                                'source-${identityHashCode(applications[i])}',
-                                'Origen de la aplicación',
-                                Icons.link_outlined,
-                                applications[i]['kind'] == 'desktop'
-                                    ? 'En el ordenador'
-                                    : applications[i]['url'] as String? ??
-                                          'Web',
-                                [
-                                  choice(
-                                    'Dónde se utiliza',
-                                    applications[i]['kind'] as String? ?? 'web',
-                                    const {
-                                      'web': 'Web',
-                                      'desktop': 'En el ordenador',
-                                    },
-                                    (v) {
-                                      applications[i]['kind'] = v;
-                                      if (v == 'desktop') {
-                                        applications[i]['url'] = null;
-                                      }
-                                    },
-                                  ),
-                                  if (applications[i]['kind'] == 'web')
-                                    TextFormField(
-                                      key: ValueKey(
-                                        'url-${identityHashCode(applications[i])}',
-                                      ),
-                                      initialValue:
-                                          applications[i]['url'] as String? ??
-                                          '',
-                                      enabled: !saving,
-                                      decoration: const InputDecoration(
-                                        labelText: 'Dirección web (opcional)',
-                                      ),
-                                      onChanged: (v) => applications[i]['url'] =
-                                          v.trim().isEmpty ? null : v.trim(),
-                                    ),
-                                ],
-                              ),
-                            ],
-                            TextButton.icon(
-                              onPressed: saving
-                                  ? null
-                                  : () => setState(
-                                      () => applications.add({
-                                        'name': '',
-                                        'kind': 'web',
-                                        'url': null,
-                                        'plugin_available': false,
-                                        'manual_required': true,
-                                      }),
-                                    ),
-                              style: TextButton.styleFrom(
-                                padding: EdgeInsets.zero,
-                                overlayColor: Colors.transparent,
-                              ),
-                              icon: const Icon(Icons.add, size: 16),
-                              label: const Text('Añadir aplicación'),
-                            ),
-                            const SizedBox(height: 20),
-                            sectionDivider(),
-                            disclosure(
-                              'method',
-                              'Método y autorización',
-                              Icons.route_outlined,
-                              optional('pluginId') ??
-                                  'Método pendiente; autorización independiente',
-                              [
-                                field('pluginId', 'Plugin (opcional)'),
-                                field(
-                                  'functions',
-                                  'Funciones alternativas, una por línea',
-                                  lines: 4,
-                                  hint:
-                                      'El constructor verifica sus vías; orden de preferencia.',
-                                ),
-                                field(
-                                  'authorization',
-                                  'Alcance autorizado',
-                                  lines: 3,
-                                ),
-                                for (final route in assignmentRoutes.entries)
-                                  CheckboxListTile(
-                                    contentPadding: EdgeInsets.zero,
-                                    title: Text(route.value, style: body),
-                                    value: allowedRoutes.contains(route.key),
-                                    onChanged: saving
+                                    selected: weekdays.contains(i),
+                                    onSelected: saving
                                         ? null
                                         : (v) => setState(() {
-                                            if (v == true) {
-                                              allowedRoutes.add(route.key);
+                                            if (v) {
+                                              weekdays.add(i);
                                             } else {
-                                              allowedRoutes.remove(route.key);
+                                              weekdays.remove(i);
                                             }
                                           }),
                                   ),
                               ],
                             ),
-                            sectionDivider(),
-                            disclosure(
-                              'context',
-                              'Contexto',
-                              Icons.notes_outlined,
-                              optional('context') ??
-                                  'Información adicional para interpretar la tarea.',
-                              [
-                                field(
-                                  'context',
-                                  'Contexto (opcional)',
-                                  lines: 3,
-                                ),
-                              ],
+                          ),
+                      ] else ...[
+                        Text(
+                          kind == 'goal'
+                              ? 'Fecha límite opcional. Se elige en la hora local del sistema.'
+                              : 'Elige fecha y hora de aviso en la hora local del sistema.',
+                        ),
+                        Wrap(
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            TextButton(
+                              onPressed: saving ? null : pickDate,
+                              child: Text(
+                                notifyAt == null
+                                    ? 'Elegir fecha y hora'
+                                    : '${MaterialLocalizations.of(context).formatMediumDate(notifyAt!)} · ${TimeOfDay.fromDateTime(notifyAt!).format(context)}',
+                              ),
                             ),
-                            sectionDivider(),
-                            disclosure(
-                              'preparation',
-                              'Preparación interna',
-                              Icons.checklist_outlined,
-                              optional('interval') == null
-                                  ? 'Cadencia y pasos para reunir la información.'
-                                  : 'Cada ${optional('interval')} minutos',
-                              [
-                                Padding(
-                                  padding: const EdgeInsets.only(bottom: 16),
-                                  child: Text(
-                                    'Reunir información no cambia la hora del aviso.',
-                                    style: body.copyWith(
-                                      fontSize: 12,
-                                      color: ink.withValues(alpha: .7),
-                                    ),
-                                  ),
-                                ),
-                                field(
-                                  'interval',
-                                  'Revisar cada cuántos minutos (opcional)',
-                                  required: followUpEnabled,
-                                ),
-                                field(
-                                  'rationale',
-                                  'Por qué usar esa cadencia',
-                                  lines: 2,
-                                  required: followUpEnabled,
-                                ),
-                                field(
-                                  'steps',
-                                  'Pasos de preparación (uno por línea)',
-                                  lines: 4,
-                                ),
-                              ],
+                            if (notifyAt != null && kind == 'goal')
+                              TextButton(
+                                onPressed: saving
+                                    ? null
+                                    : () => setState(() => notifyAt = null),
+                                child: const Text('Sin fecha límite'),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                      ],
+
+                      const SizedBox(height: 12),
+                      sectionDivider(),
+                      heading('Aplicaciones', Icons.apps_outlined),
+                      if (applications.isEmpty)
+                        Text(
+                          'Ninguna aplicación añadida',
+                          style: body.copyWith(
+                            fontSize: 12,
+                            color: ink.withValues(alpha: .7),
+                          ),
+                        ),
+                      for (var i = 0; i < applications.length; i++) ...[
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.only(top: 12),
+                              child: AssignmentLogo(
+                                document: {
+                                  'applications': [applications[i]],
+                                },
+                                size: 32,
+                              ),
                             ),
-                            sectionDivider(),
-                            Row(
-                              children: [
-                                const Icon(Icons.visibility_outlined, size: 18),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: Text(
-                                    'Seguimiento',
-                                    style: body.copyWith(
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: TextFormField(
+                                key: ValueKey(
+                                  'name-${identityHashCode(applications[i])}',
                                 ),
-                              ],
+                                initialValue:
+                                    applications[i]['name'] as String? ?? '',
+                                enabled: !saving,
+                                decoration: const InputDecoration(
+                                  labelText: 'Nombre de la aplicación',
+                                ),
+                                onChanged: (v) => applications[i]['name'] = v,
+                              ),
                             ),
-                            SwitchListTile.adaptive(
-                              key: const ValueKey('follow-up-policy'),
+                            AppTooltip(
+                              label: 'Quitar aplicación',
+                              child: Semantics(
+                                label: 'Quitar aplicación',
+                                child: IconButton(
+                                  onPressed: saving
+                                      ? null
+                                      : () => setState(
+                                          () => applications.removeAt(i),
+                                        ),
+                                  icon: const Icon(Icons.close, size: 16),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        disclosure(
+                          'source-${identityHashCode(applications[i])}',
+                          'Origen de la aplicación',
+                          Icons.link_outlined,
+                          applications[i]['kind'] == 'desktop'
+                              ? 'En el ordenador'
+                              : applications[i]['url'] as String? ?? 'Web',
+                          [
+                            choice(
+                              'Dónde se utiliza',
+                              applications[i]['kind'] as String? ?? 'web',
+                              const {
+                                'web': 'Web',
+                                'desktop': 'En el ordenador',
+                              },
+                              (v) {
+                                applications[i]['kind'] = v;
+                                if (v == 'desktop') {
+                                  applications[i]['url'] = null;
+                                }
+                              },
+                            ),
+                            if (applications[i]['kind'] == 'web')
+                              TextFormField(
+                                key: ValueKey(
+                                  'url-${identityHashCode(applications[i])}',
+                                ),
+                                initialValue:
+                                    applications[i]['url'] as String? ?? '',
+                                enabled: !saving,
+                                decoration: const InputDecoration(
+                                  labelText: 'Dirección web (opcional)',
+                                ),
+                                onChanged: (v) => applications[i]['url'] =
+                                    v.trim().isEmpty ? null : v.trim(),
+                              ),
+                          ],
+                        ),
+                      ],
+                      TextButton.icon(
+                        onPressed: saving
+                            ? null
+                            : () => setState(
+                                () => applications.add({
+                                  'name': '',
+                                  'kind': 'web',
+                                  'url': null,
+                                  'plugin_available': false,
+                                  'manual_required': true,
+                                }),
+                              ),
+                        style: TextButton.styleFrom(
+                          padding: EdgeInsets.zero,
+                          overlayColor: Colors.transparent,
+                        ),
+                        icon: const Icon(Icons.add, size: 16),
+                        label: const Text('Añadir aplicación'),
+                      ),
+                      const SizedBox(height: 20),
+                      sectionDivider(),
+                      disclosure(
+                        'method',
+                        'Método y autorización',
+                        Icons.route_outlined,
+                        optional('pluginId') ??
+                            'Método pendiente; autorización independiente',
+                        [
+                          field('pluginId', 'Plugin (opcional)'),
+                          field(
+                            'functions',
+                            'Funciones alternativas, una por línea',
+                            lines: 4,
+                            hint:
+                                'El constructor verifica sus vías; orden de preferencia.',
+                          ),
+                          field(
+                            'authorization',
+                            'Alcance autorizado',
+                            lines: 3,
+                          ),
+                          for (final route in assignmentRoutes.entries)
+                            CheckboxListTile(
                               contentPadding: EdgeInsets.zero,
-                              title: const Text(
-                                'Seguimiento entre entregas',
-                                style: TextStyle(fontSize: 13),
-                              ),
-                              subtitle: const Text(
-                                'Valorar cambios además de la entrega programada.',
-                                style: TextStyle(fontSize: 11),
-                              ),
-                              value: followUpEnabled,
+                              title: Text(route.value, style: body),
+                              value: allowedRoutes.contains(route.key),
                               onChanged: saving
                                   ? null
-                                  : (value) => setState(() {
-                                      followUpEnabled = value;
-                                      if (value) {
-                                        opened.add('followup');
-                                        if (optional('interval') == null) {
-                                          fields['interval']!.text = '10';
-                                        }
-                                        if (optional('rationale') == null) {
-                                          fields['rationale']!.text =
-                                              'Detectar cambios y valorar si conviene intervenir entre entregas.';
-                                        }
-                                        if (optional('guidance') == null) {
-                                          fields['guidance']!.text =
-                                              'Valora los cambios, el contexto y el historial. Decide si basta con registrar, si conviene preguntar, avisar o proponer ayuda, o si corresponde una acción delegada. Conserva los cambios aunque no justifiquen interrumpir; evita repetir preguntas o avisos sin novedades relevantes.';
-                                        }
+                                  : (v) => setState(() {
+                                      if (v == true) {
+                                        allowedRoutes.add(route.key);
+                                      } else {
+                                        allowedRoutes.remove(route.key);
                                       }
                                     }),
                             ),
-                            if (followUpEnabled)
-                              disclosure(
-                                'followup',
-                                'Criterios de seguimiento',
-                                Icons.tune_outlined,
-                                optional('followUpScope') ??
-                                    'Define qué observar y cuándo intervenir.',
-                                [
-                                  field(
-                                    'followUpScope',
-                                    'Qué observar',
-                                    lines: 3,
-                                    required: true,
-                                  ),
-                                  field(
-                                    'guidance',
-                                    'Cómo decidir si intervenir',
-                                    lines: 4,
-                                    required: true,
-                                    hint:
-                                        'Cuándo guardar silencio, preguntar, avisar o proponer ayuda.',
-                                  ),
-                                  disclosure(
-                                    'actions',
-                                    'Aspectos y acciones',
-                                    Icons.rule_outlined,
-                                    'Preguntas específicas y límites de las acciones delegadas.',
-                                    [
-                                      field(
-                                        'signals',
-                                        'Aspectos a valorar (uno por línea)',
-                                        lines: 3,
-                                      ),
-                                      field(
-                                        'actionScope',
-                                        'Acciones delegadas (opcional)',
-                                        lines: 3,
-                                        hint:
-                                            'Solo acciones que hayas encargado expresamente, con sus límites.',
-                                      ),
-                                    ],
-                                  ),
-                                ],
+                        ],
+                      ),
+                      sectionDivider(),
+                      disclosure(
+                        'context',
+                        'Contexto',
+                        Icons.notes_outlined,
+                        optional('context') ??
+                            'Información adicional para interpretar la tarea.',
+                        [field('context', 'Contexto (opcional)', lines: 3)],
+                      ),
+                      sectionDivider(),
+                      disclosure(
+                        'preparation',
+                        'Preparación interna',
+                        Icons.checklist_outlined,
+                        optional('interval') == null
+                            ? 'Cadencia y pasos para reunir la información.'
+                            : 'Cada ${optional('interval')} minutos',
+                        [
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 16),
+                            child: Text(
+                              'Reunir información no cambia la hora del aviso.',
+                              style: body.copyWith(
+                                fontSize: 12,
+                                color: ink.withValues(alpha: .7),
                               ),
-                            const SizedBox(height: 16),
-                            sectionDivider(),
+                            ),
+                          ),
+                          field(
+                            'interval',
+                            'Revisar cada cuántos minutos (opcional)',
+                            required: followUpEnabled,
+                          ),
+                          field(
+                            'rationale',
+                            'Por qué usar esa cadencia',
+                            lines: 2,
+                            required: followUpEnabled,
+                          ),
+                          field(
+                            'steps',
+                            'Pasos de preparación (uno por línea)',
+                            lines: 4,
+                          ),
+                        ],
+                      ),
+                      sectionDivider(),
+                      Row(
+                        children: [
+                          const Icon(Icons.visibility_outlined, size: 18),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              'Seguimiento',
+                              style: body.copyWith(fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                        ],
+                      ),
+                      SwitchListTile.adaptive(
+                        key: const ValueKey('follow-up-policy'),
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text(
+                          'Seguimiento entre entregas',
+                          style: TextStyle(fontSize: 13),
+                        ),
+                        subtitle: const Text(
+                          'Valorar cambios además de la entrega programada.',
+                          style: TextStyle(fontSize: 11),
+                        ),
+                        value: followUpEnabled,
+                        onChanged: saving
+                            ? null
+                            : (value) => setState(() {
+                                followUpEnabled = value;
+                                if (value) {
+                                  opened.add('followup');
+                                  if (optional('interval') == null) {
+                                    fields['interval']!.text = '10';
+                                  }
+                                  if (optional('rationale') == null) {
+                                    fields['rationale']!.text =
+                                        'Detectar cambios y valorar si conviene intervenir entre entregas.';
+                                  }
+                                  if (optional('guidance') == null) {
+                                    fields['guidance']!.text =
+                                        'Valora los cambios, el contexto y el historial. Decide si basta con registrar, si conviene preguntar, avisar o proponer ayuda, o si corresponde una acción delegada. Conserva los cambios aunque no justifiquen interrumpir; evita repetir preguntas o avisos sin novedades relevantes.';
+                                  }
+                                }
+                              }),
+                      ),
+                      if (followUpEnabled)
+                        disclosure(
+                          'followup',
+                          'Criterios de seguimiento',
+                          Icons.tune_outlined,
+                          optional('followUpScope') ??
+                              'Define qué observar y cuándo intervenir.',
+                          [
+                            field(
+                              'followUpScope',
+                              'Qué observar',
+                              lines: 3,
+                              required: true,
+                            ),
+                            field(
+                              'guidance',
+                              'Cómo decidir si intervenir',
+                              lines: 4,
+                              required: true,
+                              hint:
+                                  'Cuándo guardar silencio, preguntar, avisar o proponer ayuda.',
+                            ),
                             disclosure(
-                              'settings',
-                              'Estado e importancia',
-                              Icons.flag_outlined,
-                              '${assignmentStatuses[status]} · Importancia ${assignmentPriorities[priority]?.toLowerCase()}',
+                              'actions',
+                              'Aspectos y acciones',
+                              Icons.rule_outlined,
+                              'Preguntas específicas y límites de las acciones delegadas.',
                               [
-                                pair(
-                                  choice(
-                                    'Estado del encargo',
-                                    status,
-                                    assignmentStatuses,
-                                    (v) => status = v,
-                                  ),
-                                  choice(
-                                    'Importancia',
-                                    priority,
-                                    assignmentPriorities,
-                                    (v) => priority = v,
-                                  ),
+                                field(
+                                  'signals',
+                                  'Aspectos a valorar (uno por línea)',
+                                  lines: 3,
+                                ),
+                                field(
+                                  'actionScope',
+                                  'Acciones delegadas (opcional)',
+                                  lines: 3,
+                                  hint:
+                                      'Solo acciones que hayas encargado expresamente, con sus límites.',
                                 ),
                               ],
                             ),
                           ],
                         ),
+                      const SizedBox(height: 16),
+                      sectionDivider(),
+                      disclosure(
+                        'settings',
+                        'Estado e importancia',
+                        Icons.flag_outlined,
+                        '${assignmentStatuses[status]} · Importancia ${assignmentPriorities[priority]?.toLowerCase()}',
+                        [
+                          pair(
+                            choice(
+                              'Estado del encargo',
+                              status,
+                              assignmentStatuses,
+                              (v) => status = v,
+                            ),
+                            choice(
+                              'Importancia',
+                              priority,
+                              assignmentPriorities,
+                              (v) => priority = v,
+                            ),
+                          ),
+                        ],
                       ),
-                    ),
+                    ],
                   ),
                 ),
               ),
@@ -1983,60 +1868,52 @@ class _AssignmentEditorState extends State<AssignmentEditor> {
                     top: BorderSide(color: ink.withValues(alpha: .1)),
                   ),
                 ),
-                child: Center(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 760),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 24,
-                        vertical: 12,
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          if (error != null) ...[
-                            ConstrainedBox(
-                              constraints: const BoxConstraints(maxHeight: 80),
-                              child: SingleChildScrollView(
-                                child: SelectableText(
-                                  error!,
-                                  style: body.copyWith(
-                                    color: theme.colorScheme.error,
-                                  ),
-                                ),
+                child: AppViewContent(
+                  footer: true,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      if (error != null) ...[
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxHeight: 80),
+                          child: SingleChildScrollView(
+                            child: SelectableText(
+                              error!,
+                              style: body.copyWith(
+                                color: theme.colorScheme.error,
                               ),
                             ),
-                            if (widget.record != null)
-                              Align(
-                                alignment: Alignment.centerLeft,
-                                child: TextButton(
-                                  onPressed: saving ? null : widget.onReload,
-                                  child: const Text(
-                                    'Descartar borrador y recargar',
-                                  ),
-                                ),
+                          ),
+                        ),
+                        if (widget.record != null)
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: TextButton(
+                              onPressed: saving ? null : widget.onReload,
+                              child: const Text(
+                                'Descartar borrador y recargar',
                               ),
-                            const SizedBox(height: 8),
-                          ],
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.end,
-                            children: [
-                              TextButton(
-                                onPressed: saving ? null : widget.onBack,
-                                child: const Text('Cancelar'),
-                              ),
-                              const SizedBox(width: 12),
-                              FilledButton(
-                                onPressed: saving ? null : save,
-                                child: Text(
-                                  saving ? 'Guardando…' : 'Guardar encargo',
-                                ),
-                              ),
-                            ],
+                            ),
+                          ),
+                        const SizedBox(height: 8),
+                      ],
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          TextButton(
+                            onPressed: saving ? null : widget.onBack,
+                            child: const Text('Cancelar'),
+                          ),
+                          const SizedBox(width: 12),
+                          FilledButton(
+                            onPressed: saving ? null : save,
+                            child: Text(
+                              saving ? 'Guardando…' : 'Guardar encargo',
+                            ),
                           ),
                         ],
                       ),
-                    ),
+                    ],
                   ),
                 ),
               ),

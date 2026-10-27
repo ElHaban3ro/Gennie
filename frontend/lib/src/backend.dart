@@ -148,6 +148,9 @@ class RustBackend implements DesktopBackend, PluginBackend {
 class DesktopState extends ChangeNotifier {
   DesktopState(this.backend);
   final DesktopBackend backend;
+  // Estado transitorio de la secuencia de acceso de cada aviso.
+  final Set<String> pluginAccessOpened = {};
+  final Map<int, String> pluginRebuildKeys = {};
   api.Snapshot? snapshot;
   String? failure;
   bool loading = true;

@@ -29,6 +29,7 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
   final _scroll = ScrollController();
   double sidebar = 260;
   int tab = 0;
+  String? _pluginToOpen;
   bool _sending = false;
   bool _closing = false;
   bool _openingBrowser = false;
@@ -388,7 +389,12 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
                         )
                       else if (tab == 1)
                         Expanded(
-                          child: PluginsView(state: state, sidebarWidth: width),
+                          child: PluginsView(
+                            state: state,
+                            sidebarWidth: width,
+                            initialSelection: _pluginToOpen,
+                            onSelectionChanged: (id) => _pluginToOpen = id,
+                          ),
                         )
                       else ...[
                         AppSidebar(
@@ -649,6 +655,19 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
                                                               ),
                                                             ChatMessage(
                                                               message: message,
+                                                              state: state,
+                                                              conversationId:
+                                                                  s?.selectedId,
+                                                              onOpenPlugin:
+                                                                  (
+                                                                    id,
+                                                                  ) => setState(
+                                                                    () {
+                                                                      _pluginToOpen =
+                                                                          id;
+                                                                      tab = 1;
+                                                                    },
+                                                                  ),
                                                             ),
                                                           ],
                                                         );

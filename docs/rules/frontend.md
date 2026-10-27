@@ -27,3 +27,9 @@ Revisar análisis y tests Dart, tests Rust pertinentes y estado del código gene
 Historial, Encargos y Plugins deben usar `AppSidebar` de `frontend/lib/src/sidebar.dart`. El ancho y el agarre pertenecen al escritorio y se conservan entre pestañas; no crear una sidebar fija independiente por módulo. Búsqueda con `SidebarSearch`, filas con `SidebarTile`, vacío lateral con `SidebarEmpty` y vacío del lector con `ContentEmpty`. Las diferencias de contenido no deben introducir otras lupas, escalas de fuente, fondos ni estructuras de búsqueda.
 
 Los logos de Encargos son recursos de presentación del runner (`gennie/assignment-logo`), derivados de la aplicación principal guardada por Rust. Flutter no resuelve apps, hace HTTP ni consulta contenido de servicios. El runner usa iconos instalados/favicons acotados y caché regenerable; no abre sesiones. El calendario representa al encargo y el icono de la aplicación aparece en un círculo superpuesto; si no se obtiene imagen, se usa su inicial. Ver [diseño](../decisions/assignments.md#recursos-visuales-de-las-fuentes).
+
+## Vistas de detalle compartidas
+
+Encargos y Plugins usan `AppDetailView` de `frontend/lib/src/detail_view.dart` para cabecera de 56 px, título, acciones, aviso y cuerpo. Lectura, construcción y edición usan `AppViewScroll`; `AppViewContent` aplica el ancho máximo de 760 px **incluidos** los márgenes interiores de 24 px. Los pies fijos usan el mismo contenedor con 12 px verticales. No repetir este marco ni aplicar el padding antes del límite de ancho en cada módulo. Las secciones y operaciones siguen perteneciendo a cada vista.
+
+`AppDetailHeading` comparte icono, etiqueta, título, subtítulo y acción de edición entre las fichas de Encargos, Plugins y trabajos en preparación.

@@ -1,10 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter/semantics.dart';
+import 'assignment_logo.dart';
 import 'backend.dart';
 import 'glass.dart';
 import 'notice.dart';
 import 'sidebar.dart';
+import 'detail_view.dart';
 
 const _pretty = JsonEncoder.withIndent('  ');
 const pluginJobStates = {
@@ -24,10 +28,129 @@ String _jobName(Map<String, dynamic> job) {
   return host == null || host.isEmpty ? 'Plugin en preparación' : host;
 }
 
+String? _jobUpdatedAt(Map job) {
+  final date = DateTime.tryParse(job['updated_at'] as String? ?? '')?.toLocal();
+  if (date == null) return null;
+  String two(int value) => value.toString().padLeft(2, '0');
+  return 'Actualizado ${two(date.day)}/${two(date.month)}/${date.year} · ${two(date.hour)}:${two(date.minute)}';
+}
+
+String? _requestAge(Map job) {
+  final created = DateTime.tryParse(job['created_at'] as String? ?? '');
+  if (created == null) return null;
+  final elapsed = DateTime.now().toUtc().difference(created.toUtc());
+  if (elapsed.isNegative) return null;
+  if (elapsed.inSeconds < 60) return 'Solicitud: hace menos de 1 min';
+  if (elapsed.inMinutes < 60) return 'Solicitud: hace ${elapsed.inMinutes} min';
+  if (elapsed.inHours < 24) return 'Solicitud: hace ${elapsed.inHours} h';
+  return 'Solicitud: hace ${elapsed.inDays} d';
+}
+
+String? _buildDuration(Map job) {
+  final seconds = job['spent_seconds'];
+  if (seconds is! int ||
+      seconds < 0 ||
+      job['state'] == 'running' ||
+      job['state'] == 'queued') {
+    return null;
+  }
+  final hours = seconds ~/ 3600;
+  final minutes = (seconds % 3600) ~/ 60;
+  final remainder = seconds % 60;
+  final parts = <String>[
+    if (hours > 0) '$hours h',
+    if (minutes > 0) '$minutes min',
+    if (remainder > 0 || (hours == 0 && minutes == 0)) '$remainder s',
+  ];
+  return 'Tiempo de construcción: ${parts.join(' ')}';
+}
+
+class _BuildSpinner extends StatelessWidget {
+  const _BuildSpinner();
+  @override
+  Widget build(BuildContext context) => ExcludeSemantics(
+    child: SizedBox(
+      width: 12,
+      height: 12,
+      child: CircularProgressIndicator(
+        strokeWidth: 1.5,
+        value: MediaQuery.disableAnimationsOf(context) ? .75 : null,
+        color: sidebarInk(context).withValues(alpha: .7),
+      ),
+    ),
+  );
+}
+
+class _JobStatus extends StatelessWidget {
+  const _JobStatus({required this.job});
+  final Map job;
+  @override
+  Widget build(BuildContext context) {
+    final ink = sidebarInk(context);
+    final running = job['state'] == 'running';
+    final age = running ? _requestAge(job) : null;
+    return Wrap(
+      crossAxisAlignment: WrapCrossAlignment.center,
+      spacing: 10,
+      runSpacing: 6,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          decoration: BoxDecoration(
+            color: ink.withValues(alpha: .07),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (running) ...[const _BuildSpinner(), const SizedBox(width: 7)],
+              Text(
+                pluginJobStates[job['state']] ?? '${job['state']}',
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 11,
+                  height: 1.6,
+                  color: ink,
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (age != null)
+          Text(
+            age,
+            style: TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 11,
+              color: ink.withValues(alpha: .7),
+            ),
+          ),
+        if (_buildDuration(job) case final duration?)
+          Text(
+            duration,
+            style: TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 11,
+              color: ink.withValues(alpha: .7),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
 class PluginsView extends StatefulWidget {
-  const PluginsView({super.key, required this.state, this.sidebarWidth = 260});
+  const PluginsView({
+    super.key,
+    required this.state,
+    this.sidebarWidth = 260,
+    this.initialSelection,
+    this.onSelectionChanged,
+  });
   final DesktopState state;
   final double sidebarWidth;
+  final String? initialSelection;
+  final ValueChanged<String?>? onSelectionChanged;
   @override
   State<PluginsView> createState() => _PluginsViewState();
 }
@@ -42,9 +165,12 @@ class _PluginsViewState extends State<PluginsView> {
       creating = false,
       updating = false;
   Timer? timer;
+  final Map<int, String> retryKeys = {};
+  bool rebuilding = false;
   @override
   void initState() {
     super.initState();
+    selected = widget.initialSelection;
     widget.state.addListener(_changed);
     unawaited(refresh());
   }
@@ -109,8 +235,52 @@ class _PluginsViewState extends State<PluginsView> {
     try {
       await call({'action': action, 'job_id': job['id']});
       await refresh();
+      if (mounted &&
+          action == 'cancel' &&
+          selected == job['plugin_id'] &&
+          !records.any((r) => (r['manifest'] as Map)['id'] == selected) &&
+          !jobs.any(
+            (j) => j['plugin_id'] == selected && j['state'] != 'cancelled',
+          )) {
+        setState(() => selected = null);
+        widget.onSelectionChanged?.call(null);
+      }
     } catch (e) {
       if (mounted) setState(() => error = '$e');
+    }
+  }
+
+  Future<void> rebuild(Map<String, dynamic> job) async {
+    if (rebuilding) return;
+    final id = job['id'] as int;
+    final key = retryKeys.putIfAbsent(
+      id,
+      () => 'plugin-rebuild-$id-${DateTime.now().microsecondsSinceEpoch}',
+    );
+    setState(() {
+      rebuilding = true;
+      error = null;
+    });
+    try {
+      await call({
+        'action': 'build',
+        'trigger_conversation_id': job['trigger_conversation_id'],
+        'request': {
+          'request_key': key,
+          'retry_of': id,
+          'plugin_id': job['plugin_id'],
+          'origin': job['origin'],
+          'objective': job['objective'],
+          'max_attempts': job['max_attempts'],
+          'max_seconds': job['max_seconds'],
+        },
+      });
+      retryKeys.remove(id);
+      await refresh();
+    } catch (e) {
+      if (mounted) setState(() => error = '$e');
+    } finally {
+      if (mounted) setState(() => rebuilding = false);
     }
   }
 
@@ -146,18 +316,50 @@ class _PluginsViewState extends State<PluginsView> {
         throw StateError('El plugin cambió. Recarga antes de eliminarlo.');
       }
       if (!mounted) return;
-      setState(() => selected = null);
+      setState(() {
+        if (selected == manifest['id']) {
+          selected = null;
+          widget.onSelectionChanged?.call(null);
+          editing = false;
+          updating = false;
+        }
+      });
       await refresh();
     } catch (e) {
       if (mounted) setState(() => error = '$e');
     }
   }
 
+  Future<void> _menu(Map<String, dynamic> record, Offset position) async {
+    final overlay =
+        Overlay.of(context).context.findRenderObject()! as RenderBox;
+    final action = await showMenu<String>(
+      context: context,
+      position: RelativeRect.fromRect(
+        position & const Size(1, 1),
+        Offset.zero & overlay.size,
+      ),
+      items: const [
+        PopupMenuItem(value: 'delete', child: Text('Eliminar plugin')),
+      ],
+    );
+    if (mounted && action == 'delete') await remove(record);
+  }
+
   @override
   Widget build(BuildContext context) {
     final query = search.text.trim().toLowerCase();
     final entries = <String, Map<String, dynamic>>{};
+    final latestJobs = <String, Map<String, dynamic>>{};
     for (final job in jobs) {
+      final id = job['plugin_id'] as String;
+      final previous = latestJobs[id];
+      if (previous == null || (job['id'] as int) > (previous['id'] as int)) {
+        latestJobs[id] = job;
+      }
+    }
+    for (final job in latestJobs.values) {
+      if (job['state'] == 'cancelled') continue;
       final id = job['plugin_id'] as String;
       entries.putIfAbsent(
         id,
@@ -171,7 +373,7 @@ class _PluginsViewState extends State<PluginsView> {
         'id': id,
         'name': manifest['name'],
         'record': record,
-        if (entries[id]?['job'] != null) 'job': entries[id]!['job'],
+        if (latestJobs[id] != null) 'job': latestJobs[id],
       };
     }
     final filtered = entries.values
@@ -189,9 +391,8 @@ class _PluginsViewState extends State<PluginsView> {
     final selectedName = selected == null
         ? null
         : entries[selected]?['name'] as String?;
-    final associated = selected == null
-        ? jobs
-        : jobs.where((j) => j['plugin_id'] == selected).toList();
+    final latest = selected == null ? null : latestJobs[selected];
+    final associated = latest == null ? <Map<String, dynamic>>[] : [latest];
     return Row(
       children: [
         AppSidebar(
@@ -203,6 +404,7 @@ class _PluginsViewState extends State<PluginsView> {
             editing = false;
             updating = false;
             selected = null;
+            widget.onSelectionChanged?.call(null);
           }),
           searchController: search,
           searchHint: 'Buscar plugins…',
@@ -222,249 +424,471 @@ class _PluginsViewState extends State<PluginsView> {
                     for (final entry in filtered)
                       Padding(
                         padding: const EdgeInsets.only(bottom: 2),
-                        child: SidebarTile(
-                          leading: const Icon(
-                            Icons.extension_outlined,
-                            size: 22,
-                          ),
-                          title: entry['name'] as String,
-                          subtitle: entry['job'] != null
-                              ? pluginJobStates[(entry['job']
-                                        as Map)['state']] ??
-                                    'En preparación'
-                              : '${(((entry['record'] as Map)['manifest'] as Map)['functions'] as List).length} funciones · revisión ${(entry['record'] as Map)['revision']}',
-                          selected: entry['id'] == selected,
-                          onSelect: () => setState(() {
-                            selected = entry['id'] as String;
-                            creating = false;
-                            editing = false;
-                            updating = false;
-                          }),
+                        child: Builder(
+                          builder: (tileContext) {
+                            final itemRecord =
+                                entry['record'] as Map<String, dynamic>?;
+                            final origin =
+                                (itemRecord?['manifest'] as Map?)?['origin'] ??
+                                (entry['job'] as Map?)?['origin'] ??
+                                '';
+                            void openMenu() {
+                              if (itemRecord == null) return;
+                              final box =
+                                  tileContext.findRenderObject()! as RenderBox;
+                              _menu(
+                                itemRecord,
+                                box.localToGlobal(box.size.center(Offset.zero)),
+                              );
+                            }
+
+                            return CallbackShortcuts(
+                              bindings: {
+                                const SingleActivator(
+                                  LogicalKeyboardKey.f10,
+                                  shift: true,
+                                ): openMenu,
+                                const SingleActivator(
+                                  LogicalKeyboardKey.contextMenu,
+                                ): openMenu,
+                              },
+                              child: Semantics(
+                                customSemanticsActions: itemRecord == null
+                                    ? null
+                                    : {
+                                        const CustomSemanticsAction(
+                                          label: 'Eliminar plugin',
+                                        ): () =>
+                                            remove(itemRecord),
+                                      },
+                                child: GestureDetector(
+                                  onSecondaryTapUp: itemRecord == null
+                                      ? null
+                                      : (details) => _menu(
+                                          itemRecord,
+                                          details.globalPosition,
+                                        ),
+                                  child: SidebarTile(
+                                    trailing:
+                                        (entry['job'] as Map?)?['state'] ==
+                                            'running'
+                                        ? const _BuildSpinner()
+                                        : null,
+                                    leading: AssignmentLogo(
+                                      size: 38,
+                                      document: {
+                                        'applications': [
+                                          {
+                                            'name': entry['name'],
+                                            'kind': 'web',
+                                            'url': origin,
+                                          },
+                                        ],
+                                      },
+                                    ),
+                                    title: entry['name'] as String,
+                                    subtitle: entry['job'] != null
+                                        ? pluginJobStates[(entry['job']
+                                                  as Map)['state']] ??
+                                              'En preparación'
+                                        : '${(((entry['record'] as Map)['manifest'] as Map)['functions'] as List).length} funciones · revisión ${(entry['record'] as Map)['revision']}',
+                                    selected: entry['id'] == selected,
+                                    onSelect: () => setState(() {
+                                      selected = entry['id'] as String;
+                                      widget.onSelectionChanged?.call(selected);
+                                      creating = false;
+                                      editing = false;
+                                      updating = false;
+                                    }),
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
                         ),
                       ),
                   ],
                 ),
         ),
         Expanded(
-          child: Column(
-            children: [
-              Container(
-                height: 56,
-                decoration: BoxDecoration(
-                  border: Border(
-                    bottom: BorderSide(
-                      color: sidebarInk(context).withValues(alpha: .1),
-                    ),
-                  ),
-                ),
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        creating ? 'Nuevo plugin' : selectedName ?? 'Plugins',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 13),
-                      ),
-                    ),
-                    AppTooltip(
-                      label: 'Recargar plugins',
-                      child: IconButton(
-                        onPressed: () => refresh(),
-                        icon: const Icon(Icons.refresh, size: 18),
-                      ),
-                    ),
-                  ],
+          child: AppDetailView(
+            title: creating ? 'Nuevo plugin' : selectedName ?? 'Plugins',
+            actions: [
+              AppTooltip(
+                label: 'Recargar plugins',
+                child: IconButton(
+                  onPressed: () => refresh(),
+                  icon: const Icon(Icons.refresh, size: 18),
                 ),
               ),
-              if (error != null || deliveryError != null)
-                Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Text(
-                    error ?? deliveryError!,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.error,
-                      fontSize: 12,
+            ],
+            notice: error != null || deliveryError != null
+                ? Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Text(
+                      error ?? deliveryError!,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                        fontSize: 12,
+                      ),
                     ),
-                  ),
-                ),
-              Expanded(
-                child: creating || updating
-                    ? PluginBuildForm(
-                        key: ValueKey(
-                          'build-${record?['revision']}-${selected ?? 'new'}',
-                        ),
-                        record: updating ? record : null,
-                        conversation: widget.state.snapshot?.selectedId,
-                        call: call,
-                        onCancel: () => setState(() {
-                          creating = false;
-                          updating = false;
-                        }),
-                        onCreated: () async {
-                          setState(() {
-                            creating = false;
-                            updating = false;
-                          });
-                          await refresh();
-                        },
-                      )
-                    : editing && record != null
-                    ? PluginEditor(
-                        key: ValueKey('edit-$selected-${record['revision']}'),
-                        record: record,
-                        call: call,
-                        onCancel: () => setState(() => editing = false),
-                        onSaved: () async {
-                          setState(() => editing = false);
-                          await refresh();
-                        },
-                      )
-                    : SingleChildScrollView(
-                        padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
-                        child: Align(
-                          alignment: Alignment.topCenter,
-                          child: ConstrainedBox(
-                            constraints: const BoxConstraints(maxWidth: 760),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                if (record != null)
-                                  PluginProfile(
-                                    key: ValueKey(
-                                      '$selected-${record['revision']}',
+                  )
+                : null,
+            child: creating || updating
+                ? PluginBuildForm(
+                    key: ValueKey(
+                      'build-${record?['revision']}-${selected ?? 'new'}',
+                    ),
+                    record: updating ? record : null,
+                    conversation: widget.state.snapshot?.selectedId,
+                    call: call,
+                    onCancel: () => setState(() {
+                      creating = false;
+                      updating = false;
+                    }),
+                    onCreated: () async {
+                      setState(() {
+                        creating = false;
+                        updating = false;
+                      });
+                      await refresh();
+                    },
+                  )
+                : editing && record != null
+                ? PluginEditor(
+                    key: ValueKey('edit-$selected-${record['revision']}'),
+                    record: record,
+                    call: call,
+                    onCancel: () => setState(() => editing = false),
+                    onSaved: () async {
+                      setState(() => editing = false);
+                      await refresh();
+                    },
+                  )
+                : record == null && associated.isEmpty
+                ? const ContentEmpty(title: 'Plugins')
+                : AppViewScroll(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        if (record != null)
+                          PluginProfile(
+                            key: ValueKey('$selected-${record['revision']}'),
+                            record: record,
+                            job: associated.isNotEmpty
+                                ? associated.first
+                                : null,
+                            call: call,
+                            onEdit: () => setState(() => editing = true),
+                            onDelete: () => remove(record),
+                            onUpdate: () => setState(() => updating = true),
+                          ),
+                        if (record == null &&
+                            selected != null &&
+                            associated.isNotEmpty) ...[
+                          Builder(
+                            builder: (context) {
+                              final job = associated.first;
+                              final ink = sidebarInk(context);
+                              final body = TextStyle(
+                                fontFamily: 'Inter',
+                                fontSize: 13,
+                                height: 1.6,
+                                color: ink,
+                              );
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  AppDetailHeading(
+                                    icon: AssignmentLogo(
+                                      size: 72,
+                                      document: {
+                                        'applications': [
+                                          {
+                                            'name':
+                                                selectedName ?? _jobName(job),
+                                            'kind': 'web',
+                                            'url': job['origin'] ?? '',
+                                          },
+                                        ],
+                                      },
                                     ),
-                                    record: record,
-                                    call: call,
-                                    onEdit: () =>
-                                        setState(() => editing = true),
-                                    onDelete: () => remove(record),
-                                    onUpdate: () =>
-                                        setState(() => updating = true),
-                                  )
-                                else if (associated.isEmpty)
-                                  const ContentEmpty(title: 'Plugins'),
-                                if (associated.isNotEmpty) ...[
+                                    label: 'Plugin',
+                                    title: selectedName ?? _jobName(job),
+                                    subtitle: SelectableText(
+                                      job['origin'] as String? ?? '',
+                                    ),
+                                  ),
+                                  const SizedBox(height: 16),
+                                  _JobStatus(job: job),
+                                  if ((job['objective'] as String? ?? '')
+                                      .trim()
+                                      .isNotEmpty) ...[
+                                    const SizedBox(height: 24),
+                                    Text(
+                                      'Para qué',
+                                      style: body.copyWith(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    SelectableText(
+                                      job['objective'] as String,
+                                      style: body,
+                                    ),
+                                  ],
                                   const SizedBox(height: 24),
-                                  const Text(
-                                    'Construcción de plugins',
-                                    style: TextStyle(
-                                      fontSize: 14,
+                                  Text(
+                                    (job['events'] as List? ?? []).isNotEmpty &&
+                                            ((job['events'] as List).last
+                                                    as Map)['message'] ==
+                                                job['summary']
+                                        ? 'Resultado del último paso'
+                                        : 'Resultado de la construcción',
+                                    style: body.copyWith(
+                                      fontSize: 12,
                                       fontWeight: FontWeight.w600,
                                     ),
                                   ),
-                                  const SizedBox(height: 12),
-                                  for (final job in associated)
-                                    Padding(
-                                      padding: const EdgeInsets.only(
-                                        bottom: 16,
-                                      ),
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            '${(entries[job['plugin_id']]?['name'] as String?) ?? _jobName(job)} · ${pluginJobStates[job['state']] ?? job['state']}',
-                                            style: const TextStyle(
-                                              fontSize: 13,
-                                              fontWeight: FontWeight.w600,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 6),
-                                          SelectableText(
-                                            job['summary'] as String,
-                                            style: const TextStyle(
-                                              fontSize: 12,
-                                            ),
-                                          ),
-                                          Text(
-                                            'Chat ${job['trigger_conversation_id']} · intentos ${job['attempts']}/${job['max_attempts']}',
-                                            style: const TextStyle(
-                                              fontSize: 11,
-                                            ),
-                                          ),
-                                          if ((job['events'] as List? ?? [])
-                                              .isNotEmpty)
-                                            ExpansionTile(
-                                              shape: const Border(),
-                                              collapsedShape: const Border(),
-                                              tilePadding: EdgeInsets.zero,
-                                              title: const Text(
-                                                'Pasos de investigación',
-                                                style: TextStyle(fontSize: 12),
-                                              ),
-                                              children: [
-                                                for (final (index, event)
-                                                    in (job['events'] as List)
-                                                        .indexed)
-                                                  Padding(
-                                                    padding:
-                                                        const EdgeInsets.only(
-                                                          bottom: 10,
-                                                        ),
-                                                    child: Align(
-                                                      alignment:
-                                                          Alignment.centerLeft,
-                                                      child: SelectableText(
-                                                        '${index + 1}. ${event['message']}\n${event['created_at']}',
-                                                        style: const TextStyle(
-                                                          fontSize: 12,
-                                                        ),
-                                                      ),
-                                                    ),
-                                                  ),
-                                              ],
-                                            ),
-                                          Wrap(
-                                            spacing: 8,
-                                            children: [
-                                              if (job['state'] ==
-                                                  'waiting_user')
-                                                TextButton(
-                                                  onPressed: () =>
-                                                      jobAction('connect', job),
-                                                  child: const Text(
-                                                    'Abrir Gennie Web',
-                                                  ),
-                                                ),
-                                              if ([
-                                                'waiting_user',
-                                                'interrupted',
-                                              ].contains(job['state']))
-                                                TextButton(
-                                                  onPressed: () =>
-                                                      jobAction('resume', job),
-                                                  child: const Text(
-                                                    'Continuar',
-                                                  ),
-                                                ),
-                                              if ([
-                                                'queued',
-                                                'running',
-                                                'waiting_user',
-                                                'interrupted',
-                                              ].contains(job['state']))
-                                                TextButton(
-                                                  onPressed: () =>
-                                                      jobAction('cancel', job),
-                                                  child: const Text(
-                                                    'Cancelar trabajo',
-                                                  ),
-                                                ),
-                                            ],
-                                          ),
-                                        ],
+                                  const SizedBox(height: 4),
+                                  SelectableText(
+                                    job['summary'] as String,
+                                    style: body,
+                                  ),
+                                  if (job['state'] == 'blocked' &&
+                                      !jobs.any(
+                                        (j) =>
+                                            j['plugin_id'] ==
+                                                job['plugin_id'] &&
+                                            [
+                                              'queued',
+                                              'running',
+                                              'waiting_user',
+                                              'interrupted',
+                                            ].contains(j['state']),
+                                      )) ...[
+                                    const SizedBox(height: 8),
+                                    Align(
+                                      alignment: Alignment.centerLeft,
+                                      child: TextButton(
+                                        onPressed: rebuilding
+                                            ? null
+                                            : () => rebuild(job),
+                                        child: const Text('Volver a generar'),
                                       ),
                                     ),
+                                  ],
                                 ],
-                              ],
-                            ),
+                              );
+                            },
                           ),
-                        ),
-                      ),
-              ),
-            ],
+                        ],
+                        if (associated.isNotEmpty) ...[
+                          const SizedBox(height: 24),
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.build_outlined,
+                                size: 18,
+                                color: sidebarInk(
+                                  context,
+                                ).withValues(alpha: .7),
+                              ),
+                              const SizedBox(width: 10),
+                              const Text(
+                                'Construcción de plugins',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          for (final (jobIndex, job) in associated.indexed)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 16),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (jobIndex > 0) ...[
+                                    Divider(
+                                      height: 24,
+                                      color: sidebarInk(
+                                        context,
+                                      ).withValues(alpha: .1),
+                                    ),
+                                  ],
+                                  Text(
+                                    record == null && jobIndex == 0
+                                        ? 'Trabajo actual'
+                                        : '${(entries[job['plugin_id']]?['name'] as String?) ?? _jobName(job)} · ${pluginJobStates[job['state']] ?? job['state']}',
+                                    style: const TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  if (!(record == null &&
+                                      selected != null &&
+                                      identical(job, associated.first)))
+                                    SelectableText(
+                                      job['summary'] as String,
+                                      style: const TextStyle(
+                                        fontFamily: 'Inter',
+                                        fontSize: 13,
+                                        height: 1.6,
+                                      ),
+                                    ),
+                                  Text(
+                                    'Chat ${job['trigger_conversation_id']}',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: sidebarInk(
+                                        context,
+                                      ).withValues(alpha: .7),
+                                    ),
+                                  ),
+                                  if (_jobUpdatedAt(job) case final updated?)
+                                    Text(
+                                      updated,
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: sidebarInk(
+                                          context,
+                                        ).withValues(alpha: .7),
+                                      ),
+                                    ),
+                                  if ((job['events'] as List? ?? [])
+                                          .isNotEmpty &&
+                                      (record != null ||
+                                          ((job['events'] as List).last
+                                                  as Map)['message'] !=
+                                              job['summary'])) ...[
+                                    const SizedBox(height: 16),
+                                    const Text(
+                                      'Último paso',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    SelectableText(
+                                      ((job['events'] as List).last
+                                              as Map)['message']
+                                          as String,
+                                      style: const TextStyle(
+                                        fontFamily: 'Inter',
+                                        fontSize: 13,
+                                        height: 1.6,
+                                      ),
+                                    ),
+                                  ],
+                                  if ((job['events'] as List? ?? []).isNotEmpty)
+                                    ExpansionTile(
+                                      shape: const Border(),
+                                      collapsedShape: const Border(),
+                                      tilePadding: EdgeInsets.zero,
+                                      iconColor: sidebarInk(context),
+                                      collapsedIconColor: sidebarInk(context),
+                                      title: const Text(
+                                        'Pasos de investigación',
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                      children: [
+                                        for (final (index, event)
+                                            in (job['events'] as List).indexed)
+                                          Padding(
+                                            padding: const EdgeInsets.only(
+                                              bottom: 10,
+                                            ),
+                                            child: Align(
+                                              alignment: Alignment.centerLeft,
+                                              child: SelectableText(
+                                                '${index + 1}. ${event['message']}\n${event['created_at']}',
+                                                style: const TextStyle(
+                                                  fontSize: 12,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                  if (job['state'] == 'waiting_user')
+                                    const Padding(
+                                      padding: EdgeInsets.only(bottom: 4),
+                                      child: Text(
+                                        'Abre el sitio y completa la acción solicitada. Después, reanuda la construcción.',
+                                        style: TextStyle(fontSize: 12),
+                                      ),
+                                    ),
+                                  Wrap(
+                                    spacing: 8,
+                                    children: [
+                                      if ((job['state'] == 'cancelled' ||
+                                              (job['state'] == 'blocked' &&
+                                                  record != null)) &&
+                                          !jobs.any(
+                                            (j) =>
+                                                j['plugin_id'] ==
+                                                    job['plugin_id'] &&
+                                                [
+                                                  'queued',
+                                                  'running',
+                                                  'waiting_user',
+                                                  'interrupted',
+                                                ].contains(j['state']),
+                                          ))
+                                        TextButton(
+                                          onPressed: rebuilding
+                                              ? null
+                                              : () => rebuild(job),
+                                          child: const Text('Volver a generar'),
+                                        ),
+                                      if (job['state'] == 'waiting_user')
+                                        TextButton(
+                                          onPressed: () =>
+                                              jobAction('connect', job),
+                                          child: const Text(
+                                            'Abrir sitio en Gennie Web',
+                                          ),
+                                        ),
+                                      if ([
+                                        'waiting_user',
+                                        'interrupted',
+                                      ].contains(job['state']))
+                                        TextButton(
+                                          onPressed: () =>
+                                              jobAction('resume', job),
+                                          child: const Text(
+                                            'Reanudar construcción',
+                                          ),
+                                        ),
+                                      if ([
+                                        'queued',
+                                        'running',
+                                        'waiting_user',
+                                        'interrupted',
+                                      ].contains(job['state']))
+                                        TextButton(
+                                          onPressed: () =>
+                                              jobAction('cancel', job),
+                                          child: const Text('Cancelar trabajo'),
+                                        ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                        ],
+                      ],
+                    ),
+                  ),
           ),
         ),
       ],
@@ -480,8 +904,10 @@ class PluginProfile extends StatefulWidget {
     required this.onEdit,
     required this.onDelete,
     required this.onUpdate,
+    this.job,
   });
   final Map<String, dynamic> record;
+  final Map<String, dynamic>? job;
   final PluginCall call;
   final VoidCallback onEdit, onDelete, onUpdate;
   @override
@@ -493,60 +919,83 @@ class _PluginProfileState extends State<PluginProfile> {
   @override
   Widget build(BuildContext context) {
     final m = widget.record['manifest'] as Map;
+    final ink = sidebarInk(context);
+    final body = TextStyle(
+      fontFamily: 'Inter',
+      fontSize: 13,
+      height: 1.6,
+      color: ink,
+    );
     final functions = m['functions'] as List;
     final fn = functions[index] as Map;
-    Widget section(String title, List<dynamic> values) => Padding(
-      padding: const EdgeInsets.only(top: 20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: 6),
-          for (final value in values)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 4),
-              child: SelectableText(
-                '• $value',
-                style: const TextStyle(fontSize: 12),
+    Widget section(String title, IconData icon, List<dynamic> values) =>
+        Padding(
+          padding: const EdgeInsets.only(top: 20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(icon, size: 18, color: ink.withValues(alpha: .7)),
+                  const SizedBox(width: 10),
+                  Text(
+                    title,
+                    style: body.copyWith(fontWeight: FontWeight.w600),
+                  ),
+                ],
               ),
-            ),
-        ],
-      ),
-    );
+              const SizedBox(height: 12),
+              for (final value in values)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: SelectableText('• $value', style: body),
+                ),
+            ],
+          ),
+        );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(
-          m['name'] as String,
-          style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w600),
+        AppDetailHeading(
+          icon: AssignmentLogo(
+            size: 72,
+            document: {
+              'applications': [
+                {'name': m['name'], 'kind': 'web', 'url': m['origin']},
+              ],
+            },
+          ),
+          label: 'Plugin',
+          title: m['name'] as String,
+          subtitle: SelectableText(m['origin'] as String),
+          onEdit: widget.onEdit,
+          editLabel: 'Editar plugin',
+          editKey: const ValueKey('plugin-edit'),
         ),
-        const SizedBox(height: 6),
-        SelectableText(
-          m['origin'] as String,
-          style: const TextStyle(fontSize: 12),
-        ),
-        const SizedBox(height: 14),
+        if (widget.job != null) ...[
+          const SizedBox(height: 16),
+          _JobStatus(job: widget.job!),
+        ],
+        const SizedBox(height: 20),
         SelectableText(
           m['description'] as String? ?? 'Sin descripción de cobertura.',
-          style: const TextStyle(fontSize: 13),
+          style: body,
         ),
         section(
           'Capacidades',
+          Icons.check_circle_outline,
           (m['capabilities'] as List?) ??
               functions.map((f) => f['description']).toList(),
         ),
         section(
           'Limitaciones',
+          Icons.info_outline,
           (m['limitations'] as List?) ??
               ['No se han documentado limitaciones específicas.'],
         ),
         Wrap(
           spacing: 8,
           children: [
-            TextButton(onPressed: widget.onEdit, child: const Text('Editar')),
             TextButton(
               onPressed: widget.onUpdate,
               child: const Text('Actualizar con el asistente'),
@@ -831,8 +1280,7 @@ class _PluginEditorState extends State<PluginEditor> {
   Widget build(BuildContext context) => Column(
     children: [
       Expanded(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
+        child: AppViewScroll(
           child: TextField(
             key: const ValueKey('plugin-editor'),
             controller: text,
@@ -860,8 +1308,8 @@ class _PluginEditorState extends State<PluginEditor> {
             ),
           ),
         ),
-      Padding(
-        padding: const EdgeInsets.all(16),
+      AppViewContent(
+        footer: true,
         child: Row(
           children: [
             FilledButton(
@@ -955,7 +1403,7 @@ class _PluginBuildFormState extends State<PluginBuildForm> {
           'plugin_id': id,
           'origin': uri.origin,
           'objective': objective.text.trim(),
-          'max_attempts': 4,
+          'max_attempts': 8,
           'max_seconds': 600,
         },
       });
@@ -968,8 +1416,7 @@ class _PluginBuildFormState extends State<PluginBuildForm> {
   }
 
   @override
-  Widget build(BuildContext context) => SingleChildScrollView(
-    padding: const EdgeInsets.all(24),
+  Widget build(BuildContext context) => AppViewScroll(
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [

@@ -132,76 +132,88 @@ void main() {
     await tester.pumpAndSettle();
     expect(backend.deleted, [('1', 3)]);
   });
-  testWidgets(
-    'La ficha separa método y permisos y presenta evidencia vigente',
-    (tester) async {
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
-      final backend = AssignmentBackend()
-        ..value = snapshot(
-          plans: [
-            AssignmentRecord(
-              id: 'method',
-              revision: 1,
-              createdAt: '',
-              updatedAt: '',
-              methodResolution: jsonEncode({
-                'status': 'ready',
-                'routes': [
-                  {'function': 'list_web', 'route': 'web', 'status': 'ready'},
-                ],
-                'sources': [
-                  {
-                    'source': 'Correo web',
-                    'kind': 'web',
-                    'status': 'waiting_user',
-                  },
-                  {
-                    'source': 'Notas local',
-                    'kind': 'desktop',
-                    'status': 'desktop_unsupported',
-                  },
-                ],
-              }),
-              document: jsonEncode({
-                'title': 'Consultar correo',
-                'description': 'Preparar resumen',
-                'kind': 'goal',
-                'status': 'active',
-                'priority': 'normal',
-                'method': {
-                  'plugin_id': 'mail',
-                  'functions': ['list_web'],
+  testWidgets('La ficha separa método y permisos y presenta evidencia vigente', (
+    tester,
+  ) async {
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final backend = AssignmentBackend()
+      ..value = snapshot(
+        plans: [
+          AssignmentRecord(
+            id: 'method',
+            revision: 1,
+            createdAt: '',
+            updatedAt: '',
+            methodResolution: jsonEncode({
+              'status': 'ready',
+              'routes': [
+                {'function': 'list_web', 'route': 'web', 'status': 'ready'},
+              ],
+              'sources': [
+                {
+                  'source': 'Correo web',
+                  'kind': 'web',
+                  'status': 'waiting_user',
                 },
-                'authorization': {
-                  'scope': 'Solo consultar pendientes',
-                  'allowed_routes': ['web'],
+                {
+                  'source': 'Notas local',
+                  'kind': 'desktop',
+                  'status': 'desktop_unsupported',
                 },
-              }),
-            ),
-          ],
-        );
-      await show(tester, DesktopState(backend), size: const Size(640, 420));
-      await tester.tap(find.text('Consultar correo'));
-      await tester.pumpAndSettle();
-      final details = find.text('Detalles del encargo');
-      await revealVisible(tester, details);
-      await tester.tap(details);
-      await tester.pumpAndSettle();
-      await revealVisible(tester, find.text('Método'));
-      expect(find.text('mail · list_web'), findsOneWidget);
-      expect(find.text('Verificado y permitido'), findsOneWidget);
-      expect(find.text('Esperando acceso'), findsOneWidget);
-      expect(
-        find.text('Aplicación de escritorio: soporte pendiente'),
-        findsOneWidget,
+                {
+                  'source': 'Gmail',
+                  'kind': 'web',
+                  'status': 'blocked',
+                  'recommended_route': 'computer_use',
+                },
+              ],
+            }),
+            document: jsonEncode({
+              'title': 'Consultar correo',
+              'description': 'Preparar resumen',
+              'kind': 'goal',
+              'status': 'active',
+              'priority': 'normal',
+              'method': {
+                'plugin_id': 'mail',
+                'functions': ['list_web'],
+              },
+              'authorization': {
+                'scope': 'Solo consultar pendientes',
+                'allowed_routes': ['web'],
+              },
+            }),
+          ),
+        ],
       );
-      await revealVisible(tester, find.text('Solo consultar pendientes'));
-      expect(find.text('Navegación web'), findsOneWidget);
-      expect(backend.saved, isEmpty);
-      expect(tester.takeException(), isNull);
-    },
-  );
+    await show(tester, DesktopState(backend), size: const Size(640, 420));
+    await tester.tap(find.text('Consultar correo'));
+    await tester.pumpAndSettle();
+    final details = find.text('Detalles del encargo');
+    await revealVisible(tester, details);
+    await tester.tap(details);
+    await tester.pumpAndSettle();
+    await revealVisible(tester, find.text('Método'));
+    expect(find.text('mail · list_web'), findsOneWidget);
+    expect(find.text('Verificado y permitido'), findsOneWidget);
+    expect(find.text('Esperando acceso'), findsOneWidget);
+    expect(find.text('Método previsto para Gmail'), findsOneWidget);
+    expect(
+      find.text(
+        'Computer Use · pendiente de comprobar · vía sin autorización registrada',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.text('Aplicación de escritorio: soporte pendiente'),
+      findsOneWidget,
+    );
+    await revealVisible(tester, find.text('Solo consultar pendientes'));
+    expect(find.text('Navegación web'), findsOneWidget);
+    expect(backend.saved, isEmpty);
+    expect(tester.takeException(), isNull);
+  });
   if (const bool.fromEnvironment('CAPTURE_UI')) {
     for (final brightness in Brightness.values) {
       testWidgets('Captura Encargos ${brightness.name}', (tester) async {
