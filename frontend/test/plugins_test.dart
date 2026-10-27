@@ -44,8 +44,10 @@ class PluginsBackend extends FakeBackend implements PluginBackend {
   final requests = <Map<String, dynamic>>[];
   List<Map<String, dynamic>> records = [record()], jobs = [];
   Completer<String>? pending;
+  Completer<String>? pendingList;
   String status = 'ok';
   bool conflict = false;
+  bool busyAfterDelete = false;
   String? catalogueStatus;
   String? catalogueError;
   @override
@@ -54,6 +56,7 @@ class PluginsBackend extends FakeBackend implements PluginBackend {
     requests.add(request);
     switch (request['action']) {
       case 'list':
+        if (pendingList != null) return pendingList!.future;
         return jsonEncode({
           'plugins': catalogueError == null ? records : null,
           'jobs': jobs,
@@ -106,6 +109,22 @@ class PluginsBackend extends FakeBackend implements PluginBackend {
         return jsonEncode({'status': 'saved'});
       case 'delete':
         records = [];
+        for (final job in jobs) {
+          if (job['plugin_id'] == request['plugin_id'] &&
+              [
+                'queued',
+                'running',
+                'waiting_user',
+                'interrupted',
+                'blocked',
+              ].contains(job['state'])) {
+            job['state'] = 'cancelled';
+          }
+        }
+        if (busyAfterDelete) {
+          catalogueStatus = 'busy';
+          catalogueError = 'El navegador de Gennie está ocupado';
+        }
         return jsonEncode({'status': 'deleted'});
       default:
         return jsonEncode({'status': 'recorded'});
@@ -239,6 +258,19 @@ void main() {
           .setMockMethodCallHandler(channel, null),
     );
     final backend = PluginsBackend();
+    backend.jobs = [
+      {
+        'id': 10,
+        'plugin_id': 'gmail_test',
+        'origin': 'https://example.com',
+        'state': 'completed',
+        'summary': 'Plugin publicado.',
+        'objective': 'Consultar',
+        'trigger_conversation_id': 7,
+        'attempts': 1,
+        'max_attempts': 4,
+      },
+    ];
     await mount(tester, backend);
     expect(
       calls.any(
@@ -268,6 +300,166 @@ void main() {
       isTrue,
     );
     expect(find.text('Correo de prueba'), findsNothing);
+    expect(find.text('example.com'), findsNothing);
+    expect(backend.jobs.single['state'], 'completed');
+  });
+  testWidgets('una lectura anterior a la eliminación no restaura la fila', (
+    tester,
+  ) async {
+    final backend = PluginsBackend();
+    backend.jobs = [
+      {
+        'id': 10,
+        'plugin_id': 'gmail_test',
+        'origin': 'https://example.com',
+        'state': 'completed',
+        'summary': 'Plugin publicado.',
+        'objective': 'Consultar',
+        'trigger_conversation_id': 7,
+        'attempts': 1,
+        'max_attempts': 4,
+      },
+    ];
+    await mount(tester, backend);
+    await select(tester);
+    final pendingList = Completer<String>();
+    backend.pendingList = pendingList;
+    await tester.tap(find.widgetWithIcon(IconButton, Icons.refresh));
+    await tester.pump();
+    final gesture = await tester.createGesture(
+      kind: PointerDeviceKind.mouse,
+      buttons: kSecondaryMouseButton,
+    );
+    await gesture.down(tester.getCenter(find.text('Correo de prueba').first));
+    await gesture.up();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Eliminar plugin'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Eliminar').last);
+    await tester.pumpAndSettle();
+    expect(find.text('Correo de prueba'), findsNothing);
+    expect(find.text('example.com'), findsNothing);
+
+    backend.pendingList = null;
+    pendingList.complete(
+      jsonEncode({
+        'plugins': [record()],
+        'jobs': backend.jobs,
+      }),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Correo de prueba'), findsNothing);
+    expect(find.text('example.com'), findsNothing);
+    expect(
+      backend.requests.where((r) => r['action'] == 'list').length,
+      greaterThanOrEqualTo(3),
+    );
+  });
+  testWidgets('eliminar un plugin retira su construcción bloqueada', (
+    tester,
+  ) async {
+    final backend = PluginsBackend();
+    backend.jobs = [
+      {
+        'id': 10,
+        'plugin_id': 'gmail_test',
+        'origin': 'https://example.com',
+        'state': 'blocked',
+      },
+    ];
+    await mount(tester, backend);
+    final gesture = await tester.createGesture(
+      kind: PointerDeviceKind.mouse,
+      buttons: kSecondaryMouseButton,
+    );
+    await gesture.down(tester.getCenter(find.text('Correo de prueba').first));
+    await gesture.up();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Eliminar plugin'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Eliminar').last);
+    await tester.pumpAndSettle();
+    expect(find.text('Correo de prueba'), findsNothing);
+    expect(find.text('example.com'), findsNothing);
+    expect(backend.jobs.single['state'], 'cancelled');
+  });
+  testWidgets('un plugin eliminado no reaparece con el catálogo ocupado', (
+    tester,
+  ) async {
+    final backend = PluginsBackend()..busyAfterDelete = true;
+    backend.jobs = [
+      {
+        'id': 10,
+        'plugin_id': 'gmail_test',
+        'origin': 'https://example.com',
+        'state': 'completed',
+      },
+    ];
+    await mount(tester, backend);
+    final gesture = await tester.createGesture(
+      kind: PointerDeviceKind.mouse,
+      buttons: kSecondaryMouseButton,
+    );
+    await gesture.down(tester.getCenter(find.text('Correo de prueba').first));
+    await gesture.up();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Eliminar plugin'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Eliminar').last);
+    await tester.pumpAndSettle();
+    expect(find.text('Correo de prueba'), findsNothing);
+    expect(find.text('example.com'), findsNothing);
+    backend.catalogueStatus = 'ready';
+    backend.catalogueError = null;
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pumpAndSettle();
+    expect(find.text('example.com'), findsNothing);
+  });
+  testWidgets(
+    'un catálogo vacío conserva trabajos pendientes pero no completados',
+    (tester) async {
+      final backend = PluginsBackend()..records = [];
+      backend.jobs = [
+        {
+          'id': 1,
+          'plugin_id': 'deleted',
+          'origin': 'https://deleted.example',
+          'state': 'completed',
+        },
+        {
+          'id': 2,
+          'plugin_id': 'pending',
+          'origin': 'https://pending.example',
+          'state': 'blocked',
+        },
+      ];
+      await mount(tester, backend);
+      expect(find.text('deleted.example'), findsNothing);
+      expect(find.text('pending.example'), findsOneWidget);
+    },
+  );
+  testWidgets('un trabajo completado espera al catálogo en la primera carga', (
+    tester,
+  ) async {
+    final backend = PluginsBackend()
+      ..catalogueStatus = 'busy'
+      ..catalogueError = 'El navegador de Gennie está ocupado';
+    backend.jobs = [
+      {
+        'id': 10,
+        'plugin_id': 'gmail_test',
+        'origin': 'https://example.com',
+        'state': 'completed',
+      },
+    ];
+    await mount(tester, backend);
+    expect(find.text('example.com'), findsNothing);
+    expect(find.text('Catálogo temporalmente no disponible'), findsWidgets);
+    backend.catalogueStatus = 'ready';
+    backend.catalogueError = null;
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pumpAndSettle();
+    expect(find.text('Correo de prueba'), findsOneWidget);
   });
   testWidgets(
     'cancelar sin plugin publicado retira la fila y conserva el trabajo',
@@ -923,7 +1115,12 @@ void main() {
   testWidgets('Un trabajo terminado conserva sus pasos de investigación', (
     tester,
   ) async {
-    final backend = PluginsBackend()..records = [];
+    final published = record();
+    final manifest = published['manifest'] as Map;
+    manifest['id'] = 'mail';
+    manifest['name'] = 'mail.example.com';
+    manifest['origin'] = 'https://mail.example.com';
+    final backend = PluginsBackend()..records = [published];
     backend.jobs = [
       {
         'id': 11,
@@ -952,7 +1149,7 @@ void main() {
     await mount(tester, backend, boundary: capture);
     await tester.tap(find.text('mail.example.com'));
     await tester.pumpAndSettle();
-    expect(find.text('Trabajo actual'), findsOneWidget);
+    expect(find.text('mail.example.com · Completado'), findsOneWidget);
     await tester.ensureVisible(find.text('Pasos de investigación'));
     await tester.tap(find.text('Pasos de investigación'));
     await tester.pumpAndSettle();

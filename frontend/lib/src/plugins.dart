@@ -167,6 +167,8 @@ class _PluginsViewState extends State<PluginsView> {
       updating = false;
   Timer? timer;
   final Map<int, String> retryKeys = {};
+  int catalogueGeneration = 0;
+  bool refreshPending = false;
   bool rebuilding = false;
   @override
   void initState() {
@@ -203,11 +205,19 @@ class _PluginsViewState extends State<PluginsView> {
   }
 
   Future<void> refresh({bool quiet = false}) async {
-    if (fetching) return;
+    if (fetching) {
+      refreshPending = true;
+      return;
+    }
     fetching = true;
+    final generation = catalogueGeneration;
     try {
       final value = await call({'action': 'list'});
       if (!mounted) return;
+      if (generation != catalogueGeneration) {
+        refreshPending = true;
+        return;
+      }
       setState(() {
         if (value['plugins'] case final List plugins) {
           records = plugins
@@ -229,7 +239,10 @@ class _PluginsViewState extends State<PluginsView> {
       if (mounted) {
         setState(() => loading = false);
         timer?.cancel();
-        if (catalogueError != null ||
+        if (refreshPending) {
+          refreshPending = false;
+          unawaited(refresh(quiet: true));
+        } else if (catalogueError != null ||
             jobs.any((j) => ['queued', 'running'].contains(j['state']))) {
           timer = Timer(const Duration(seconds: 2), () => refresh(quiet: true));
         }
@@ -323,6 +336,9 @@ class _PluginsViewState extends State<PluginsView> {
       }
       if (!mounted) return;
       setState(() {
+        final id = manifest['id'] as String;
+        catalogueGeneration++;
+        records.removeWhere((r) => (r['manifest'] as Map)['id'] == id);
         if (selected == manifest['id']) {
           selected = null;
           widget.onSelectionChanged?.call(null);
@@ -367,6 +383,10 @@ class _PluginsViewState extends State<PluginsView> {
     for (final job in latestJobs.values) {
       if (job['state'] == 'cancelled') continue;
       final id = job['plugin_id'] as String;
+      if (job['state'] == 'completed' &&
+          !records.any((r) => (r['manifest'] as Map)['id'] == id)) {
+        continue;
+      }
       entries.putIfAbsent(
         id,
         () => {'id': id, 'name': _jobName(job), 'job': job},
@@ -432,8 +452,7 @@ class _PluginsViewState extends State<PluginsView> {
               ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
               : filtered.isEmpty
               ? SidebarEmpty(
-                  message:
-                      query.isEmpty && catalogueError != null && jobs.isEmpty
+                  message: query.isEmpty && catalogueError != null
                       ? 'Catálogo temporalmente no disponible'
                       : query.isEmpty
                       ? 'No hay contenido disponible'

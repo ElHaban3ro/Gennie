@@ -1205,6 +1205,41 @@ mod retry_tests {
         }
     }
     #[test]
+    fn deleting_a_plugin_retires_its_blocked_job_but_preserves_history() {
+        let (store, _, job) = running_build();
+        store
+            .transition(job.id, "blocked", "Revisión bloqueada")
+            .unwrap();
+        let root = std::env::temp_dir().join("gennie-delete-no-runtime");
+        let browser = gennie_browser::BrowserModule::new(root.clone());
+        let module = PluginsModule::new(
+            store.0.clone(),
+            browser.controller(),
+            Arc::new(TestJournal),
+            Arc::new(|| Ok(Settings::default())),
+            root.join("unused-helper"),
+            root,
+        );
+        let controller = module.controller();
+        controller.0.enabled.store(true, Ordering::Release);
+        let request = json!({"plugin_id":job.plugin_id});
+        controller
+            .catalogue_changed(&request, &json!({"status":"revision_conflict"}))
+            .unwrap();
+        assert_eq!(store.get(job.id).unwrap().state, "blocked");
+        controller
+            .catalogue_changed(&request, &json!({"status":"deleted"}))
+            .unwrap();
+        let saved = store.get(job.id).unwrap();
+        assert_eq!(saved.state, "cancelled");
+        assert!(
+            saved
+                .events
+                .iter()
+                .any(|event| event.message == "Revisión bloqueada")
+        );
+    }
+    #[test]
     fn catalogue_keeps_jobs_when_browser_metadata_is_busy_or_unavailable() {
         let (store, _, job) = running_build();
         let root = std::env::temp_dir().join("gennie-catalogue-no-runtime");

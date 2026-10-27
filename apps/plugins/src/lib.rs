@@ -228,7 +228,7 @@ impl Controller {
                 j.plugin_id == id
                     && matches!(
                         j.state.as_str(),
-                        "queued" | "running" | "waiting_user" | "interrupted"
+                        "queued" | "running" | "waiting_user" | "interrupted" | "blocked"
                     )
             }) {
                 self.cancel(job.id)?;
@@ -501,7 +501,7 @@ impl Controller {
                 let id=request["plugin_id"].as_str().ok_or("Falta plugin_id")?;
                 let current=self.0.browser.call(json!({"method":"plugins","action":"get","plugin_id":id}))?;
                 if current["plugin"]["revision"]!=request["expected_revision"] {return Ok(json!({"status":"revision_conflict"}));}
-                for job in self.0.store.list()?.iter().filter(|j|j.plugin_id==id&&matches!(j.state.as_str(),"queued"|"running"|"waiting_user"|"interrupted")) {self.cancel(job.id)?;}
+                for job in self.0.store.list()?.iter().filter(|j|j.plugin_id==id&&matches!(j.state.as_str(),"queued"|"running"|"waiting_user"|"interrupted"|"blocked")) {self.cancel(job.id)?;}
                 let result=self.0.browser.call(json!({"method":"plugins","action":"delete","plugin_id":id,"expected_revision":request["expected_revision"]}))?;
                 self.touch();Ok(result)
             }
