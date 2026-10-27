@@ -45,8 +45,10 @@ fn disabled_and_busy_calls_never_start_a_process() {
     assert!(controller.inner.session.lock().unwrap().is_none());
     controller.inner.enabled.store(true, Ordering::Release);
     let guard = controller.inner.session.lock().unwrap();
+    assert!(controller.is_busy());
     assert!(controller.open().unwrap_err().is::<BusyError>());
     drop(guard);
+    assert!(!controller.is_busy());
     assert!(
         controller
             .open()
@@ -193,4 +195,15 @@ fn plugin_mcp_accepts_many_functions_and_parameters() {
         &json!({"id":"many","name":"Prueba","origin":"https://example.com","functions":functions}),
     )
     .unwrap();
+}
+#[test]
+fn closed_page_keeps_a_typed_recovery_signal() {
+    let error =
+        super::decode_response(serde_json::json!({"error":"private detail", "code":"closed"}))
+            .unwrap_err();
+    assert!(error.is::<super::ClosedPageError>());
+    assert!(!error.to_string().contains("private"));
+    let other = super::decode_response(serde_json::json!({"error":"timeout", "code":"timeout"}))
+        .unwrap_err();
+    assert!(!other.is::<super::ClosedPageError>());
 }

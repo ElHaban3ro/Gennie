@@ -645,3 +645,29 @@ fn assignment_update_reports_queued_preparation_and_does_not_trigger_after_faile
     );
     assert_eq!(count.load(std::sync::atomic::Ordering::SeqCst), 1);
 }
+#[test]
+fn plugin_startup_applies_saved_browser_permissions_before_the_first_request() {
+    let browser = gennie_browser::BrowserModule::new(
+        std::env::temp_dir().join("gennie-permissions-no-runtime"),
+    )
+    .controller();
+    let mut settings = gennie_llm::Settings::default();
+    settings.local_actions = true;
+    settings.run_commands = true;
+    super::configure_browser_permissions(&browser, Some(&settings));
+    assert!(
+        browser
+            .automate(serde_json::json!({"method":"task_page","action":"create"}))
+            .unwrap_err()
+            .to_string()
+            .contains("módulo de navegador")
+    );
+    super::configure_browser_permissions(&browser, None);
+    assert!(
+        browser
+            .automate(serde_json::json!({"method":"task_page","action":"create"}))
+            .unwrap_err()
+            .to_string()
+            .contains("control de aplicaciones")
+    );
+}

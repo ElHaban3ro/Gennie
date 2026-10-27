@@ -242,6 +242,18 @@ impl gennie_plugins::BuildJournal for PluginJournal {
         Ok(())
     }
 }
+fn configure_browser_permissions(
+    browser: &gennie_browser::Controller,
+    settings: Option<&gennie_llm::Settings>,
+) {
+    browser.set_file_access_allowed(settings.is_some_and(|s| s.read_files));
+    browser.set_automation_allowed(settings.is_some_and(|s| s.local_actions && s.run_commands));
+    browser.set_program_allowed(
+        settings
+            .is_some_and(|s| s.read_files && s.write_files && s.run_commands && s.local_actions),
+    );
+}
+
 struct Backend {
     plugins: gennie_plugins::Controller,
     plugins_observed: u64,
@@ -319,6 +331,7 @@ impl Backend {
                     .clone())
             }));
         let provider_llm = llm.clone();
+        let provider_browser = browser.clone();
         let plugins_module = Arc::new(gennie_plugins::PluginsModule::new(
             state.db.clone(),
             browser.clone(),
@@ -327,7 +340,11 @@ impl Backend {
                 invocation: llm.invocation_context(),
                 revision: revision.clone(),
             }),
-            Arc::new(move || Ok(provider_llm.controller()?.settings())),
+            Arc::new(move || {
+                let settings = provider_llm.controller()?.settings();
+                configure_browser_permissions(&provider_browser, Some(&settings));
+                Ok(settings)
+            }),
             Path::new(helper).to_path_buf(),
             std::env::var_os("HOME")
                 .map(std::path::PathBuf::from)
@@ -616,21 +633,8 @@ impl Backend {
     }
     fn refresh_controls(&mut self) {
         self.plugins.cancel_if_disallowed();
-        self.browser
-            .set_file_access_allowed(self.llm.as_ref().is_some_and(|c| c.settings().read_files));
-        self.browser
-            .set_automation_allowed(self.llm.as_ref().is_some_and(|c| {
-                let settings = c.settings();
-                settings.local_actions && settings.run_commands
-            }));
-        self.browser
-            .set_program_allowed(self.llm.as_ref().is_some_and(|c| {
-                let settings = c.settings();
-                settings.read_files
-                    && settings.write_files
-                    && settings.run_commands
-                    && settings.local_actions
-            }));
+        let settings = self.llm.as_ref().map(|c| c.settings());
+        configure_browser_permissions(&self.browser, settings.as_ref());
         self.snapshot.models = self.model_info();
         self.snapshot.busy = self.llm.as_ref().is_some_and(|c| c.is_pending());
         self.snapshot.assistant = self.llm.as_ref().map(|c| {

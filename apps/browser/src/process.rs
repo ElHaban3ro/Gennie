@@ -18,7 +18,7 @@ fn worker_source() -> String {
 }
 const LIMIT: usize = 128 * 1024;
 const RESPONSE_LIMIT: usize = 4 * 1024 * 1024;
-const PLUGIN_RESPONSE_TIMEOUT_SECS: u64 = 60;
+const PLUGIN_RESPONSE_TIMEOUT_SECS: u64 = gennie_mcp::MAX_TOOL_EXECUTION_SECS;
 pub struct Session {
     child: Child,
     input: Option<ChildStdin>,

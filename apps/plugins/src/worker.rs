@@ -199,6 +199,21 @@ fn tool_transport_available(store: &store::Store, job_id: i64, server: &Server) 
     store.schedule_tool_retry(job_id)?;
     Ok(false)
 }
+#[derive(Default)]
+struct IdleTurns(u8);
+impl IdleTurns {
+    fn recover(&mut self, store: &store::Store, job_id: i64, calls: u64) -> Result<bool> {
+        self.0 = if calls == 0 {
+            self.0.saturating_add(1)
+        } else {
+            0
+        };
+        if self.0 < 3 {
+            return Ok(false);
+        }
+        store.schedule_idle_retry(job_id)
+    }
+}
 fn build(controller: &Controller, job: &Job) -> Result<()> {
     let settings = controller.permitted()?;
     controller.0.store.report(job.id,"Estoy explorando la web y preparando funciones reutilizables; conservaré la versión publicada hasta verificar el candidato.")?;
@@ -267,6 +282,7 @@ fn build(controller: &Controller, job: &Job) -> Result<()> {
     let mut server = Server::start(registry, &controller.0.helper)?;
     let base = controller.0.root.join(&candidate_id);
     let mut session: Option<BuilderSession> = None;
+    let mut idle_turns = IdleTurns::default();
     loop {
         let current = controller.0.store.get(job.id)?;
         if current.state != "running" || controller.0.stopping.load(Ordering::Acquire) {
@@ -275,6 +291,10 @@ fn build(controller: &Controller, job: &Job) -> Result<()> {
         if session.is_some() && !tool_transport_available(&controller.0.store, job.id, &server)? {
             controller.notify();
             break;
+        }
+        if controller.0.browser.is_busy() {
+            std::thread::sleep(Duration::from_millis(200));
+            continue;
         }
         if !controller.0.store.begin_attempt(job.id)? {
             break;
@@ -339,7 +359,7 @@ fn build(controller: &Controller, job: &Job) -> Result<()> {
             .lock()
             .map_err(|_| "Estrategia de construcción inválida")?
             .review_context();
-        let prompt=json!({"plugin_id":current.plugin_id,"origin":current.origin,"objective":current.objective,"base_revision":current.base_revision,"construction_scope":"Construye y verifica capacidades reutilizables. La ejecución periódica futura es independiente y su ausencia no bloquea por sí sola el plugin; no declares verificadas funciones que aún falten.","instruction":instruction,"stop_review":review}).to_string();
+        let prompt=json!({"plugin_id":current.plugin_id,"origin":current.origin,"objective":current.objective,"base_revision":current.base_revision,"execution_state":"running","continuation":"El host autoriza continuar este trabajo ahora. El Goal nativo permanece paused exclusivamente para impedir turnos automáticos de Codex; no representa una pausa solicitada por el usuario. Esta petición reanuda el trabajo frente a mensajes anteriores de pausa. Consulta el candidato y la interfaz con tus herramientas y ejecuta el siguiente experimento autorizado; no respondas únicamente que el trabajo sigue pausado.","construction_scope":"Construye y verifica capacidades reutilizables. La ejecución periódica futura es independiente y su ausencia no bloquea por sí sola el plugin; no declares verificadas funciones que aún falten.","instruction":instruction,"stop_review":review}).to_string();
         let turn = session.as_mut().expect("sesión creada").turn(&prompt);
         if controller.0.store.get(job.id)?.state != "running"
             || controller.0.stopping.load(Ordering::Acquire)
@@ -358,6 +378,10 @@ fn build(controller: &Controller, job: &Job) -> Result<()> {
             }
             return Err(error);
         }
+        if idle_turns.recover(&controller.0.store, job.id, calls.load(Ordering::Acquire))? {
+            controller.notify();
+            break;
+        }
         if ready.load(Ordering::Acquire) {
             let _guard = controller
                 .0
@@ -369,7 +393,7 @@ fn build(controller: &Controller, job: &Job) -> Result<()> {
             }
             let result=controller.0.browser.automate(json!({"method":"plugins","action":"promote","plugin_id":job.plugin_id,"candidate_id":candidate_id,"expected_revision":job.base_revision}))?;
             if result["status"] == "promoted" {
-                controller.transition(job.id,"completed","El plugin quedó disponible: todas las funciones del candidato se ejecutaron y verificaron antes de publicarlo.")?;
+                controller.transition(job.id,"completed","El plugin quedó disponible: se verificaron las funciones nuevas o modificadas y se conservaron las ya publicadas sin cambios.")?;
                 break;
             }
             if result["status"] == "revision_conflict" {
@@ -493,6 +517,13 @@ fn scoped_tools(
                 args["method"] = json!(name.strip_prefix("browser_").unwrap());
                 let observation_args = args.clone();
                 let result = controller.0.browser.automate(args);
+                if result
+                    .as_ref()
+                    .is_err_and(|e| e.is::<gennie_browser::ClosedPageError>())
+                {
+                    controller.0.store.schedule_page_retry(job.id)?;
+                    controller.notify();
+                }
                 let busy = result
                     .as_ref()
                     .is_err_and(|e| e.is::<gennie_browser::BusyError>());
@@ -624,8 +655,6 @@ fn scoped_tools(
             if message.trim().is_empty()||message.len()>1200||message.contains('\0') {return Err("Avance no válido".into());}
             if args.get("recommended_route").is_some() && args["state"] != "blocked" { return Err("La vía propuesta solo se admite al comunicar un bloqueo".into()); }
             if args.get("recommended_route").is_some() && !matches!(args["recommended_route"].as_str(),Some("http"|"web"|"computer_use")) { return Err("Vía propuesta inválida".into()); }
-            let count=controller.0.store.0.with_connection(|c|Ok(c.query_row("SELECT count(*) FROM plugin_build_events WHERE job_id=?1",[job.id],|r|r.get::<_,u32>(0))?))?;
-            if count>200 && args["state"] == "progress" {return Err("Agrupa los avances: se alcanzó el límite de hitos".into());}
             match args["state"].as_str() {
                 Some("ready")=>{ready.store(true,Ordering::Release);controller.0.store.report(job.id,"El constructor terminó el candidato; comprobaré las verificaciones antes de publicarlo.")?;controller.notify();}
                 Some("progress")=>{controller.0.store.report(job.id,message)?;controller.notify();}
@@ -701,6 +730,63 @@ mod retry_tests {
         let message = interruption_message(private.as_ref());
         assert!(!message.contains("private-provider-detail"));
         assert!(!message.contains("comprueba el acceso"));
+    }
+    #[test]
+    fn tool_free_turns_retry_without_losing_work_or_overriding_cancellation() {
+        let (store, _, job) = running_build();
+        store.account(job.id, 0, Some("preserved-thread")).unwrap();
+        let mut idle = IdleTurns::default();
+        for _ in 0..20 {
+            assert!(!idle.recover(&store, job.id, 0).unwrap());
+            assert!(!idle.recover(&store, job.id, 0).unwrap());
+            assert!(!idle.recover(&store, job.id, 1).unwrap());
+        }
+        assert!(!idle.recover(&store, job.id, 0).unwrap());
+        assert!(!idle.recover(&store, job.id, 0).unwrap());
+        assert!(idle.recover(&store, job.id, 0).unwrap());
+        assert!(!idle.recover(&store, job.id, 0).unwrap());
+        let saved = store.get(job.id).unwrap();
+        assert_eq!(saved.state, "queued");
+        assert_eq!(saved.thread_id.as_deref(), Some("preserved-thread"));
+        assert_eq!(saved.attempts, 1);
+        assert_eq!(
+            saved
+                .events
+                .iter()
+                .filter(|e| e.message.contains("sin utilizar sus herramientas"))
+                .count(),
+            1
+        );
+        assert!(store.claim().unwrap().is_none());
+        store.recover().unwrap();
+        assert_eq!(store.claim().unwrap().unwrap().id, job.id);
+        store.transition(job.id, "cancelled", "Cancelado").unwrap();
+        assert!(!idle.recover(&store, job.id, 0).unwrap());
+        assert_eq!(store.get(job.id).unwrap().state, "cancelled");
+    }
+    #[test]
+    fn closed_exploration_page_retries_with_a_single_notice_and_preserved_thread() {
+        let (store, _, job) = running_build();
+        store.account(job.id, 0, Some("preserved-thread")).unwrap();
+        assert!(store.schedule_page_retry(job.id).unwrap());
+        assert!(!store.schedule_page_retry(job.id).unwrap());
+        let saved = store.get(job.id).unwrap();
+        assert_eq!(saved.state, "queued");
+        assert_eq!(saved.thread_id.as_deref(), Some("preserved-thread"));
+        assert_eq!(
+            saved
+                .events
+                .iter()
+                .filter(|e| e.message.contains("pestaña de exploración se cerró"))
+                .count(),
+            1
+        );
+        assert!(store.claim().unwrap().is_none());
+        store.recover().unwrap();
+        assert_eq!(store.claim().unwrap().unwrap().id, job.id);
+        store.transition(job.id, "cancelled", "Cancelado").unwrap();
+        assert!(!store.schedule_page_retry(job.id).unwrap());
+        assert_eq!(store.get(job.id).unwrap().state, "cancelled");
     }
     #[test]
     fn disconnected_tool_channel_schedules_recovery_instead_of_another_turn() {
@@ -1272,6 +1358,14 @@ mod retry_tests {
             .iter()
             .find(|t| t.definition["name"] == "plugin_build_report")
             .unwrap();
+        for _ in 0..205 {
+            store.report(job.id, "Avance histórico").unwrap();
+        }
+        assert_eq!(
+            (report.call)(json!({"state":"progress","message":"Avance nuevo"})).unwrap()["status"],
+            "recorded"
+        );
+        assert_eq!(store.get(job.id).unwrap().summary, "Avance nuevo");
         let mut args = json!({"state":"waiting_user","message":"Necesito intervención"});
         assert_eq!((report.call)(args.clone()).unwrap()["status"], "continue");
         args["blocker"] = json!({"kind":"work_remaining","capability":"read_thread","evidence":"Hay casos sin probar","next_step":"Ampliar el código"});

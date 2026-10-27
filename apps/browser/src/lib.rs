@@ -21,6 +21,25 @@ impl std::fmt::Display for BusyError {
 }
 impl std::error::Error for BusyError {}
 
+#[derive(Debug)]
+pub struct ClosedPageError;
+impl std::fmt::Display for ClosedPageError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("El navegador o la pestaña están cerrados")
+    }
+}
+impl std::error::Error for ClosedPageError {}
+
+fn decode_response(value: Value) -> Result<Value> {
+    if value["code"] == "closed" {
+        return Err(Box::new(ClosedPageError));
+    }
+    if let Some(error) = value["error"].as_str() {
+        return Err(error.to_owned().into());
+    }
+    Ok(value)
+}
+
 #[derive(Clone)]
 pub struct Controller {
     inner: Arc<Inner>,
@@ -48,6 +67,12 @@ impl Controller {
     }
     pub fn open(&self) -> Result<()> {
         self.call(json!({"method":"open"})).map(|_| ())
+    }
+    pub fn is_busy(&self) -> bool {
+        matches!(
+            self.inner.session.try_lock(),
+            Err(std::sync::TryLockError::WouldBlock)
+        )
     }
     pub fn set_automation_allowed(&self, allowed: bool) {
         self.inner
@@ -119,12 +144,7 @@ impl Controller {
         }
         let session = guard.as_mut().ok_or("No se pudo iniciar el navegador")?;
         match session.request(&request) {
-            Ok(value) => {
-                if let Some(error) = value["error"].as_str() {
-                    return Err(error.to_owned().into());
-                }
-                Ok(value)
-            }
+            Ok(value) => decode_response(value),
             Err(error) => {
                 // Un timeout no se reintenta: el efecto de una acción podría haberse aplicado.
                 guard.take();

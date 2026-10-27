@@ -20,8 +20,9 @@ const LIMIT: usize = 128 * 1024;
 /// Límite del mensaje de respuesta MCP, incluido su sobre y salto de línea.
 pub const MAX_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
 // Mayor que la espera del navegador, menor que la espera del cliente Codex.
-const BRIDGE_RESPONSE_TIMEOUT_SECS: u64 = 75;
-const CLIENT_TOOL_TIMEOUT_SECS: u64 = 90;
+pub const MAX_TOOL_EXECUTION_SECS: u64 = 15 * 60;
+const BRIDGE_RESPONSE_TIMEOUT_SECS: u64 = MAX_TOOL_EXECUTION_SECS + 15;
+const CLIENT_TOOL_TIMEOUT_SECS: u64 = BRIDGE_RESPONSE_TIMEOUT_SECS + 15;
 
 /// Sobre interno para resultados multimodales de herramientas propias, separado de sus datos.
 pub fn with_image(data: Value, image: String, mime_type: &str) -> Result<Value> {

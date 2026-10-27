@@ -174,6 +174,12 @@ impl Store {
     pub fn schedule_tool_retry(&self, id: i64) -> Result<bool> {
         self.schedule_retry(id, "Se cerró la conexión con las herramientas de Gennie. Conservaré el trabajo y lo retomaré con una conexión nueva en unos cinco minutos; si cierras Gennie, continuaré al abrirlo. Antes de repetir operaciones comprobaré sus resultados anteriores.")
     }
+    pub fn schedule_idle_retry(&self, id: i64) -> Result<bool> {
+        self.schedule_retry(id, "El constructor encadenó varios turnos sin utilizar sus herramientas. Conservaré el candidato y retomaré el trabajo con una sesión nueva en unos cinco minutos; si cierras Gennie, continuaré al abrirlo. Comprobaré lo ya realizado antes de repetir operaciones.")
+    }
+    pub fn schedule_page_retry(&self, id: i64) -> Result<bool> {
+        self.schedule_retry(id, "La pestaña de exploración se cerró. Conservé el candidato y retomaré la construcción con una pestaña nueva en unos cinco minutos; si cierras Gennie, continuaré al abrirlo. Comprobaré los efectos anteriores antes de repetir operaciones.")
+    }
     fn schedule_retry(&self, id: i64, message: &str) -> Result<bool> {
         self.0.with_connection(|c| {
             let tx = c.transaction()?;
