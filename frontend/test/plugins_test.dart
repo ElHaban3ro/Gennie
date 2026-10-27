@@ -46,13 +46,20 @@ class PluginsBackend extends FakeBackend implements PluginBackend {
   Completer<String>? pending;
   String status = 'ok';
   bool conflict = false;
+  String? catalogueStatus;
+  String? catalogueError;
   @override
   Future<String> pluginRequest(String text) async {
     final request = Map<String, dynamic>.from(jsonDecode(text) as Map);
     requests.add(request);
     switch (request['action']) {
       case 'list':
-        return jsonEncode({'plugins': records, 'jobs': jobs});
+        return jsonEncode({
+          'plugins': catalogueError == null ? records : null,
+          'jobs': jobs,
+          'catalogue_status': catalogueStatus ?? 'ready',
+          'catalogue_error': catalogueError,
+        });
       case 'run':
       case 'verify':
         return pending?.future ??
@@ -562,6 +569,98 @@ void main() {
     expect(resume.containsKey('trigger_conversation_id'), false);
     await tester.pumpWidget(const SizedBox());
   });
+  testWidgets(
+    'el navegador ocupado conserva los plugins y muestra la construcción',
+    (tester) async {
+      final backend = PluginsBackend();
+      await mount(tester, backend);
+      await select(tester);
+      backend.catalogueStatus = 'busy';
+      backend.catalogueError = 'El navegador de Gennie está ocupado';
+      backend.jobs = [
+        {
+          'id': 13,
+          'plugin_id': 'gmail_test',
+          'origin': 'https://example.com',
+          'state': 'running',
+          'summary': 'Comprobando la lectura y la retirada de Recibidos',
+          'trigger_conversation_id': 7,
+          'attempts': 1,
+        },
+      ];
+      await tester.tap(find.widgetWithIcon(IconButton, Icons.refresh));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(find.text('Correo de prueba'), findsWidgets);
+      expect(find.text('Construyendo'), findsWidgets);
+      expect(find.text('No hay contenido disponible'), findsNothing);
+      expect(
+        find.text(
+          'El navegador está trabajando. El catálogo se actualizará automáticamente.',
+        ),
+        findsOneWidget,
+      );
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+  testWidgets(
+    'una primera carga ocupada muestra trabajos y recupera el catálogo sin recarga manual',
+    (tester) async {
+      final backend = PluginsBackend()
+        ..catalogueStatus = 'busy'
+        ..catalogueError = 'El navegador de Gennie está ocupado';
+      backend.jobs = [
+        {
+          'id': 13,
+          'plugin_id': 'gmail_test',
+          'origin': 'https://example.com',
+          'state': 'queued',
+          'summary': 'Preparación en cola',
+          'trigger_conversation_id': 7,
+          'attempts': 0,
+        },
+      ];
+      await mount(tester, backend);
+      expect(find.text('example.com'), findsOneWidget);
+      await tester.tap(find.text('example.com'));
+      await tester.pumpAndSettle();
+      expect(find.text('Preparación en cola'), findsOneWidget);
+      expect(find.text('No hay contenido disponible'), findsNothing);
+      backend.catalogueStatus = 'ready';
+      backend.catalogueError = null;
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pumpAndSettle();
+      expect(find.text('Correo de prueba'), findsWidgets);
+      expect(
+        find.text(
+          'El navegador está trabajando. El catálogo se actualizará automáticamente.',
+        ),
+        findsNothing,
+      );
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+  testWidgets(
+    'un catálogo inaccesible no se presenta como vacío y reintenta aunque no haya trabajos',
+    (tester) async {
+      final backend = PluginsBackend()
+        ..catalogueStatus = 'unavailable'
+        ..catalogueError = 'Falta preparar el navegador';
+      await mount(tester, backend);
+      expect(
+        find.text('Catálogo temporalmente no disponible'),
+        findsNWidgets(2),
+      );
+      expect(find.text('No hay contenido disponible'), findsNothing);
+      backend.catalogueError = null;
+      backend.catalogueStatus = 'ready';
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pumpAndSettle();
+      expect(find.text('Correo de prueba'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
   testWidgets(
     'los plugins en preparación aparecen en la lista y se pueden seleccionar',
     (tester) async {

@@ -237,12 +237,29 @@ impl Controller {
         Ok(())
     }
     pub fn catalogue(&self) -> Result<Value> {
+        self.catalogue_with(|| {
+            self.0
+                .browser
+                .call(json!({"method":"plugins","action":"list"}))
+        })
+    }
+    fn catalogue_with(&self, fetch: impl FnOnce() -> Result<Value>) -> Result<Value> {
         self.check()?;
-        let mut result = self
-            .0
-            .browser
-            .call(json!({"method":"plugins","action":"list"}))?;
-        result["jobs"] = serde_json::to_value(self.0.store.list()?)?;
+        // Los trabajos son independientes del proceso del navegador. Una operación web
+        // en curso no debe ocultarlos ni convertir un catálogo desconocido en uno vacío.
+        let jobs = self.0.store.list()?;
+        let mut result = match fetch() {
+            Ok(mut value) => {
+                value["catalogue_status"] = json!("ready");
+                value
+            }
+            Err(error) => json!({
+                "plugins":null,
+                "catalogue_status":if error.is::<gennie_browser::BusyError>() {"busy"} else {"unavailable"},
+                "catalogue_error":error.to_string()
+            }),
+        };
+        result["jobs"] = serde_json::to_value(jobs)?;
         result["delivery_error"] = serde_json::to_value(
             self.0
                 .delivery_error

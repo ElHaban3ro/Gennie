@@ -158,7 +158,8 @@ class PluginsView extends StatefulWidget {
 class _PluginsViewState extends State<PluginsView> {
   final search = TextEditingController();
   List<Map<String, dynamic>> records = [], jobs = [];
-  String? selected, error, deliveryError;
+  String? selected, error, deliveryError, catalogueError;
+  String catalogueStatus = 'ready';
   bool loading = true,
       fetching = false,
       editing = false,
@@ -208,13 +209,17 @@ class _PluginsViewState extends State<PluginsView> {
       final value = await call({'action': 'list'});
       if (!mounted) return;
       setState(() {
-        records = (value['plugins'] as List? ?? [])
-            .map((e) => Map<String, dynamic>.from(e as Map))
-            .toList();
+        if (value['plugins'] case final List plugins) {
+          records = plugins
+              .map((e) => Map<String, dynamic>.from(e as Map))
+              .toList();
+        }
         jobs = (value['jobs'] as List? ?? [])
             .map((e) => Map<String, dynamic>.from(e as Map))
             .toList();
         deliveryError = value['delivery_error'] as String?;
+        catalogueError = value['catalogue_error'] as String?;
+        catalogueStatus = value['catalogue_status'] as String? ?? 'ready';
         error = null;
       });
     } catch (e) {
@@ -224,7 +229,8 @@ class _PluginsViewState extends State<PluginsView> {
       if (mounted) {
         setState(() => loading = false);
         timer?.cancel();
-        if (jobs.any((j) => ['queued', 'running'].contains(j['state']))) {
+        if (catalogueError != null ||
+            jobs.any((j) => ['queued', 'running'].contains(j['state']))) {
           timer = Timer(const Duration(seconds: 2), () => refresh(quiet: true));
         }
       }
@@ -393,6 +399,18 @@ class _PluginsViewState extends State<PluginsView> {
         : entries[selected]?['name'] as String?;
     final latest = selected == null ? null : latestJobs[selected];
     final associated = latest == null ? <Map<String, dynamic>>[] : [latest];
+    final notice =
+        error ??
+        deliveryError ??
+        (catalogueError == null
+            ? null
+            : catalogueStatus == 'busy'
+            ? 'El navegador está trabajando. El catálogo se actualizará automáticamente.'
+            : 'No se pudo actualizar el catálogo: $catalogueError');
+    final noticeIsError =
+        error != null ||
+        deliveryError != null ||
+        (catalogueError != null && catalogueStatus != 'busy');
     return Row(
       children: [
         AppSidebar(
@@ -414,7 +432,10 @@ class _PluginsViewState extends State<PluginsView> {
               ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
               : filtered.isEmpty
               ? SidebarEmpty(
-                  message: query.isEmpty
+                  message:
+                      query.isEmpty && catalogueError != null && jobs.isEmpty
+                      ? 'Catálogo temporalmente no disponible'
+                      : query.isEmpty
                       ? 'No hay contenido disponible'
                       : 'No se encontraron plugins',
                 )
@@ -522,13 +543,15 @@ class _PluginsViewState extends State<PluginsView> {
                 ),
               ),
             ],
-            notice: error != null || deliveryError != null
+            notice: notice != null
                 ? Padding(
                     padding: const EdgeInsets.all(12),
                     child: Text(
-                      error ?? deliveryError!,
+                      notice,
                       style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
+                        color: noticeIsError
+                            ? Theme.of(context).colorScheme.error
+                            : sidebarInk(context),
                         fontSize: 12,
                       ),
                     ),
@@ -566,7 +589,12 @@ class _PluginsViewState extends State<PluginsView> {
                     },
                   )
                 : record == null && associated.isEmpty
-                ? const ContentEmpty(title: 'Plugins')
+                ? ContentEmpty(
+                    title: 'Plugins',
+                    message: catalogueError != null && entries.isEmpty
+                        ? 'Catálogo temporalmente no disponible'
+                        : 'No hay contenido disponible',
+                  )
                 : AppViewScroll(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,

@@ -20,13 +20,7 @@ fn disabled_and_busy_calls_never_start_a_process() {
     assert!(controller.inner.session.lock().unwrap().is_none());
     controller.inner.enabled.store(true, Ordering::Release);
     let guard = controller.inner.session.lock().unwrap();
-    assert!(
-        controller
-            .open()
-            .unwrap_err()
-            .to_string()
-            .contains("ocupado")
-    );
+    assert!(controller.open().unwrap_err().is::<BusyError>());
     drop(guard);
     assert!(
         controller

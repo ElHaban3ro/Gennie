@@ -128,3 +128,5 @@ Las construcciones canceladas sin plugin publicado desaparecen de la lista; sus 
 Ambas vistas reutilizan `AppDetailView`, `AppViewScroll` y `AppViewContent` (`frontend/lib/src/detail_view.dart`). La geometría de Encargos es la referencia: cabecera de 56 px, margen horizontal de cabecera de 24 px, contenido centrado de hasta 760 px con margen interior de 24 px en lectura y edición. Los pies fijos conservan esa alineación con 12 px verticales. Plugins aplica este mismo marco a la ficha publicada, al trabajo en preparación, al editor y al formulario de construcción.
 
 `AppDetailHeading` comparte icono, etiqueta, título, subtítulo y acción de edición entre las fichas de Encargos, Plugins y trabajos en preparación.
+
+Al consultar Plugins durante una operación del navegador, los trabajos guardados siguen visibles. La ocupación temporal muestra «El navegador está trabajando. El catálogo se actualizará automáticamente.» en tono neutro; conserva el catálogo conocido y reintenta la consulta. Un catálogo todavía inaccesible no se presenta como vacío. Los fallos reales permanecen visibles separados del estado de construcción.

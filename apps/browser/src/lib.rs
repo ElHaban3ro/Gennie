@@ -12,6 +12,15 @@ use std::{
 };
 pub use tools::{tools, validate as validate_arguments};
 
+#[derive(Debug)]
+pub struct BusyError;
+impl std::fmt::Display for BusyError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("El navegador de Gennie está ocupado")
+    }
+}
+impl std::error::Error for BusyError {}
+
 #[derive(Clone)]
 pub struct Controller {
     inner: Arc<Inner>,
@@ -92,11 +101,13 @@ impl Controller {
                 json!(self.inner.program_allowed.load(Ordering::Acquire)),
             );
         }
-        let mut guard = self
-            .inner
-            .session
-            .try_lock()
-            .map_err(|_| "El navegador de Gennie está ocupado")?;
+        let mut guard = match self.inner.session.try_lock() {
+            Ok(guard) => guard,
+            Err(std::sync::TryLockError::WouldBlock) => return Err(Box::new(BusyError)),
+            Err(std::sync::TryLockError::Poisoned(_)) => {
+                return Err("Estado del navegador inválido".into());
+            }
+        };
         if !self.inner.enabled.load(Ordering::Acquire) {
             return Err("El módulo de navegador está desactivado".into());
         }
