@@ -7,5 +7,6 @@ publish.workspace = true
 
 [dependencies]
 gennie-core.workspace = true
+gennie-db.workspace = true
 gennie-mcp.workspace = true
 serde_json.workspace = true

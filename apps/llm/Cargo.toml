@@ -10,6 +10,7 @@ gennie-mcp.workspace = true
 gennie-core.workspace = true
 gennie-db.workspace = true
 serde_json.workspace = true
+serde.workspace = true
 
 [dev-dependencies]
 gennie-config.workspace = true

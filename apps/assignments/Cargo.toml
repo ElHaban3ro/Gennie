@@ -11,3 +11,7 @@ gennie-db.workspace = true
 gennie-mcp.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+jiff.workspace = true
+
+[dev-dependencies]
+jsonschema.workspace = true
