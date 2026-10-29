@@ -1,9 +1,15 @@
 //! Transporte MCP local reutilizable. Las apps aportan herramientas; no posee datos de negocio.
+mod cancellable_io;
+mod cancellation;
+mod connection;
+mod framing;
+mod stdio_bridge;
+pub use cancellable_io::write_cancellable;
+pub use cancellation::{CallContext, Cancelled, ContextTool};
 use gennie_core::Result;
 use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
-    io::{BufRead, BufReader, Read, Write},
     os::unix::{
         fs::{DirBuilderExt, PermissionsExt},
         net::{UnixListener, UnixStream},
@@ -16,7 +22,10 @@ use std::{
     thread::JoinHandle,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
+pub use stdio_bridge::bridge;
 const LIMIT: usize = 128 * 1024;
+/// Peticiones en cola por conexión; una herramienta se ejecuta a la vez.
+pub const MAX_PENDING_REQUESTS: usize = 64;
 /// Límite del mensaje de respuesta MCP, incluido su sobre y salto de línea.
 pub const MAX_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
 // Mayor que la espera del navegador, menor que la espera del cliente Codex.
@@ -36,15 +45,25 @@ pub fn with_image(data: Value, image: String, mime_type: &str) -> Result<Value> 
     )
 }
 
+/// Conserva bloques MCP nativos separados de los datos estructurados locales.
+/// El adaptador aporta bloques del protocolo; el transporte no resuelve sus URI.
+pub fn with_content(data: Value, content: Vec<Value>, is_error: bool) -> Value {
+    json!({"__gennie_mcp_output_v1":{"data":data,"content":content,"isError":is_error}})
+}
+
 pub struct Tool {
     pub definition: Value,
     pub call: Box<dyn Fn(Value) -> Result<Value> + Send + Sync>,
 }
 #[derive(Default)]
-pub struct Registry(BTreeMap<String, Tool>);
+pub struct Registry(BTreeMap<String, ContextTool>);
 impl Registry {
-    pub fn register(&mut self, tools: impl IntoIterator<Item = Tool>) -> Result<()> {
+    pub fn register<T: Into<ContextTool>>(
+        &mut self,
+        tools: impl IntoIterator<Item = T>,
+    ) -> Result<()> {
         for tool in tools {
+            let tool = tool.into();
             let name = tool.definition["name"]
                 .as_str()
                 .ok_or("Herramienta sin nombre")?
@@ -57,6 +76,9 @@ impl Registry {
         Ok(())
     }
     pub fn respond(&self, request: Value) -> Option<Value> {
+        self.respond_with_context(request, CallContext::default())
+    }
+    pub fn respond_with_context(&self, request: Value, context: CallContext) -> Option<Value> {
         let id = request.get("id").cloned().unwrap_or(Value::Null);
         let error = |code, message| json!({"jsonrpc":"2.0","id":id,"error":{"code":code,"message":message}});
         let Some(method) = request["method"].as_str() else {
@@ -89,16 +111,27 @@ impl Registry {
                 let Some(tool) = self.0.get(name) else {
                     return Some(error(-32602, "Herramienta desconocida"));
                 };
-                match (tool.call)(
-                    request
-                        .pointer("/params/arguments")
-                        .cloned()
-                        .unwrap_or(json!({})),
-                ) {
+                let outcome = context.check().and_then(|_| {
+                    (tool.call)(
+                        request
+                            .pointer("/params/arguments")
+                            .cloned()
+                            .unwrap_or(json!({})),
+                        context,
+                    )
+                });
+                match outcome {
                     Ok(value) => {
                         if let Some(output) = value.get("__gennie_mcp_output_v1") {
                             let data = &output["data"];
-                            json!({"content":[{"type":"text","text":data.to_string()},output["image"]],"structuredContent":data,"isError":false})
+                            if let Some(blocks) = output["content"].as_array() {
+                                let mut content = Vec::with_capacity(blocks.len() + 1);
+                                content.push(json!({"type":"text","text":data.to_string()}));
+                                content.extend(blocks.iter().cloned());
+                                json!({"content":content,"structuredContent":data,"isError":output["isError"] == true})
+                            } else {
+                                json!({"content":[{"type":"text","text":data.to_string()},output["image"]],"structuredContent":data,"isError":false})
+                            }
                         } else {
                             json!({"content":[{"type":"text","text":value.to_string()}],"structuredContent":value,"isError":false})
                         }
@@ -210,7 +243,7 @@ impl Server {
                                     .name("gennie-mcp-client".into())
                                     .spawn(move || {
                                         let _connection = connection;
-                                        let _ = serve(stream, &registry, &stop);
+                                        let _ = connection::serve(stream, &registry, stop);
                                     })
                                 {
                                     clients.push(client);
@@ -272,65 +305,23 @@ impl Drop for Server {
         let _ = self.stop();
     }
 }
-fn serve(mut stream: UnixStream, registry: &Registry, stopping: &AtomicBool) -> Result<()> {
-    // En macOS los sockets aceptados pueden heredar O_NONBLOCK del listener.
-    // write_all debe poder esperar al consumidor de una imagen grande.
-    stream.set_nonblocking(false)?;
-    stream.set_read_timeout(Some(Duration::from_millis(50)))?;
-    stream.set_write_timeout(Some(Duration::from_secs(2)))?;
-    let mut pending = Vec::new();
-    let mut buffer = [0; 4096];
-    while !stopping.load(Ordering::Acquire) {
-        match stream.read(&mut buffer) {
-            Ok(0) => break,
-            Ok(n) => pending.extend_from_slice(&buffer[..n]),
-            Err(e)
-                if matches!(
-                    e.kind(),
-                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                ) =>
-            {
-                continue;
-            }
-            Err(e) => return Err(e.into()),
-        }
-        while let Some(end) = pending.iter().position(|b| *b == b'\n') {
-            if end > LIMIT {
-                return Err("Petición MCP demasiado grande".into());
-            }
-            let line: Vec<_> = pending.drain(..=end).collect();
-            let response = match serde_json::from_slice(&line) {
-                Ok(request) => registry.respond(request),
-                Err(_) => Some(
-                    json!({"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"JSON inválido"}}),
-                ),
-            };
-            if let Some(response) = response {
-                let response = encode_response(response)?;
-                stream.write_all(&response)?;
-                stream.write_all(b"\n")?;
-            }
-        }
-        if pending.len() > LIMIT {
-            return Err("Petición MCP demasiado grande".into());
-        }
-    }
-    Ok(())
-}
 fn encode_response(mut response: Value) -> Result<Vec<u8>> {
     let mut bytes = serde_json::to_vec(&response)?;
     if bytes.len() < MAX_RESPONSE_BYTES {
         return Ok(bytes);
     }
-    // structuredContent conserva los datos completos; el texto no necesita duplicarlos.
-    if response["result"].get("structuredContent").is_some()
-        && let Some(content) = response["result"]["content"].as_array_mut()
+    // Solo la primera copia exacta de datos locales es redundante. Los bloques
+    // text del servidor pueden contener datos ausentes de structuredContent.
+    if let Some(duplicate) = response["result"]
+        .get("structuredContent")
+        .map(Value::to_string)
+        && let Some(item) = response["result"]["content"]
+            .as_array_mut()
+            .and_then(|c| c.first_mut())
+        && item["type"] == "text"
+        && item["text"].as_str() == Some(duplicate.as_str())
     {
-        for item in content {
-            if item["type"] == "text" {
-                item["text"] = json!("Resultado completo disponible en structuredContent.");
-            }
-        }
+        item["text"] = json!("Resultado completo disponible en structuredContent.");
         bytes = serde_json::to_vec(&response)?;
         if bytes.len() < MAX_RESPONSE_BYTES {
             return Ok(bytes);
@@ -344,51 +335,48 @@ fn encode_response(mut response: Value) -> Result<Vec<u8>> {
         }}),
     )?)
 }
-/// Helper stdio sin SQLite ni acceso a recursos de las apps. El host ejecuta las herramientas.
-pub fn bridge(socket: &Path) -> Result<()> {
-    let mut stream = UnixStream::connect(socket)?;
-    stream.set_read_timeout(Some(Duration::from_secs(BRIDGE_RESPONSE_TIMEOUT_SECS)))?;
-    let mut response = BufReader::new(stream.try_clone()?);
-    let stdin = std::io::stdin();
-    let mut input = stdin.lock();
-    let mut output = std::io::stdout().lock();
-    loop {
-        let mut line = Vec::new();
-        if input
-            .by_ref()
-            .take((LIMIT + 1) as u64)
-            .read_until(b'\n', &mut line)?
-            == 0
-        {
-            break;
-        }
-        if line.len() > LIMIT {
-            return Err("Petición MCP demasiado grande".into());
-        }
-        let request: Value = serde_json::from_slice(&line)?;
-        stream.write_all(&line)?;
-        if !line.ends_with(b"\n") {
-            stream.write_all(b"\n")?;
-        }
-        if request.get("id").is_some() {
-            let mut line = Vec::new();
-            let n = response
-                .by_ref()
-                .take((MAX_RESPONSE_BYTES + 1) as u64)
-                .read_until(b'\n', &mut line)?;
-            if n == 0 || n > MAX_RESPONSE_BYTES || line.last() != Some(&b'\n') {
-                return Err("Respuesta MCP incompleta o demasiado grande".into());
-            }
-            output.write_all(&line)?;
-            output.flush()?;
-        }
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::{BufRead, BufReader, Write};
+    #[test]
+    fn compaction_preserves_native_text_binary_and_error_or_reports_unknown() {
+        let mut registry = Registry::default();
+        registry.register([Tool {
+            definition:json!({"name":"native"}),
+            call:Box::new(|_|Ok(with_content(
+                json!({"payload":"x".repeat(MAX_RESPONSE_BYTES / 2 + 1024)}),
+                vec![json!({"type":"text","text":"Texto remoto imprescindible"}),json!({"type":"image","data":"A".repeat(300000),"mimeType":"image/png"})],
+                true,
+            ))),
+        }]).unwrap();
+        let response = registry
+            .respond(
+                json!({"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"native"}}),
+            )
+            .unwrap();
+        assert!(serde_json::to_vec(&response).unwrap().len() >= MAX_RESPONSE_BYTES);
+        let encoded = encode_response(response).unwrap();
+        assert!(encoded.len() < MAX_RESPONSE_BYTES);
+        let result: Value = serde_json::from_slice(&encoded).unwrap();
+        assert_eq!(result["result"]["isError"], true);
+        assert_eq!(
+            result["result"]["content"][1]["text"],
+            "Texto remoto imprescindible"
+        );
+        assert_eq!(
+            result["result"]["content"][2]["data"]
+                .as_str()
+                .unwrap()
+                .len(),
+            300000
+        );
+        let oversized = json!({"jsonrpc":"2.0","id":9,"result":{"content":[{"type":"image","mimeType":"image/png","data":"A".repeat(MAX_RESPONSE_BYTES)}],"structuredContent":{},"isError":false}});
+        let result: Value = serde_json::from_slice(&encode_response(oversized).unwrap()).unwrap();
+        assert_eq!(result["id"], 9);
+        assert_eq!(result["result"]["isError"], true);
+        assert_eq!(result["result"]["structuredContent"]["outcome"], "unknown");
+    }
     #[test]
     fn oversized_tool_result_does_not_close_the_transport() {
         let mut registry = Registry::default();
@@ -400,8 +388,10 @@ mod tests {
             .unwrap();
         let mut server = Server::start(registry, &std::env::current_exe().unwrap()).unwrap();
         let mut stream = UnixStream::connect(&server.launch.socket).unwrap();
+        // Comprueba integridad/continuidad, no un SLA de serialización en debug.
+        // El margen cubre la contención con otros fixtures de varios MiB.
         stream
-            .set_read_timeout(Some(Duration::from_secs(2)))
+            .set_read_timeout(Some(Duration::from_secs(10)))
             .unwrap();
         let mut reader = BufReader::new(stream.try_clone().unwrap());
         stream.write_all(b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"large_result\"}}\n").unwrap();
