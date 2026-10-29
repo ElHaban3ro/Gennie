@@ -20,6 +20,8 @@
 | bootstrap / gennie_backend | Composición, API FRB, runtime serial y secuencia de cierre |
 | gennie (binario) | Helper separado de audio/inferencia y herramientas locales; no ejecuta escritorio |
 
+Cada encargo conserva una identidad de instancia independiente de su número y revisión. Los trabajos de preparación usan esa identidad para no confundirse con trabajos de encargos eliminados; los trabajos anteriores solo se asocian si coinciden el origen y el objetivo y su creación es posterior a la del encargo.
+
 El grafo es acíclico; composición en bootstrap. Presence depende de llm para el trait público del diario, core y db. Bootstrap inyecta ese diario y conecta transcription, llm y tts. Los detalles de proveedor no entran en widgets. [Reglas de módulos](../rules/modules.md).
 
 Presence mantiene las migraciones históricas y catálogo `presence_conversations`, `presence_current_conversation`, `presence_history`; no borrar tablas de apariencia ni alterar checksums por retirar su interfaz. Bootstrap posee `modules`; cada app conserva sus preferencias. Kernel no posee tablas de producto.
