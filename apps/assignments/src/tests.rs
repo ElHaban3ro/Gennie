@@ -19,6 +19,28 @@ fn store() -> Store {
     Store::new(db)
 }
 #[test]
+fn recreated_assignment_gets_new_persistent_identity_when_id_is_reused() {
+    let store = store();
+    let first = store.create("same-request", document()).unwrap();
+    assert_eq!(
+        store
+            .create("same-request", document())
+            .unwrap()
+            .instance_id,
+        first.instance_id
+    );
+    let updated = store.update(first.id, first.revision, document()).unwrap();
+    assert_eq!(updated.instance_id, first.instance_id);
+    store.delete(updated.id, updated.revision).unwrap();
+    let replacement = store.create("same-request", document()).unwrap();
+    assert_eq!(replacement.id, first.id);
+    assert_ne!(replacement.instance_id, first.instance_id);
+    assert_eq!(
+        store.get(replacement.id).unwrap().instance_id,
+        replacement.instance_id
+    );
+}
+#[test]
 fn migrating_recorded_status_preserves_other_states_and_record_metadata() {
     let db = Database::memory().unwrap();
     let module = AssignmentsModule;
@@ -339,7 +361,7 @@ fn migrating_legacy_events_preserves_records_keys_revisions_and_checksums() {
         assert_eq!(
             c.query_row("SELECT count(*) FROM _soc_migrations_events", [], |r| r
                 .get::<_, i64>(0))?,
-            3
+            4
         );
         Ok(())
     })

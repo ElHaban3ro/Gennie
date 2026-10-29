@@ -110,6 +110,7 @@ pub struct Document {
 pub struct Record {
     pub method_resolution: Option<serde_json::Value>,
     pub id: i64,
+    pub instance_id: String,
     pub revision: u32,
     pub document: Document,
     pub created_at: String,
@@ -138,6 +139,10 @@ impl AppModule for AssignmentsModule {
             Migration {
                 version: 3,
                 sql: include_str!("../migrations/0003_active_status.sql"),
+            },
+            Migration {
+                version: 4,
+                sql: include_str!("../migrations/0004_instance_identity.sql"),
             },
         ]
     }
@@ -212,7 +217,7 @@ impl Store {
                 if saved != encoded { return Err("La petición ya existe con otros datos; consulta el encargo antes de editarlo".into()); }
                 id
             } else {
-                tx.execute("INSERT INTO assignments(request_key,document) VALUES(?1,?2)", params![request_key,encoded])?;
+                tx.execute("INSERT INTO assignments(request_key,document,instance_id) VALUES(?1,?2,lower(hex(randomblob(16))))", params![request_key,encoded])?;
                 tx.last_insert_rowid()
             };
             let record = read(&tx, id)?;
@@ -417,8 +422,8 @@ fn text(value: &str, max: usize, label: &str) -> Result<()> {
     Ok(())
 }
 fn read(c: &gennie_db::SqliteConnection, id: i64) -> Result<Record> {
-    let (id, revision, document, created_at, updated_at) = c.query_row(
-        "SELECT id,revision,document,created_at,updated_at FROM assignments WHERE id=?1",
+    let (id, revision, document, created_at, updated_at, instance_id) = c.query_row(
+        "SELECT id,revision,document,created_at,updated_at,instance_id FROM assignments WHERE id=?1",
         [id],
         |r| {
             Ok((
@@ -427,12 +432,14 @@ fn read(c: &gennie_db::SqliteConnection, id: i64) -> Result<Record> {
                 r.get::<_, String>(2)?,
                 r.get(3)?,
                 r.get(4)?,
+                r.get(5)?,
             ))
         },
     )?;
     Ok(Record {
         method_resolution: None,
         id,
+        instance_id,
         revision,
         document: serde_json::from_str(&document)?,
         created_at,
