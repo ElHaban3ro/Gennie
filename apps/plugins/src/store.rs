@@ -33,6 +33,17 @@ pub struct BuildEvent {
 #[derive(Clone)]
 pub(crate) struct Store(pub Database);
 impl Store {
+    pub fn assignment_root(&self, key: &str) -> Result<Option<Job>> {
+        let id = self.0.with_connection(|c| {
+            let mut statement =
+                c.prepare("SELECT id FROM plugin_build_jobs WHERE request_key=?1")?;
+            Ok(statement
+                .query_map([key], |r| r.get::<_, i64>(0))?
+                .next()
+                .transpose()?)
+        })?;
+        id.map(|id| self.get(id)).transpose()
+    }
     pub fn assignment_job(&self, key: &str) -> Result<Option<(i64, String)>> {
         self.0.with_connection(|c| {
             let mut s = c.prepare("WITH RECURSIVE related(id, state, plugin_id, origin, objective, trigger_conversation_id, base_revision) AS (
@@ -446,6 +457,54 @@ mod tests {
         new_revision["revision"] = serde_json::json!(3);
         assert_eq!(
             controller.assignment_sources(&new_revision).unwrap()[0]["status"],
+            "not_investigated"
+        );
+    }
+    #[test]
+    fn recreated_assignment_does_not_inherit_old_job_and_preserves_valid_legacy_job() {
+        let store = fixture();
+        let module = crate::PluginsModule::new(
+            store.0.clone(),
+            gennie_browser::BrowserModule::default().controller(),
+            std::sync::Arc::new(Journal::default()),
+            std::sync::Arc::new(|| Err("sin proveedor".into())),
+            Default::default(),
+            Default::default(),
+        );
+        let controller = module.controller();
+        let mut assignment = serde_json::json!({"id":1,"revision":1,"instance_id":"0123456789abcdef0123456789abcdef","created_at":"2000-01-01T00:00:00.000Z","document":{"description":"Revisar correo","authorization":{"scope":"Leer"},"applications":[{"name":"Web","kind":"web","url":"https://example.com"}]}});
+        let mut old = request("mail");
+        old.request_key = "assignment_1_1_0".into();
+        old.origin = "https://example.com".into();
+        old.objective = crate::assignment_objective(&assignment["document"]);
+        let root = store.create(&old, 7, 0).unwrap();
+        assert_eq!(
+            controller.assignment_sources(&assignment).unwrap()[0]["status"],
+            "queued"
+        );
+        assignment["created_at"] = serde_json::json!(root.created_at);
+        assert_eq!(
+            controller.assignment_sources(&assignment).unwrap()[0]["status"],
+            "not_investigated"
+        );
+        assignment["created_at"] = serde_json::json!("2999-01-01T00:00:00.000Z");
+        assert_eq!(
+            controller.assignment_sources(&assignment).unwrap()[0]["status"],
+            "not_investigated"
+        );
+        store.transition(root.id, "cancelled", "Cancelado").unwrap();
+        let mut new = old.clone();
+        new.request_key = "assignment_1_1_0_0123456789abcdef0123456789abcdef".into();
+        let replacement = store.create(&new, 7, 0).unwrap();
+        assert_ne!(root.id, replacement.id);
+        assert_eq!(
+            controller.assignment_sources(&assignment).unwrap()[0]["status"],
+            "queued"
+        );
+        assert_eq!(store.create(&new, 7, 0).unwrap().id, replacement.id);
+        assignment["instance_id"] = serde_json::json!("fedcba9876543210fedcba9876543210");
+        assert_eq!(
+            controller.assignment_sources(&assignment).unwrap()[0]["status"],
             "not_investigated"
         );
     }

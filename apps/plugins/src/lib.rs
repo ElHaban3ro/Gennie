@@ -187,10 +187,7 @@ impl Controller {
                     "unsupported".to_owned()
                 } else if web_origin(app).is_none() {
                     "origin_required".to_owned()
-                } else if let Some((job_id, state)) = self
-                    .0
-                    .store
-                    .assignment_job(&format!("assignment_{id}_{revision}_{index}"))?
+                } else if let Some((job_id, state)) = self.assignment_job_for(assignment, app, id, revision, index)?
                 {
                     let job = self.0.store.get(job_id)?;
                     return Ok(json!({"source":app["name"],"kind":app["kind"],"status":state,"recommended_route":job.recommended_route}));
@@ -200,6 +197,39 @@ impl Controller {
                 Ok(json!({"source":app["name"],"kind":app["kind"],"status":status}))
             })
             .collect()
+    }
+    fn assignment_job_for(
+        &self,
+        assignment: &Value,
+        app: &Value,
+        id: i64,
+        revision: u64,
+        index: usize,
+    ) -> Result<Option<(i64, String)>> {
+        let legacy = format!("assignment_{id}_{revision}_{index}");
+        let Some(instance) = assignment_instance(assignment)? else {
+            return self.0.store.assignment_job(&legacy);
+        };
+        let key = format!("{legacy}_{instance}");
+        if let Some(job) = self.0.store.assignment_job(&key)? {
+            return Ok(Some(job));
+        }
+        if let (Some(root), Some(created), Some(origin)) = (
+            self.0.store.assignment_root(&legacy)?,
+            assignment["created_at"].as_str(),
+            web_origin(app),
+        ) {
+            // Las fechas de SQLite usan el mismo formato UTC con milisegundos.
+            if created.len() == 24
+                && root.created_at.len() == 24
+                && root.created_at.as_str() > created
+                && root.origin == origin
+                && root.objective == assignment_objective(&assignment["document"])
+            {
+                return self.0.store.assignment_job(&legacy);
+            }
+        }
+        Ok(None)
     }
     pub fn revision(&self) -> u64 {
         self.0.revision.load(Ordering::Acquire)
@@ -312,13 +342,19 @@ impl Controller {
             if app["kind"] != "web" {
                 continue;
             }
-            if pending_only
-                && self
-                    .0
-                    .store
-                    .assignment_job(&format!("assignment_{id}_{revision}_{index}"))?
-                    .is_some()
+            if let Some((job_id, state)) =
+                self.assignment_job_for(assignment, app, id, revision, index)?
             {
+                if !pending_only {
+                    let status = match state.as_str() {
+                        "queued" | "running" => "started",
+                        "waiting_user" | "interrupted" => "existing_job",
+                        _ => "previous_job",
+                    };
+                    sources.push(
+                        json!({"source":app["name"],"status":status,"job_id":job_id,"state":state}),
+                    );
+                }
                 continue;
             }
             let Some(url) = app["url"].as_str() else {
@@ -354,16 +390,17 @@ impl Controller {
                 .and_then(|r| r["manifest"]["id"].as_str())
                 .map(str::to_owned)
                 .or_else(|| prior.map(|j| j.plugin_id.clone()))
-                .unwrap_or_else(|| format!("assignment_{id}_{index}"));
-            let objective = format!(
-                "Objetivo del encargo: {}\nAlcance autorizado: {}\nInvestiga las capacidades disponibles. Describe explícitamente las operaciones que no se puedan realizar; no declares completo el objetivo si faltan.",
-                document["description"].as_str().unwrap_or(""),
-                document["authorization"]["scope"]
-                    .as_str()
-                    .unwrap_or("Solo las operaciones expresamente descritas en el encargo")
-            );
+                .unwrap_or_else(|| match assignment_instance(assignment) {
+                    Ok(Some(instance)) => format!("assignment_{instance}_{index}"),
+                    _ => format!("assignment_{id}_{index}"),
+                });
+            let objective = assignment_objective(document);
+            let request_key = match assignment_instance(assignment)? {
+                Some(instance) => format!("assignment_{id}_{revision}_{index}_{instance}"),
+                None => format!("assignment_{id}_{revision}_{index}"),
+            };
             let request = BuildRequest {
-                request_key: format!("assignment_{id}_{revision}_{index}"),
+                request_key,
                 plugin_id,
                 origin,
                 objective,
@@ -572,6 +609,29 @@ impl Controller {
         }
         Ok(())
     }
+}
+fn assignment_instance(assignment: &Value) -> Result<Option<&str>> {
+    let Some(value) = assignment.get("instance_id") else {
+        return Ok(None);
+    };
+    let value = value.as_str().ok_or("Identidad de encargo inválida")?;
+    if value.len() != 32
+        || !value
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    {
+        return Err("Identidad de encargo inválida".into());
+    }
+    Ok(Some(value))
+}
+fn assignment_objective(document: &Value) -> String {
+    format!(
+        "Objetivo del encargo: {}\nAlcance autorizado: {}\nInvestiga las capacidades disponibles. Describe explícitamente las operaciones que no se puedan realizar; no declares completo el objetivo si faltan.",
+        document["description"].as_str().unwrap_or(""),
+        document["authorization"]["scope"]
+            .as_str()
+            .unwrap_or("Solo las operaciones expresamente descritas en el encargo")
+    )
 }
 fn web_origin(app: &Value) -> Option<String> {
     let url = reqwest::Url::parse(app["url"].as_str()?).ok()?;
