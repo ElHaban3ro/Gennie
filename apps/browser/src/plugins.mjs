@@ -23,6 +23,56 @@ function pluginURL(value) {
 function pluginPointer(value) {
   if (typeof value !== 'string' || value.length > 500 || (value !== '' && !value.startsWith('/')) || /~(?![01])/u.test(value)) pluginFail('invalid_plugin');
 }
+function parameterSpec(value) {
+  return typeof value === 'string' ? { type: value, required: true } : { required: true, ...value };
+}
+function parameterIssue(spec, value) {
+  if (value === undefined) return spec.required ? 'required' : null;
+  if (spec.type === 'string') {
+    if (typeof value !== 'string' || value.includes('\0')) return 'type';
+    const length = [...value].length;
+    if (length < (spec.minLength ?? 1)) return 'minLength';
+    if (length > (spec.maxLength ?? 1000)) return 'maxLength';
+  } else if (spec.type === 'boolean') {
+    if (typeof value !== 'boolean') return 'type';
+  } else {
+    if (typeof value !== 'number' || !Number.isFinite(value) || (spec.type === 'integer' && !Number.isSafeInteger(value))) return 'type';
+    if (value < (spec.minimum ?? -Number.MAX_SAFE_INTEGER)) return 'minimum';
+    if (value > (spec.maximum ?? Number.MAX_SAFE_INTEGER)) return 'maximum';
+  }
+  if (spec.enum && !spec.enum.includes(value)) return 'enum';
+  return null;
+}
+function validateParameter(value) {
+  if (typeof value === 'string') {
+    if (!['string', 'integer'].includes(value)) pluginFail('invalid_plugin');
+    return;
+  }
+  pluginKeys(value, ['type', 'label', 'description', 'required', 'enum', 'minLength', 'maxLength', 'minimum', 'maximum'], ['type']);
+  if (!['string', 'integer', 'number', 'boolean'].includes(value.type) || (value.required !== undefined && typeof value.required !== 'boolean')) pluginFail('invalid_plugin');
+  if (value.label !== undefined) pluginText(value.label, 120);
+  if (value.description !== undefined) pluginText(value.description, 1000);
+  const spec = parameterSpec(value);
+  for (const key of ['minLength', 'maxLength']) if (value[key] !== undefined && (spec.type !== 'string' || !Number.isSafeInteger(value[key]) || value[key] < 1 || value[key] > 1000)) pluginFail('invalid_plugin');
+  if ((spec.minLength ?? 1) > (spec.maxLength ?? 1000)) pluginFail('invalid_plugin');
+  for (const key of ['minimum', 'maximum']) if (value[key] !== undefined && (!['integer', 'number'].includes(spec.type) || !Number.isFinite(value[key]) || Math.abs(value[key]) > Number.MAX_SAFE_INTEGER || (spec.type === 'integer' && !Number.isSafeInteger(value[key])))) pluginFail('invalid_plugin');
+  if ((spec.minimum ?? -Number.MAX_SAFE_INTEGER) > (spec.maximum ?? Number.MAX_SAFE_INTEGER)) pluginFail('invalid_plugin');
+  if (value.enum !== undefined) {
+    if (!Array.isArray(value.enum) || !value.enum.length || value.enum.length > 32 || new Set(value.enum).size !== value.enum.length) pluginFail('invalid_plugin');
+    for (const item of value.enum) if (parameterIssue({ ...spec, enum: undefined }, item)) pluginFail('invalid_plugin');
+  }
+}
+function pluginArguments(fn, args) {
+  if (!pluginObject(args) || Object.keys(args).some(key => !Object.hasOwn(fn.parameters, key))) return { status: 'invalid_arguments', executed: false, fields: [], message: 'Usa únicamente los parámetros declarados en la función.' };
+  const fields = [];
+  for (const [name, value] of Object.entries(fn.parameters)) {
+    const spec = parameterSpec(value);
+    const reason = parameterIssue(spec, Object.hasOwn(args, name) ? args[name] : undefined);
+    if (reason) fields.push({ name, ...spec, reason });
+  }
+  if (!fields.length) return null;
+  return { status: fields.every(field => field.reason === 'required') ? 'input_required' : 'invalid_arguments', executed: false, fields, message: 'Faltan datos o necesitan corrección. Pide solo lo necesario antes de ejecutar la función; no inventes valores.' };
+}
 export function validateWebPlugin(manifest) {
   pluginKeys(manifest, ['id', 'name', 'origin', 'login_url', 'login_urls', 'description', 'capabilities', 'limitations', 'functions'], ['id', 'name', 'origin', 'functions']);
   if (!pluginId(manifest.id)) pluginFail('invalid_plugin');
@@ -45,7 +95,10 @@ export function validateWebPlugin(manifest) {
     if (!pluginId(fn.name) || names.has(fn.name)) pluginFail('invalid_plugin');
     names.add(fn.name); pluginText(fn.description, 1000);
     if (!pluginObject(fn.parameters)) pluginFail('invalid_plugin');
-    for (const [key, type] of Object.entries(fn.parameters)) if (!pluginId(key) || !['string', 'integer'].includes(type)) pluginFail('invalid_plugin');
+    for (const [key, spec] of Object.entries(fn.parameters)) {
+      if (!pluginId(key)) pluginFail('invalid_plugin');
+      validateParameter(spec);
+    }
     pluginText(fn.path);
     if (!fn.path.startsWith('/') || fn.path.startsWith('//') || /[?#\\]/u.test(fn.path)) pluginFail('invalid_plugin');
     if (fn.query !== undefined && (!pluginObject(fn.query))) pluginFail('invalid_plugin');
@@ -61,6 +114,7 @@ export function validateWebPlugin(manifest) {
       });
       if (/[{}]/u.test(remaining)) pluginFail('invalid_plugin');
     }
+    for (const match of fn.path.matchAll(/\{([a-z][a-z0-9_]{0,63})\}/g)) if (!parameterSpec(fn.parameters[match[1]]).required) pluginFail('invalid_plugin');
     if (fn.transport !== 'program' && Object.keys(fn.parameters).some(key => !used.has(key))) pluginFail('invalid_plugin');
     if (fn.transport === 'program') {
       pluginText(fn.code, 48000);
@@ -108,11 +162,6 @@ function pluginAuth(manifest) {
   return { status: 'authentication_required', ...(manifest.login_url ? { login_url: manifest.login_url } : {}), message: 'Esta operación necesita una sesión válida. El usuario puede iniciar sesión en Gennie Web y volver a intentarla.' };
 }
 function pluginTarget(manifest, fn, args) {
-  if (!pluginObject(args) || Object.keys(args).length !== Object.keys(fn.parameters).length) pluginFail('invalid_plugin_arguments');
-  for (const [key, type] of Object.entries(fn.parameters)) {
-    const value = args[key];
-    if (type === 'integer' ? !Number.isSafeInteger(value) : typeof value !== 'string' || !value.length || value.length > 1000 || value.includes('\0')) pluginFail('invalid_plugin_arguments');
-  }
   const render = (template, encode) => template.replace(/\{([a-z][a-z0-9_]{0,63})\}/g, (_, key) => {
     const value = String(args[key]);
     if (encode && (value === '.' || value === '..')) pluginFail('invalid_plugin_arguments');
@@ -120,7 +169,10 @@ function pluginTarget(manifest, fn, args) {
   });
   const url = pluginURL(manifest.origin + render(fn.path, true));
   if (url.origin !== manifest.origin) pluginFail('invalid_plugin_arguments');
-  for (const [key, value] of Object.entries(fn.query || {})) url.searchParams.set(key, render(value, false));
+  for (const [key, value] of Object.entries(fn.query || {})) {
+    if ([...value.matchAll(/\{([a-z][a-z0-9_]{0,63})\}/g)].some(match => !Object.hasOwn(args, match[1]))) continue;
+    url.searchParams.set(key, render(value, false));
+  }
   return url.href;
 }
 
@@ -377,14 +429,19 @@ export function createWebPlugins({ directory, getContext, verificationBase }) {
         return { status: 'deleted', plugin_id: record.manifest.id };
       }
       if (request.action === 'get') return { plugin: record };
-      if (!['run', 'verify'].includes(request.action)) pluginFail('invalid_plugin_arguments');
+      if (!['run', 'verify', 'prepare', 'preflight'].includes(request.action)) pluginFail('invalid_plugin_arguments');
+      if (request.action === 'preflight' && !['run','verify'].includes(request.operation)) pluginFail('invalid_plugin_arguments');
       const fn = record.manifest.functions.find(fn => fn.name === request.function_name);
       if (!fn) return { status: 'function_not_found' };
       if (fn.transport === 'program' && request.program_allowed !== true) return { status: 'permission_required', message: 'El bloque programable requiere activar lectura y escritura de archivos, comandos y control de aplicaciones.' };
       if (request.expected_revision !== record.revision) return { status: 'revision_conflict' };
-      if (request.action === 'run' && !Object.hasOwn(record.verified, fn.name)) return { status: 'verification_required' };
+      const args = request.arguments === undefined ? {} : request.arguments;
+      const invalid = pluginArguments(fn, args);
+      if (invalid) return { ...invalid, plugin_id: record.manifest.id, plugin_name: record.manifest.name, function_name: fn.name, revision: record.revision };
+      if (request.action !== 'verify' && !(request.action === 'preflight' && request.operation === 'verify') && record.verified[fn.name]?.revision !== record.revision) return { status: 'verification_required', executed: false };
+      if (['prepare','preflight'].includes(request.action)) return { status: 'ready', executed: false, plugin_id: record.manifest.id, plugin_name: record.manifest.name, function_name: fn.name, revision: record.revision, transport: fn.transport };
       let result;
-      try { result = await execute(record.manifest, fn, request.arguments || {}); }
+      try { result = await execute(record.manifest, fn, args); }
       catch (error) {
         if (error.code === 'invalid_plugin_arguments') throw error;
         result = fn.transport === 'program' ? { status: 'result_uncertain', message: 'El bloque pudo realizar cambios antes de fallar. Comprueba el resultado antes de repetirlo.' } : { status: error.code === 'site_changed' ? 'site_changed' : error.name === 'TimeoutError' ? 'timeout' : 'execution_failed' };
@@ -394,7 +451,7 @@ export function createWebPlugins({ directory, getContext, verificationBase }) {
         if (result.status === 'ok') record.verified[fn.name] = { verified_at: new Date().toISOString(), revision: record.revision };
         await store(record);
       }
-      return { ...result, plugin_id: record.manifest.id, function_name: fn.name, revision: record.revision };
+      return { ...result, plugin_id: record.manifest.id, plugin_name: record.manifest.name, function_name: fn.name, revision: record.revision };
     },
   };
 }

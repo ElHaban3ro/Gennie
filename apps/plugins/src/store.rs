@@ -33,6 +33,20 @@ pub struct BuildEvent {
 #[derive(Clone)]
 pub(crate) struct Store(pub Database);
 impl Store {
+    pub fn presentation_origin(
+        &self,
+        id: i64,
+    ) -> Result<Option<(gennie_llm::delegation::Origin, bool)>> {
+        self.0.with_connection(|c| {
+            let (origin, legacy, conversation):(Option<String>, bool, i64) = c.query_row("SELECT delegation_origin,legacy_origin,trigger_conversation_id FROM plugin_build_jobs WHERE id=?1", [id], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?)))?;
+            origin.map(|value| {
+                let origin: gennie_llm::delegation::Origin = serde_json::from_str(&value)?;
+                origin.validate()?;
+                if origin.conversation_id != conversation { return Err("El origen de construcción no coincide".into()); }
+                Ok((origin,legacy))
+            }).transpose()
+        })
+    }
     pub fn assignment_root(&self, key: &str) -> Result<Option<Job>> {
         let id = self.0.with_connection(|c| {
             let mut statement =
@@ -76,6 +90,9 @@ impl Store {
             Ok(query.query_map([id], |r| Ok(BuildEvent {id:r.get(0)?,message:r.get(1)?,created_at:r.get(2)?}))?.collect::<std::result::Result<Vec<_>,_>>()?)
         })
     }
+    pub fn has_live_successor(&self, plugin: &str, except: i64) -> Result<bool> {
+        self.0.with_connection(|c|Ok(c.query_row("SELECT EXISTS(SELECT 1 FROM plugin_build_jobs WHERE plugin_id=?1 AND id<>?2 AND state IN ('queued','running','waiting_user','interrupted'))",params![plugin,except],|r|r.get(0))?))
+    }
     pub fn get(&self, id: i64) -> Result<Job> {
         // El catálogo de trabajos visibles se acota; los trabajos vivos siempre se conservan consultables.
         let mut job = self.0.with_connection(|c| {
@@ -84,24 +101,38 @@ impl Store {
         job.events = self.events(id)?;
         Ok(job)
     }
+    #[cfg(test)]
     pub fn create(&self, request: &crate::BuildRequest, origin: i64, revision: u64) -> Result<Job> {
-        self.create_inner(request, origin, revision, false)
+        self.create_target(request, &test_origin(origin), revision, false)
     }
+    #[cfg(test)]
     pub fn queue(&self, request: &crate::BuildRequest, origin: i64) -> Result<Job> {
-        self.create_inner(request, origin, 0, true)
+        self.create_target(request, &test_origin(origin), 0, true)
     }
-    fn create_inner(
+    pub fn create_target(
         &self,
         request: &crate::BuildRequest,
-        origin: i64,
+        target: &gennie_llm::delegation::Origin,
         revision: u64,
         queue: bool,
     ) -> Result<Job> {
+        target.validate()?;
+        if request.request_key.trim().is_empty()
+            || request.request_key.len() > 200
+            || request.request_key.contains('\0')
+            || request.objective.trim().is_empty()
+            || request.objective.len() > 8000
+            || request.objective.contains('\0')
+        {
+            return Err("Solicitud de construcción inválida".into());
+        }
+        let origin = target.conversation_id;
+        let target_document = serde_json::to_string(target)?;
         let id=self.0.with_connection(|c| {
             let tx=c.transaction()?;
-            let existing={let mut s=tx.prepare("SELECT id,plugin_id,origin,objective,trigger_conversation_id,retry_of FROM plugin_build_jobs WHERE request_key=?1")?;s.query_map([&request.request_key], |r| Ok((r.get::<_,i64>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,String>(3)?,r.get::<_,i64>(4)?,r.get::<_,Option<i64>>(5)?)))?.next().transpose()?};
-            if let Some((id,plugin_id,url,objective,chat,retry_of))=existing {
-                if plugin_id!=request.plugin_id || url!=request.origin || objective!=request.objective || chat!=origin || retry_of!=request.retry_of { return Err("La clave del trabajo ya pertenece a otra solicitud".into()); }
+            let existing={let mut s=tx.prepare("SELECT id,plugin_id,origin,objective,trigger_conversation_id,retry_of,delegation_origin FROM plugin_build_jobs WHERE request_key=?1")?;s.query_map([&request.request_key], |r| Ok((r.get::<_,i64>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,String>(3)?,r.get::<_,i64>(4)?,r.get::<_,Option<i64>>(5)?,r.get::<_,Option<String>>(6)?)))?.next().transpose()?};
+            if let Some((id,plugin_id,url,objective,chat,retry_of,saved_target))=existing {
+                if plugin_id!=request.plugin_id || url!=request.origin || objective!=request.objective || chat!=origin || retry_of!=request.retry_of || saved_target.as_deref()!=Some(target_document.as_str()) { return Err("La clave del trabajo ya pertenece a otra solicitud".into()); }
                 return Ok(id);
             }
             if let Some(source) = request.retry_of {
@@ -113,10 +144,10 @@ impl Store {
             let live:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM plugin_build_jobs WHERE plugin_id=?1 AND state IN ('queued','running','waiting_user','interrupted'))",[&request.plugin_id],|r|r.get(0))?;
             if live && !queue { return Err("Ese plugin ya tiene un trabajo pendiente".into()); }
             let message="He delegado la preparación o mejora del plugin para reutilizar sus funciones y reducir el coste de futuras revisiones. Te informaré de los avances.";
-            tx.execute("INSERT INTO plugin_build_jobs(request_key,plugin_id,origin,objective,trigger_conversation_id,base_revision,state,max_attempts,max_seconds,summary,retry_of) VALUES(?1,?2,?3,?4,?5,?6,'queued',?7,?8,?9,?10)", params![request.request_key,request.plugin_id,request.origin,request.objective,origin,i64::try_from(revision)?,request.max_attempts,i64::try_from(request.max_seconds)?,message,request.retry_of])?;
+            tx.execute("INSERT INTO plugin_build_jobs(request_key,plugin_id,origin,objective,trigger_conversation_id,base_revision,state,max_attempts,max_seconds,summary,retry_of,delegation_origin,legacy_origin) VALUES(?1,?2,?3,?4,?5,?6,'queued',?7,?8,?9,?10,?11,0)", params![request.request_key,request.plugin_id,request.origin,request.objective,origin,i64::try_from(revision)?,request.max_attempts,i64::try_from(request.max_seconds)?,message,request.retry_of,target_document])?;
             let id=tx.last_insert_rowid();
             if queue { tx.execute("UPDATE plugin_build_jobs SET refresh_base=1 WHERE id=?1",[id])?; }
-            tx.execute("INSERT INTO plugin_build_events(job_id,message) VALUES(?1,?2)",params![id,message])?;
+            tx.execute("INSERT INTO plugin_build_events(job_id,message,source_state,kind) VALUES(?1,?2,'queued','status')",params![id,message])?;
             tx.commit()?; Ok(id)
         })?;
         self.get(id)
@@ -139,7 +170,7 @@ impl Store {
         self.0.with_connection(|c| {
             let tx=c.transaction()?;
             let changed=tx.execute("UPDATE plugin_build_jobs SET state=?2,summary=?3,recommended_route=?4,retry_at=NULL,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?1 AND state NOT IN ('cancelled','completed')",params![id,state,message,route])?;
-            if changed>0 { tx.execute("INSERT INTO plugin_build_events(job_id,message) VALUES(?1,?2)",params![id,message])?; }
+            if changed>0 { tx.execute("INSERT INTO plugin_build_events(job_id,message,source_state,kind) VALUES(?1,?2,?3,'status')",params![id,message,state])?; }
             tx.commit()?; Ok(changed>0)
         })
     }
@@ -147,7 +178,7 @@ impl Store {
         self.0.with_connection(|c| {
             let tx=c.transaction()?;
             let changed=tx.execute("UPDATE plugin_build_jobs SET summary=?2,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?1 AND state='running'",params![id,message])?;
-            if changed>0 { tx.execute("INSERT INTO plugin_build_events(job_id,message) VALUES(?1,?2)",params![id,message])?; }
+            if changed>0 { tx.execute("INSERT INTO plugin_build_events(job_id,message,source_state,kind) VALUES(?1,?2,'running','progress')",params![id,message])?; }
             tx.commit()?; Ok(())
         })
     }
@@ -195,7 +226,7 @@ impl Store {
         self.0.with_connection(|c| {
             let tx = c.transaction()?;
             let changed = tx.execute("UPDATE plugin_build_jobs SET state='queued', retry_at=strftime('%Y-%m-%dT%H:%M:%fZ','now','+5 minutes'), summary=?2, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?1 AND state='running'",params![id,message])?;
-            if changed > 0 { tx.execute("INSERT INTO plugin_build_events(job_id,message) VALUES(?1,?2)",params![id,message])?; }
+            if changed > 0 { tx.execute("INSERT INTO plugin_build_events(job_id,message,source_state,kind) VALUES(?1,?2,'queued','retry')",params![id,message])?; }
             tx.commit()?; Ok(changed > 0)
         })
     }
@@ -220,31 +251,107 @@ impl Store {
         Ok(())
     }
     pub fn deliver(&self, journal: &dyn crate::BuildJournal) -> Result<()> {
+        use gennie_llm::delegation::{Kind, Origin, State, Update};
         let events=self.0.with_connection(|c| {
-            let mut s=c.prepare("SELECT e.id,j.trigger_conversation_id,e.message,j.origin FROM plugin_build_events e JOIN plugin_build_jobs j ON j.id=e.job_id WHERE e.delivered=0 ORDER BY e.id LIMIT 100")?;
-            Ok(s.query_map([],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,i64>(1)?,r.get::<_,String>(2)?,r.get::<_,String>(3)?)))?.collect::<std::result::Result<Vec<_>,_>>()?)
+            let mut query=c.prepare("SELECT e.id,j.id,j.trigger_conversation_id,e.message,j.origin,j.plugin_id,j.objective,j.request_key,j.delegation_origin,j.legacy_origin,e.source_state,e.kind FROM plugin_build_events e JOIN plugin_build_jobs j ON j.id=e.job_id WHERE e.delivered=0 ORDER BY e.id LIMIT 100")?;
+            Ok(query.query_map([],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,i64>(1)?,r.get::<_,i64>(2)?,r.get::<_,String>(3)?,r.get::<_,String>(4)?,r.get::<_,String>(5)?,r.get::<_,String>(6)?,r.get::<_,String>(7)?,r.get::<_,Option<String>>(8)?,r.get::<_,bool>(9)?,r.get::<_,String>(10)?,r.get::<_,String>(11)?)))?.collect::<std::result::Result<Vec<_>,_>>()?)
         })?;
-        for (event, chat, message, origin) in events {
-            let host = reqwest::Url::parse(&origin)
+        for (
+            event,
+            job,
+            chat,
+            message,
+            url,
+            plugin,
+            objective,
+            request,
+            target,
+            legacy,
+            state,
+            kind,
+        ) in events
+        {
+            let target: Origin = if let Some(target) = target {
+                serde_json::from_str(&target)?
+            } else {
+                if !journal.exists(chat)? {
+                    self.mark_delivered(event)?;
+                    continue;
+                }
+                let origin = journal.target(chat)?;
+                // Se fija también el origen legado, sin atribuirle contexto histórico comprobado.
+                self.0.with_connection(|c| {
+                    c.execute("UPDATE plugin_build_jobs SET delegation_origin=?2 WHERE id=?1 AND delegation_origin IS NULL",params![job,serde_json::to_string(&origin)?])?;
+                    let saved:String=c.query_row("SELECT delegation_origin FROM plugin_build_jobs WHERE id=?1",[job],|r|r.get(0))?;
+                    Ok(serde_json::from_str(&saved)?)
+                })?
+            };
+            let kind: Kind = serde_json::from_value(serde_json::json!(kind))?;
+            let legacy = legacy || kind == Kind::Legacy;
+            let host = reqwest::Url::parse(&url)
                 .ok()
                 .and_then(|url| url.host_str().map(str::to_owned));
             let label = host
                 .map(|host| format!("Plugin · {host}"))
                 .unwrap_or_else(|| "Plugin".into());
-            journal.deliver(
-                chat,
-                &format!("plugin-build:{event}"),
-                &format!("{label}: {message}"),
-            )?;
-            self.0.with_connection(|c| {
-                c.execute(
-                    "UPDATE plugin_build_events SET delivered=1 WHERE id=?1",
-                    [event],
-                )?;
-                Ok(())
-            })?;
+            let update = Update {
+                event_key: format!("plugin-build:{event}"),
+                delegation_id: format!("plugin-build:{}{job}", if legacy { "legacy:" } else { "" }),
+                request_id: if legacy {
+                    format!("legacy-plugin-build:{job}")
+                } else {
+                    request
+                },
+                origin: target,
+                source_id: "plugin_builder".into(),
+                job_id: job,
+                plugin_id: plugin,
+                display_name: if legacy {
+                    "Construcción anterior".into()
+                } else {
+                    label.clone()
+                },
+                objective: if legacy {
+                    "Construcción anterior registrada en Plugins".into()
+                } else {
+                    objective
+                },
+                sequence: event,
+                state: if legacy {
+                    State::Legacy
+                } else {
+                    serde_json::from_value(serde_json::json!(state))?
+                },
+                kind: if legacy { Kind::Legacy } else { kind },
+                detail: if legacy {
+                    "Actualización anterior sin atribución de contexto comprobada".into()
+                } else {
+                    format!("{label}: {message}")
+                },
+            };
+            journal.deliver(&update)?;
+            self.mark_delivered(event)?;
         }
         Ok(())
+    }
+    fn mark_delivered(&self, event: i64) -> Result<()> {
+        self.0.with_connection(|c| {
+            c.execute(
+                "UPDATE plugin_build_events SET delivered=1 WHERE id=?1",
+                [event],
+            )?;
+            Ok(())
+        })
+    }
+}
+
+#[cfg(test)]
+fn test_origin(conversation_id: i64) -> gennie_llm::delegation::Origin {
+    gennie_llm::delegation::Origin {
+        conversation_id,
+        bot_id: "gennie".into(),
+        epoch: 1,
+        provider_thread: None,
     }
 }
 
@@ -257,32 +364,7 @@ mod tests {
         fixture_db(Database::memory().unwrap())
     }
     fn fixture_db(db: Database) -> Store {
-        db.migrate(
-            "plugins",
-            &[
-                gennie_core::Migration {
-                    version: 1,
-                    sql: include_str!("../migrations/0001_build_jobs.sql"),
-                },
-                gennie_core::Migration {
-                    version: 2,
-                    sql: include_str!("../migrations/0002_assignment_queue.sql"),
-                },
-                gennie_core::Migration {
-                    version: 3,
-                    sql: include_str!("../migrations/0003_retry_source.sql"),
-                },
-                gennie_core::Migration {
-                    version: 4,
-                    sql: include_str!("../migrations/0004_recommended_route.sql"),
-                },
-                gennie_core::Migration {
-                    version: 5,
-                    sql: include_str!("../migrations/0005_retry_schedule.sql"),
-                },
-            ],
-        )
-        .unwrap();
+        db.migrate("plugins", crate::MIGRATIONS).unwrap();
         Store(db)
     }
     fn request(id: &str) -> BuildRequest {
@@ -359,7 +441,18 @@ mod tests {
         fn exists(&self, _: i64) -> Result<bool> {
             Ok(true)
         }
-        fn deliver(&self, chat: i64, key: &str, text: &str) -> Result<()> {
+        fn target(&self, conversation_id: i64) -> Result<gennie_llm::delegation::Origin> {
+            Ok(gennie_llm::delegation::Origin {
+                conversation_id,
+                bot_id: "gennie".into(),
+                epoch: 1,
+                provider_thread: None,
+            })
+        }
+        fn deliver(&self, update: &gennie_llm::delegation::Update) -> Result<()> {
+            let chat = update.origin.conversation_id;
+            let key = update.event_key.as_str();
+            let text = update.detail.as_str();
             let mut events = self.events.lock().unwrap();
             if !events.iter().any(|(_, old)| old == key) {
                 events.push((chat, key.into()));
@@ -378,7 +471,7 @@ mod tests {
             store.0.clone(),
             gennie_browser::BrowserModule::default().controller(),
             std::sync::Arc::new(Journal::default()),
-            std::sync::Arc::new(|| Err("sin proveedor".into())),
+            crate::AgentSettings::shared(std::sync::Arc::new(|| Err("sin proveedor".into()))),
             Default::default(),
             Default::default(),
         );
@@ -413,7 +506,7 @@ mod tests {
             store.0.clone(),
             gennie_browser::BrowserModule::default().controller(),
             std::sync::Arc::new(Journal::default()),
-            std::sync::Arc::new(|| Err("sin proveedor".into())),
+            crate::AgentSettings::shared(std::sync::Arc::new(|| Err("sin proveedor".into()))),
             Default::default(),
             Default::default(),
         );
@@ -467,7 +560,7 @@ mod tests {
             store.0.clone(),
             gennie_browser::BrowserModule::default().controller(),
             std::sync::Arc::new(Journal::default()),
-            std::sync::Arc::new(|| Err("sin proveedor".into())),
+            crate::AgentSettings::shared(std::sync::Arc::new(|| Err("sin proveedor".into()))),
             Default::default(),
             Default::default(),
         );
@@ -580,7 +673,18 @@ mod tests {
             fn exists(&self, _: i64) -> Result<bool> {
                 Ok(true)
             }
-            fn deliver(&self, id: i64, key: &str, text: &str) -> Result<()> {
+            fn target(&self, conversation_id: i64) -> Result<gennie_llm::delegation::Origin> {
+                Ok(gennie_llm::delegation::Origin {
+                    conversation_id,
+                    bot_id: "gennie".into(),
+                    epoch: 1,
+                    provider_thread: None,
+                })
+            }
+            fn deliver(&self, update: &gennie_llm::delegation::Update) -> Result<()> {
+                let id = update.origin.conversation_id;
+                let key = update.event_key.as_str();
+                let text = update.detail.as_str();
                 let mut notices = self.0.lock().unwrap();
                 if !notices.iter().any(|(_, existing, _)| existing == key) {
                     notices.push((id, key.into(), text.into()));
@@ -650,6 +754,65 @@ mod tests {
         assert!(store.begin_attempt(job.id).unwrap());
         store.account(job.id, 1, None).unwrap();
         assert!(store.begin_attempt(job.id).unwrap());
+    }
+    #[test]
+    fn legacy_outbox_keeps_identity_but_never_forwards_unattributed_context() {
+        #[derive(Default)]
+        struct LegacyJournal(Mutex<Vec<gennie_llm::delegation::Update>>);
+        impl BuildJournal for LegacyJournal {
+            fn origin(&self) -> Result<i64> {
+                Ok(999)
+            }
+            fn exists(&self, id: i64) -> Result<bool> {
+                Ok(id == 7)
+            }
+            fn target(&self, id: i64) -> Result<gennie_llm::delegation::Origin> {
+                Ok(test_origin(id))
+            }
+            fn deliver(&self, update: &gennie_llm::delegation::Update) -> Result<()> {
+                assert_eq!(update.origin.conversation_id, 7);
+                assert_eq!(update.state, gennie_llm::delegation::State::Legacy);
+                assert_eq!(update.kind, gennie_llm::delegation::Kind::Legacy);
+                assert!(update.delegation_id.starts_with("plugin-build:legacy:"));
+                assert!(!serde_json::to_string(update)?.contains("PRIVATE"));
+                self.0.lock().unwrap().push(update.clone());
+                Ok(())
+            }
+        }
+        let store = fixture();
+        let mut request = request("mail");
+        request.request_key = "PRIVATE_REQUEST".into();
+        request.origin = "https://PRIVATE.example".into();
+        request.objective = "PRIVATE_OBJECTIVE".into();
+        let job = store.create(&request, 7, 0).unwrap();
+        store.0.with_connection(|c| {
+            c.execute("UPDATE plugin_build_jobs SET legacy_origin=1,delegation_origin=NULL WHERE id=?1", [job.id])?;
+            c.execute("UPDATE plugin_build_events SET source_state='legacy',kind='legacy',message='PRIVATE_OBSERVATION' WHERE job_id=?1", [job.id])?;
+            Ok(())
+        }).unwrap();
+        let journal = LegacyJournal::default();
+        store.deliver(&journal).unwrap();
+        // También las novedades posteriores conservan la procedencia legada.
+        store
+            .transition(job.id, "blocked", "PRIVATE_NEW_OBSERVATION")
+            .unwrap();
+        store.deliver(&journal).unwrap();
+        store.deliver(&journal).unwrap();
+        assert_eq!(journal.0.lock().unwrap().len(), 2);
+        let pinned: String = store
+            .0
+            .with_connection(|c| {
+                Ok(c.query_row(
+                    "SELECT delegation_origin FROM plugin_build_jobs WHERE id=?1",
+                    [job.id],
+                    |r| r.get(0),
+                )?)
+            })
+            .unwrap();
+        assert_eq!(
+            serde_json::from_str::<gennie_llm::delegation::Origin>(&pinned).unwrap(),
+            test_origin(7)
+        );
     }
     #[test]
     fn origin_idempotency_outbox_and_recovery_are_durable() {
@@ -743,7 +906,7 @@ mod tests {
             c.execute("INSERT INTO plugin_build_events(job_id,message,delivered) VALUES(1,'Antes de migrar',1)", [])?;
             Ok(())
         }).unwrap();
-        db.migrate("plugins", &migrations).unwrap();
+        db.migrate("plugins", crate::MIGRATIONS).unwrap();
         let store = Store(db);
         let job = store.get(1).unwrap();
         assert_eq!(job.state, "waiting_user");
@@ -791,6 +954,104 @@ mod tests {
         store.account(job.id, 600, None).unwrap();
         assert!(store.begin_attempt(job.id).unwrap());
     }
+    #[test]
+    fn disabled_helper_keeps_queue_but_provider_failure_is_an_error() {
+        let store = fixture();
+        let failure = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let state = failure.clone();
+        let module = crate::PluginsModule::new(
+            store.0.clone(),
+            gennie_browser::BrowserModule::default().controller(),
+            std::sync::Arc::new(Journal::default()),
+            crate::AgentSettings::shared(std::sync::Arc::new(move || {
+                if state.load(std::sync::atomic::Ordering::Acquire) {
+                    Err("fixture settings failure".into())
+                } else {
+                    Err(Box::new(gennie_llm::architects::HelperDisabled))
+                }
+            })),
+            Default::default(),
+            Default::default(),
+        );
+        let controller = module.controller();
+        controller
+            .0
+            .enabled
+            .store(true, std::sync::atomic::Ordering::Release);
+        let job = store.queue(&request("disabled_profile"), 7).unwrap();
+        assert!(controller.claim().unwrap().is_none());
+        assert_eq!(store.get(job.id).unwrap().state, "queued");
+        failure.store(true, std::sync::atomic::Ordering::Release);
+        assert!(controller.claim().is_err());
+        assert_eq!(store.get(job.id).unwrap().state, "queued");
+    }
+    #[test]
+    fn delegation_target_is_frozen_and_request_cannot_move_to_a_reopened_session() {
+        let store = fixture();
+        let origin = super::test_origin(7);
+        let request = request("frozen_target");
+        let job = store.create_target(&request, &origin, 0, false).unwrap();
+        assert_eq!(
+            store.create_target(&request, &origin, 0, false).unwrap().id,
+            job.id
+        );
+        let mut reopened = origin.clone();
+        reopened.epoch += 1;
+        assert!(store.create_target(&request, &reopened, 0, false).is_err());
+        store
+            .0
+            .with_connection(|c| {
+                let saved: String = c.query_row(
+                    "SELECT delegation_origin FROM plugin_build_jobs WHERE id=?1",
+                    [job.id],
+                    |r| r.get(0),
+                )?;
+                assert_eq!(
+                    serde_json::from_str::<gennie_llm::delegation::Origin>(&saved)?,
+                    origin
+                );
+                Ok(())
+            })
+            .unwrap();
+    }
+    #[test]
+    fn architect_changes_wait_for_running_builds_but_allow_queued_work() {
+        let store = fixture();
+        let module = crate::PluginsModule::new(
+            store.0.clone(),
+            gennie_browser::BrowserModule::default().controller(),
+            std::sync::Arc::new(Journal::default()),
+            crate::AgentSettings::shared(std::sync::Arc::new(|| Ok(Default::default()))),
+            Default::default(),
+            Default::default(),
+        );
+        let controller = module.controller();
+        controller
+            .0
+            .enabled
+            .store(true, std::sync::atomic::Ordering::Release);
+        store.queue(&request("profile_gate"), 7).unwrap();
+        assert_eq!(controller.while_builder_idle(|| Ok(42)).unwrap(), 42);
+        let job = controller.claim().unwrap().unwrap();
+        let mut saved = false;
+        assert!(
+            controller
+                .while_builder_idle(|| {
+                    saved = true;
+                    Ok(())
+                })
+                .is_err()
+        );
+        assert!(!saved);
+        store.transition(job.id, "cancelled", "Cancelado").unwrap();
+        controller
+            .while_builder_idle(|| {
+                saved = true;
+                Ok(())
+            })
+            .unwrap();
+        assert!(saved);
+    }
 }
 
 #[cfg(test)]
@@ -799,32 +1060,7 @@ mod progress_tests {
     #[test]
     fn investigation_steps_survive_delivery_and_terminal_state() {
         let db = Database::memory().unwrap();
-        db.migrate(
-            "plugins",
-            &[
-                gennie_core::Migration {
-                    version: 1,
-                    sql: include_str!("../migrations/0001_build_jobs.sql"),
-                },
-                gennie_core::Migration {
-                    version: 2,
-                    sql: include_str!("../migrations/0002_assignment_queue.sql"),
-                },
-                gennie_core::Migration {
-                    version: 3,
-                    sql: include_str!("../migrations/0003_retry_source.sql"),
-                },
-                gennie_core::Migration {
-                    version: 4,
-                    sql: include_str!("../migrations/0004_recommended_route.sql"),
-                },
-                gennie_core::Migration {
-                    version: 5,
-                    sql: include_str!("../migrations/0005_retry_schedule.sql"),
-                },
-            ],
-        )
-        .unwrap();
+        db.migrate("plugins", crate::MIGRATIONS).unwrap();
         let store = Store(db);
         let job = store
             .create(

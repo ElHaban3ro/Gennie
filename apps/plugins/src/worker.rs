@@ -1,6 +1,6 @@
 use super::*;
 use gennie_llm::builder::BuilderSession;
-use gennie_mcp::{Registry, Server, Tool};
+use gennie_mcp::{Registry, Server};
 use std::time::{Duration, Instant};
 
 pub(crate) fn run(controller: Controller) {
@@ -23,7 +23,7 @@ pub(crate) fn run(controller: Controller) {
                 }
             }
         }
-        let next = controller.0.store.claim();
+        let next = controller.claim();
         match next {
             Ok(Some(mut job)) => {
                 let result = (|| -> Result<()> {
@@ -317,7 +317,7 @@ fn build(controller: &Controller, job: &Job) -> Result<()> {
                 base.clone(),
                 &settings,
                 server.launch(),
-                include_str!("builder-instructions.md").into(),
+                settings.role_instructions(include_str!("builder-instructions.md")),
                 current.thread_id.clone(),
                 control,
             ) {
@@ -446,7 +446,8 @@ fn scoped_tools(
     calls: Arc<AtomicU64>,
     ready: Arc<AtomicBool>,
     strategy: Arc<Mutex<strategy::BuildStrategy>>,
-) -> Vec<Tool> {
+) -> Vec<gennie_mcp::ContextTool> {
+    use gennie_mcp::ContextTool as Tool;
     let mut result = Vec::new();
     for tool in gennie_browser::tools(controller.0.browser.clone()) {
         let name = tool.definition["name"].as_str().unwrap_or("");
@@ -495,7 +496,8 @@ fn scoped_tools(
         let schema = definition["inputSchema"].clone();
         result.push(Tool {
             definition,
-            call: Box::new(move |mut args| {
+            call: Box::new(move |mut args, _context| {
+                _context.check()?;
                 gate(&controller, &job, &calls)?;
                 gennie_browser::validate_arguments(&schema, &args)?;
                 if name == "browser_screenshot"
@@ -516,7 +518,10 @@ fn scoped_tools(
                 args["background_scope"] = json!(true);
                 args["method"] = json!(name.strip_prefix("browser_").unwrap());
                 let observation_args = args.clone();
-                let result = controller.0.browser.automate(args);
+                let result = controller
+                    .0
+                    .browser
+                    .automate_with_context(args, _context.clone());
                 if result
                     .as_ref()
                     .is_err_and(|e| e.is::<gennie_browser::ClosedPageError>())
@@ -592,16 +597,23 @@ fn scoped_tools(
         let calls = calls.clone();
         let strategy = strategy.clone();
         let candidate_ready = ready.clone();
-        result.push(Tool{definition,call:Box::new(move|mut args|{
+        result.push(Tool{definition,call:Box::new(move|mut args, context|{
+            context.check()?;
             gate(&controller,&job,&calls)?;
             gennie_browser::validate_arguments(&schema,&args)?;
+            let settings = controller.permitted()?;
+            if name == "plugin_candidate_test" && (!settings.read_files || !settings.write_files) {
+                let candidate = controller.0.browser.call_with_context(json!({"method":"candidate","action":"get","candidate_id":format!("job_{}",job.id),"plugin_id":job.plugin_id}),context.clone())?;
+                candidate_permissions(&settings, &candidate["plugin"]["manifest"])?;
+            }
             if name=="plugin_candidate" {
+                if args["action"] == "save" { candidate_permissions(&settings, &args["manifest"])?; }
                 if !matches!(args["action"].as_str(),Some("get"|"save")){return Err("Solo se permite leer/guardar el candidato".into());}
                 if args["action"]=="save" && (args["manifest"]["id"]!=job.plugin_id||args["manifest"]["origin"]!=job.origin){return Err("El candidato debe conservar plugin_id y origin del trabajo".into());}
             }
             args["method"]=json!("candidate");args["candidate_id"]=json!(format!("job_{}",job.id));args["plugin_id"]=json!(job.plugin_id);
             let saving = name == "plugin_candidate" && args["action"] == "save";
-            let mut response=controller.0.browser.automate(args)?;
+            let mut response=controller.0.browser.automate_with_context(args,context.clone())?;
             if saving && response["status"] == "saved" {
                 strategy.lock().map_err(|_| "Estrategia de construcción inválida")?.candidate_changed();
                 candidate_ready.store(false, Ordering::Release);
@@ -618,7 +630,8 @@ fn scoped_tools(
     let investigation_strategy = strategy.clone();
     result.push(Tool {
         definition:json!({"name":"plugin_build_investigate","description":"Antes de explorar una capacidad, fija su identificador estable y una hipótesis técnica. Las herramientas UI devolverán build_observation con IDs del host ligados a ese criterio y candidato. Cambia la hipótesis cuando pruebes otra vía; no cambies el ID de capacidad por una paráfrasis ni incluyas datos personales.","inputSchema":{"type":"object","properties":{"capability":{"type":"string","minLength":1,"maxLength":120},"hypothesis":{"type":"string","minLength":1,"maxLength":120}},"required":["capability","hypothesis"],"additionalProperties":false}}),
-        call:Box::new(move |args| {
+        call:Box::new(move |args,_context| {
+_context.check()?;
             gate(&investigation_controller,&investigation_job,&investigation_calls)?;
             investigation_strategy.lock().map_err(|_| "Estrategia de construcción inválida")?
                 .investigate(args["capability"].as_str().ok_or("Falta la capacidad")?,args["hypothesis"].as_str().ok_or("Falta la hipótesis")?)?;
@@ -630,7 +643,8 @@ fn scoped_tools(
     let findings_calls = calls.clone();
     result.push(Tool {
         definition:json!({"name":"plugin_build_findings","description":"Recupera avances y candidatos anteriores del mismo plugin, origen y chat para aprovechar descubrimientos de la interfaz sin repetir la investigación. action=list enumera trabajos previos; action=get requiere job_id y devuelve su candidato sin verificaciones heredadas. Solo lectura de metadatos/código; no ejecuta sus funciones ni amplía la autorización actual.","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["list","get"]},"job_id":{"type":"integer","minimum":1}},"required":["action"],"additionalProperties":false}}),
-        call:Box::new(move |args| {
+        call:Box::new(move |args,_context| {
+_context.check()?;
             gate(&findings_controller,&findings_job,&findings_calls)?;
             match args["action"].as_str() {
                 Some("list") => {
@@ -640,7 +654,7 @@ fn scoped_tools(
                 }
                 Some("get") => {
                     let source = findings_controller.0.store.get(args["job_id"].as_i64().ok_or("Falta el trabajo anterior")?)?;
-                    prior_candidate(&findings_job,&source,|request|findings_controller.0.browser.call(request))
+                    prior_candidate(&findings_job,&source,|request|findings_controller.0.browser.call_with_context(request,_context.clone()))
                 }
                 _ => Err("Operación de hallazgos no válida".into())
             }
@@ -650,7 +664,8 @@ fn scoped_tools(
     let job = job.clone();
     result.push(Tool {
         definition: strategy::report_definition(),
-        call:Box::new(move|args|{
+        call:Box::new(move|args,_context|{
+_context.check()?;
             let message=args["message"].as_str().ok_or("Falta el avance")?;
             if message.trim().is_empty()||message.len()>1200||message.contains('\0') {return Err("Avance no válido".into());}
             if args.get("recommended_route").is_some() && args["state"] != "blocked" { return Err("La vía propuesta solo se admite al comunicar un bloqueo".into()); }
@@ -706,6 +721,16 @@ fn validate_task_url(name: &str, origin: &str, args: &Value) -> Result<()> {
     }
     Ok(())
 }
+fn candidate_permissions(settings: &Settings, manifest: &Value) -> Result<()> {
+    if (!settings.read_files || !settings.write_files)
+        && manifest["functions"]
+            .as_array()
+            .is_some_and(|functions| functions.iter().any(|f| f["transport"] == "program"))
+    {
+        return Err("Las funciones programables requieren lectura y escritura tanto en el helper como en el bot".into());
+    }
+    Ok(())
+}
 fn gate(controller: &Controller, job: &Job, calls: &AtomicU64) -> Result<()> {
     controller.permitted()?;
     if controller.0.store.get(job.id)?.state != "running" {
@@ -720,6 +745,32 @@ fn gate(controller: &Controller, job: &Job, calls: &AtomicU64) -> Result<()> {
 #[cfg(test)]
 mod retry_tests {
     use super::*;
+    #[test]
+    fn helper_file_limits_gate_program_candidates_but_allow_web_recipes() {
+        let settings = Settings {
+            read_files: false,
+            write_files: false,
+            ..Default::default()
+        };
+        assert!(
+            candidate_permissions(
+                &settings,
+                &json!({"functions":[{"transport":"http"},{"transport":"page"}]})
+            )
+            .is_ok()
+        );
+        assert!(
+            candidate_permissions(&settings, &json!({"functions":[{"transport":"program"}]}))
+                .is_err()
+        );
+        assert!(
+            candidate_permissions(
+                &Settings::default(),
+                &json!({"functions":[{"transport":"program"}]})
+            )
+            .is_ok()
+        );
+    }
     #[test]
     fn local_interruption_reports_do_not_expose_private_errors_or_infer_login_failure() {
         let oversized: Box<dyn std::error::Error + Send + Sync> =
@@ -836,32 +887,7 @@ mod retry_tests {
     }
     fn running_build() -> (store::Store, BuildRequest, Job) {
         let db = gennie_db::Database::memory().unwrap();
-        db.migrate(
-            "plugins",
-            &[
-                gennie_core::Migration {
-                    version: 1,
-                    sql: include_str!("../migrations/0001_build_jobs.sql"),
-                },
-                gennie_core::Migration {
-                    version: 2,
-                    sql: include_str!("../migrations/0002_assignment_queue.sql"),
-                },
-                gennie_core::Migration {
-                    version: 3,
-                    sql: include_str!("../migrations/0003_retry_source.sql"),
-                },
-                gennie_core::Migration {
-                    version: 4,
-                    sql: include_str!("../migrations/0004_recommended_route.sql"),
-                },
-                gennie_core::Migration {
-                    version: 5,
-                    sql: include_str!("../migrations/0005_retry_schedule.sql"),
-                },
-            ],
-        )
-        .unwrap();
+        db.migrate("plugins", crate::MIGRATIONS).unwrap();
         let store = store::Store(db);
         let request = BuildRequest {
             request_key: "review".into(),
@@ -1200,7 +1226,15 @@ mod retry_tests {
         fn exists(&self, _: i64) -> Result<bool> {
             Ok(true)
         }
-        fn deliver(&self, _: i64, _: &str, _: &str) -> Result<()> {
+        fn target(&self, conversation_id: i64) -> Result<gennie_llm::delegation::Origin> {
+            Ok(gennie_llm::delegation::Origin {
+                conversation_id,
+                bot_id: "gennie".into(),
+                epoch: 1,
+                provider_thread: None,
+            })
+        }
+        fn deliver(&self, _update: &gennie_llm::delegation::Update) -> Result<()> {
             Ok(())
         }
     }
@@ -1216,11 +1250,12 @@ mod retry_tests {
             store.0.clone(),
             browser.controller(),
             Arc::new(TestJournal),
-            Arc::new(|| Ok(Settings::default())),
+            crate::AgentSettings::shared(Arc::new(|| Ok(Settings::default()))),
             root.join("unused-helper"),
             root,
         );
         let controller = module.controller();
+        controller.0.mcp.start().unwrap();
         controller.0.enabled.store(true, Ordering::Release);
         let request = json!({"plugin_id":job.plugin_id});
         controller
@@ -1248,11 +1283,12 @@ mod retry_tests {
             store.0.clone(),
             browser.controller(),
             Arc::new(TestJournal),
-            Arc::new(|| Ok(Settings::default())),
+            crate::AgentSettings::shared(Arc::new(|| Ok(Settings::default()))),
             root.join("unused-helper"),
             root,
         );
         let controller = module.controller();
+        controller.0.mcp.start().unwrap();
         controller.0.enabled.store(true, Ordering::Release);
         let busy = controller
             .catalogue_with(|| Err(Box::new(gennie_browser::BusyError)))
@@ -1273,6 +1309,18 @@ mod retry_tests {
         assert_eq!(recovered["catalogue_status"], "ready");
         assert_eq!(recovered["plugins"], json!([]));
         assert!(recovered["catalogue_error"].is_null());
+        store.0.with_connection(|c| {
+            c.execute("INSERT INTO plugin_mcp_sources(id,document) VALUES('broken','{\"id\":\"broken\",\"name\":42}')",[])?;
+            Ok(())
+        }).unwrap();
+        let partial = controller
+            .catalogue_with(|| Ok(json!({"plugins":[]})))
+            .unwrap();
+        assert_eq!(partial["jobs"][0]["id"], job.id);
+        assert_eq!(partial["catalogue_status"], "ready");
+        assert_eq!(partial["mcp_catalogue_status"], "unavailable");
+        assert!(partial["mcp_sources"].is_null());
+        assert!(partial["mcp_catalogue_error"].is_string());
     }
     #[test]
     fn scoped_service_request_reaches_browser_without_expanding_page_navigation() {
@@ -1284,11 +1332,12 @@ mod retry_tests {
             store.0.clone(),
             browser.controller(),
             Arc::new(TestJournal),
-            Arc::new(|| Ok(Settings::default())),
+            crate::AgentSettings::shared(Arc::new(|| Ok(Settings::default()))),
             root.join("unused-helper"),
             root,
         );
         let controller = module.controller();
+        controller.0.mcp.start().unwrap();
         controller.0.enabled.store(true, Ordering::Release);
         let tools = scoped_tools(
             &controller,
@@ -1315,17 +1364,24 @@ mod retry_tests {
             .find(|t| t.definition["name"] == "plugin_build_findings")
             .unwrap();
         assert_eq!(
-            (findings.call)(json!({"action":"list"})).unwrap()["jobs"],
+            (findings.call)(json!({"action":"list"}), gennie_mcp::CallContext::default()).unwrap()
+                ["jobs"],
             json!([])
         );
-        assert!((findings.call)(json!({"action":"get","job_id":job.id})).is_err());
+        assert!(
+            (findings.call)(
+                json!({"action":"get","job_id":job.id}),
+                gennie_mcp::CallContext::default()
+            )
+            .is_err()
+        );
         let request = tools
             .iter()
             .find(|t| t.definition["name"] == "browser_request")
             .unwrap();
         let mut args = json!({"url":"https://api.example.com/items", "http_method":"GET"});
         assert!(
-            (request.call)(args.clone())
+            (request.call)(args.clone(), gennie_mcp::CallContext::default())
                 .unwrap_err()
                 .to_string()
                 .contains("service_purpose")
@@ -1337,7 +1393,7 @@ mod retry_tests {
         // Se supera la política del constructor y llega al navegador desactivado de este fixture.
         // No se inicia Node, no hay red y no se presupone autenticación real en la API.
         assert!(
-            (request.call)(args.clone())
+            (request.call)(args.clone(), gennie_mcp::CallContext::default())
                 .unwrap_err()
                 .to_string()
                 .contains("módulo de navegador está desactivado")
@@ -1347,20 +1403,23 @@ mod retry_tests {
             .find(|t| t.definition["name"] == "browser_navigate")
             .unwrap();
         assert!(
-            (navigate.call)(json!({"url":"https://api.example.com/items"}))
-                .unwrap_err()
-                .to_string()
-                .contains("solo puede navegar")
+            (navigate.call)(
+                json!({"url":"https://api.example.com/items"}),
+                gennie_mcp::CallContext::default()
+            )
+            .unwrap_err()
+            .to_string()
+            .contains("solo puede navegar")
         );
         args["http_method"] = json!("POST");
-        assert!((request.call)(args.clone()).is_err());
+        assert!((request.call)(args.clone(), gennie_mcp::CallContext::default()).is_err());
         args["http_method"] = json!("GET");
         for url in [
             "http://api.example.com/items",
             "https://user:secret@api.example.com/items",
         ] {
             args["url"] = json!(url);
-            assert!((request.call)(args.clone()).is_err());
+            assert!((request.call)(args.clone(), gennie_mcp::CallContext::default()).is_err());
         }
         assert_eq!(store.get(job.id).unwrap().state, "running");
     }
@@ -1373,7 +1432,7 @@ mod retry_tests {
             store.0.clone(),
             browser.controller(),
             Arc::new(TestJournal),
-            Arc::new(|| Ok(Settings::default())),
+            crate::AgentSettings::shared(Arc::new(|| Ok(Settings::default()))),
             root.join("unused-helper"),
             root,
         );
@@ -1397,21 +1456,31 @@ mod retry_tests {
             store.report(job.id, "Avance histórico").unwrap();
         }
         assert_eq!(
-            (report.call)(json!({"state":"progress","message":"Avance nuevo"})).unwrap()["status"],
+            (report.call)(
+                json!({"state":"progress","message":"Avance nuevo"}),
+                gennie_mcp::CallContext::default()
+            )
+            .unwrap()["status"],
             "recorded"
         );
         assert_eq!(store.get(job.id).unwrap().summary, "Avance nuevo");
         let mut args = json!({"state":"waiting_user","message":"Necesito intervención"});
-        assert_eq!((report.call)(args.clone()).unwrap()["status"], "continue");
+        assert_eq!(
+            (report.call)(args.clone(), gennie_mcp::CallContext::default()).unwrap()["status"],
+            "continue"
+        );
         args["blocker"] = json!({"kind":"work_remaining","capability":"read_thread","evidence":"Hay casos sin probar","next_step":"Ampliar el código"});
-        assert_eq!((report.call)(args.clone()).unwrap()["status"], "continue");
+        assert_eq!(
+            (report.call)(args.clone(), gennie_mcp::CallContext::default()).unwrap()["status"],
+            "continue"
+        );
         assert_eq!(store.get(job.id).unwrap().state, "running");
         prepare_interface(&mut strategy.lock().unwrap(), &mut args);
         for kind in ["permission_required", "user_action_required"] {
             args["blocker"]["kind"] = json!(kind);
             gennie_browser::validate_arguments(&report.definition["inputSchema"], &args).unwrap();
             assert_eq!(
-                (report.call)(args.clone()).unwrap()["status"],
+                (report.call)(args.clone(), gennie_mcp::CallContext::default()).unwrap()["status"],
                 "review_required"
             );
         }
@@ -1425,14 +1494,26 @@ mod retry_tests {
             );
         }
         calls.store(80, Ordering::Release);
-        assert_eq!((report.call)(args.clone()).unwrap()["status"], "continue");
+        assert_eq!(
+            (report.call)(args.clone(), gennie_mcp::CallContext::default()).unwrap()["status"],
+            "continue"
+        );
         assert_eq!(store.get(job.id).unwrap().state, "running");
         calls.store(0, Ordering::Release);
-        assert_eq!((report.call)(args).unwrap()["status"], "recorded");
+        assert_eq!(
+            (report.call)(args, gennie_mcp::CallContext::default()).unwrap()["status"],
+            "recorded"
+        );
         assert_eq!(store.get(job.id).unwrap().state, "waiting_user");
         // Un reporte tardío nunca reactiva una cancelación.
         store.transition(job.id, "cancelled", "Cancelado").unwrap();
-        assert!((report.call)(json!({"state":"blocked","message":"Tardío"})).is_err());
+        assert!(
+            (report.call)(
+                json!({"state":"blocked","message":"Tardío"}),
+                gennie_mcp::CallContext::default()
+            )
+            .is_err()
+        );
         assert_eq!(store.get(job.id).unwrap().state, "cancelled");
     }
     #[test]

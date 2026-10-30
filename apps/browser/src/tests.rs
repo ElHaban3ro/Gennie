@@ -184,6 +184,30 @@ fn plugin_mcp_schema_accepts_program_blocks() {
 }
 
 #[test]
+fn plugin_mcp_schema_accepts_described_inputs_and_rejects_wrong_shapes() {
+    let schema = crate::tools::plugin_schema();
+    let mut manifest = json!({"id":"fixture","name":"Mensajes","origin":"https://example.com",
+        "functions":[{"name":"send","description":"Acción de prueba","parameters":{
+            "message":{"type":"string","label":"Mensaje","description":"Texto exacto","minLength":1,"maxLength":500},
+            "urgent":{"type":"boolean","required":false},
+            "quantity":{"type":"integer","minimum":-10,"maximum":10},
+            "ratio":{"type":"number","minimum":-0.5,"maximum":1.5},
+            "order":{"type":"string","enum":["recent","old"]},"legacy":"integer"
+        },"transport":"program","path":"/","result_type":"object","code":"return args;"}]});
+    crate::validate_arguments(&schema, &manifest).unwrap();
+    for invalid in [
+        json!(true),
+        json!({"type":"string","required":"no"}),
+        json!({"type":"secret"}),
+        json!({"type":"string","default":"inventado"}),
+        json!({"type":"string","enum":[{}]}),
+    ] {
+        manifest["functions"][0]["parameters"]["message"] = invalid;
+        assert!(crate::validate_arguments(&schema, &manifest).is_err());
+    }
+}
+
+#[test]
 fn plugin_mcp_accepts_many_functions_and_parameters() {
     let parameters = (0..25)
         .map(|i| (format!("p{i}"), json!("string")))

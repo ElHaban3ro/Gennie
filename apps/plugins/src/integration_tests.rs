@@ -90,6 +90,7 @@ sys.stdout.write(base64.b64encode(buffer.getvalue()).decode())
             .unwrap_or_else(|_| Settings::default().model),
         effort: std::env::var("GENNIE_PUBLIC_TEST_EFFORT")
             .unwrap_or_else(|_| Settings::default().effort),
+        ..Default::default()
     };
     let control = gennie_llm::builder::BuilderControl::default();
     let watchdog_control = control.clone();
@@ -135,7 +136,17 @@ impl BuildJournal for Journal {
     fn exists(&self, id: i64) -> Result<bool> {
         Ok(id == 7)
     }
-    fn deliver(&self, id: i64, key: &str, _: &str) -> Result<()> {
+    fn target(&self, conversation_id: i64) -> Result<gennie_llm::delegation::Origin> {
+        Ok(gennie_llm::delegation::Origin {
+            conversation_id,
+            bot_id: "gennie".into(),
+            epoch: 1,
+            provider_thread: None,
+        })
+    }
+    fn deliver(&self, update: &gennie_llm::delegation::Update) -> Result<()> {
+        let id = update.origin.conversation_id;
+        let key = update.event_key.as_str();
         let mut events = self.0.lock().unwrap();
         if !events.iter().any(|(_, k)| k == key) {
             events.push((id, key.into()));
@@ -226,7 +237,7 @@ fn real_builder_creates_fixture_plugin_without_touching_the_chat_thread() {
         db.clone(),
         browser.controller(),
         journal.clone(),
-        Arc::new(|| Ok(Settings::default())),
+        crate::AgentSettings::shared(Arc::new(|| Ok(Settings::default()))),
         helper,
         root.join("builds"),
     );
@@ -345,7 +356,7 @@ fn real_builder_generates_and_reuses_a_public_page_plugin() {
         db.clone(),
         browser.controller(),
         journal.clone(),
-        Arc::new(move || Ok(settings.clone())),
+        crate::AgentSettings::shared(Arc::new(move || Ok(settings.clone()))),
         helper,
         root.join("builds"),
     );

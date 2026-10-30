@@ -1,7 +1,7 @@
 use gennie_core::Result;
 use serde_json::Value;
 use std::{
-    io::{BufRead, BufReader, Read, Write},
+    io::{BufRead, BufReader, Read},
     os::unix::process::CommandExt,
     path::Path,
     process::{Child, ChildStdin, Command, Stdio},
@@ -42,7 +42,7 @@ impl Session {
         {
             return Err("Falta preparar Patchright. Ejecuta scripts/setup_browser.sh y vuelve a abrir el navegador".into());
         }
-        let mut child = Command::new(runtime.join("node"))
+        let child = Command::new(runtime.join("node"))
             .args(["--input-type=module", "--eval", &worker_source(), "--"])
             .arg(&runtime)
             .arg(root.join("profile"))
@@ -54,6 +54,9 @@ impl Session {
             .process_group(0)
             .spawn()
             .map_err(|_| "No se pudo iniciar el runtime de Patchright")?;
+        Self::from_child(child)
+    }
+    fn from_child(mut child: Child) -> Result<Self> {
         let input = child.stdin.take();
         let output = child.stdout.take().ok_or("Falta el canal del navegador")?;
         let (tx, replies) = mpsc::sync_channel(2);
@@ -95,20 +98,98 @@ impl Session {
             closed: false,
         })
     }
+    #[cfg(test)]
+    pub(super) fn node_fixture(script: &str, root: &Path) -> Self {
+        let child = Command::new("node")
+            .args(["--input-type=module", "--eval", script])
+            .env(
+                "GENNIE_WEB_PLUGIN_MODULE",
+                Path::new(env!("CARGO_MANIFEST_DIR")).join("src/plugins.mjs"),
+            )
+            .env("GENNIE_WEB_FIXTURE_ROOT", root)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .process_group(0)
+            .spawn()
+            .unwrap();
+        Self::from_child(child).unwrap()
+    }
+    #[cfg(test)]
+    pub(super) fn scripted(script: &str, log: &Path) -> Self {
+        let child = Command::new("/bin/sh")
+            .args(["-c", script])
+            .env("GENNIE_WEB_FIXTURE_LOG", log)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .process_group(0)
+            .spawn()
+            .unwrap();
+        Self::from_child(child).unwrap()
+    }
     pub fn exited(&mut self) -> bool {
         !matches!(self.child.try_wait(), Ok(None))
     }
-    pub fn request(&mut self, value: &Value) -> Result<Value> {
-        let line = serde_json::to_vec(value)?;
+    pub fn is_usable(&self) -> bool {
+        self.input.is_some()
+    }
+    pub fn request_with_context(
+        &mut self,
+        value: &Value,
+        context: &gennie_mcp::CallContext,
+    ) -> Result<Value> {
+        context.check()?;
+        let mut line = serde_json::to_vec(value)?;
         if line.len() > LIMIT - 1 {
             return Err("Petición de navegador demasiado grande".into());
         }
-        let input = self.input.as_mut().ok_or("El navegador está cerrado")?;
-        input.write_all(&line)?;
-        input.write_all(b"\n")?;
-        input.flush()?;
-        let response = self.replies.recv_timeout(Duration::from_secs(if value["method"] == "plugin_run" || value["method"] == "candidate" { PLUGIN_RESPONSE_TIMEOUT_SECS } else { 12 }))
-            .map_err(|_| "El navegador dejó de responder; el resultado de la acción es incierto. Comprueba el navegador antes de repetirla")?;
+        line.push(b'\n');
+        let input = self.input.as_ref().ok_or("El navegador está cerrado")?;
+        if let Err(error) =
+            gennie_mcp::write_cancellable(input, &line, context, Duration::from_secs(12))
+        {
+            self.input.take();
+            return Err(error);
+        }
+        let deadline = std::time::Instant::now()
+            + Duration::from_secs(
+                if value["method"] == "plugin_run" || value["method"] == "candidate" {
+                    PLUGIN_RESPONSE_TIMEOUT_SECS
+                } else {
+                    12
+                },
+            );
+        let response = loop {
+            if context.is_cancelled() {
+                self.input.take();
+                return Err(Box::new(gennie_mcp::Cancelled));
+            }
+            let wait = deadline
+                .saturating_duration_since(std::time::Instant::now())
+                .min(Duration::from_millis(50));
+            if wait.is_zero() {
+                self.input.take();
+                return Err("El navegador dejó de responder; comprueba el efecto antes de repetir la operación".into());
+            }
+            match self.replies.recv_timeout(wait) {
+                Ok(value) => {
+                    if context.is_cancelled() {
+                        self.input.take();
+                        return Err(Box::new(gennie_mcp::Cancelled));
+                    }
+                    break value;
+                }
+                Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    self.input.take();
+                    return Err(
+                        "El navegador dejó de responder; el resultado de la acción es incierto"
+                            .into(),
+                    );
+                }
+            }
+        };
         if let Some(error) = response["error"].as_str() {
             return Ok(serde_json::json!({"error":error,"code":response["code"],"ok":false}));
         }

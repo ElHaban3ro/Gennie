@@ -36,7 +36,11 @@ test('revisión, verificación por función, persistencia y edición invalidan e
   assert.equal((await f.run('run')).status, 'verification_required');
   assert.equal(f.calls.length, 0);
   assert.equal((await f.run()).status, 'ok');
-  assert.deepEqual((await f.run('run')).data, [{ id: 'one', subject: 'Prueba' }]);
+  const executed = await f.run('run');
+  assert.deepEqual(executed.data, [{ id: 'one', subject: 'Prueba' }]);
+  assert.equal(executed.plugin_name, 'Correo de prueba');
+  assert.equal(executed.plugin_id, 'mail');
+  assert.equal(executed.function_name, 'list');
   const reopened = createWebPlugins({ directory: f.directory, getContext: () => null });
   const stored = (await reopened.dispatch({ action: 'get', plugin_id: 'mail' })).plugin;
   assert.ok(stored.verified.list.verified_at.endsWith('Z'));
@@ -50,6 +54,19 @@ test('revisión, verificación por función, persistencia y edición invalidan e
   assert.equal((await stat(path.join(f.directory, 'mail.json'))).mode & 0o777, 0o600);
   assert.equal((await stat(f.directory)).mode & 0o777, 0o700);
   assert.equal(f.disposed.length, f.calls.length);
+});
+test('preflight valida verificación y ejecución sin obtener contexto ni ejecutar', async t => {
+  const f = await fixture(t); await f.save();
+  const inspect=createWebPlugins({directory:f.directory,getContext:()=>{throw new Error('El preflight no debe obtener contexto');}});
+  const base={action:'preflight',plugin_id:'mail',function_name:'list',expected_revision:1,arguments:{after:'today'}};
+  const prepared=await inspect.dispatch({...base,operation:'verify'});
+  assert.equal(prepared.status,'ready');assert.equal(prepared.executed,false);
+  assert.equal(prepared.plugin_name,'Correo de prueba');
+  assert.equal((await inspect.dispatch({...base,operation:'run'})).status,'verification_required');
+  assert.equal((await inspect.dispatch({...base,operation:'verify',arguments:{}})).status,'input_required');
+  await assert.rejects(inspect.dispatch({...base,operation:'review'}),{code:'invalid_plugin_arguments'});
+  assert.equal(f.calls.length,0);
+  assert.deepEqual((await f.plugins.dispatch({action:'get',plugin_id:'mail'})).plugin.verified,{});
 });
 test('acceso bajo demanda: público/sesión vigente, 401, 403, redirect y contrato', async t => {
   const f = await fixture(t); await f.save();
@@ -72,8 +89,87 @@ test('argumentos codificados, sin parámetros extra ni recorrido de ruta', async
   assert.equal(new URL(f.calls[0].url).searchParams.get('after'), 'a&token=private');
   assert.equal(new URL(f.calls[0].url).searchParams.has('token'), false);
   const count = f.calls.length;
-  for (const args of [{}, { after: 'a', extra: true }, { after: 0 }]) await assert.rejects(f.run('verify', args), { code: 'invalid_plugin_arguments' });
+  for (const [args, status] of [[{}, 'input_required'], [{ after: 'a', extra: true }, 'invalid_arguments'], [{ after: 0 }, 'invalid_arguments']]) {
+    const result = await f.run('verify', args);
+    assert.equal(result.status, status);
+    assert.equal(result.executed, false);
+  }
   assert.equal(f.calls.length, count);
+});
+
+test('descriptores tipados rechazan contratos ambiguos y conservan parámetros anteriores', () => {
+  const fn = manifest().functions[0];
+  const typed = spec => ({ ...manifest(), functions: [{ ...fn, parameters: { after: spec } }] });
+  assert.equal(validateWebPlugin(typed({type:'string',label:'Desde',description:'Fecha inicial',required:false,maxLength:80})).id, 'mail');
+  for (const spec of [
+    {type:'string',unknown:true}, {type:'date'}, {type:'integer',required:'false'},
+    {type:'string',minLength:0}, {type:'string',minLength:10,maxLength:2},
+    {type:'boolean',minimum:0}, {type:'integer',minimum:.5},
+    {type:'number',minimum:2,maximum:1}, {type:'number',maximum:Number.MAX_SAFE_INTEGER+1},
+    {type:'string',enum:[]}, {type:'string',enum:['a','a']}, {type:'string',enum:[true]},
+    {type:'integer',enum:[1,1.5]}, {type:'boolean',enum:[null]},
+  ]) assert.throws(() => validateWebPlugin(typed(spec)), {code:'invalid_plugin'});
+  assert.throws(() => validateWebPlugin({...typed({type:'string',required:false}),functions:[{...fn,path:'/items/{after}',query:{},parameters:{after:{type:'string',required:false}}}]}), {code:'invalid_plugin'});
+  assert.equal(validateWebPlugin(manifest()).functions[0].parameters.after, 'string');
+});
+
+test('faltan datos: no abre contexto ni pierde evidencia y permite completar después', async t => {
+  const f = await fixture(t); await f.save(); await f.run();
+  const before = (await f.plugins.dispatch({action:'get',plugin_id:'mail'})).plugin;
+  let opened = 0;
+  const plugins = createWebPlugins({directory:f.directory,getContext:() => { opened++; throw new Error('No debe abrir'); }});
+  const result = await plugins.dispatch({action:'verify',plugin_id:'mail',function_name:'list',expected_revision:1,arguments:{}});
+  assert.equal(result.status,'input_required'); assert.equal(result.executed,false); assert.equal(opened,0);
+  assert.deepEqual(result.fields,[{name:'after',required:true,type:'string',reason:'required'}]);
+  assert.deepEqual((await f.plugins.dispatch({action:'get',plugin_id:'mail'})).plugin,before);
+  assert.equal((await f.run('run',{after:'fecha indicada'})).status,'ok');
+  assert.equal(f.calls.length,2);
+});
+
+test('opcionales se omiten de query y tipos, límites y elecciones se validan sin efectos', async t => {
+  const f = await fixture(t);
+  const value = manifest();
+  value.functions[0].parameters = {
+    after:{type:'string',label:'Desde',required:false,minLength:2,maxLength:12},
+    count:{type:'integer',label:'Cantidad',minimum:0,maximum:20},
+    include:{type:'boolean',label:'Incluir leídos'},
+    ratio:{type:'number',label:'Proporción',minimum:-1,maximum:1},
+    sort:{type:'string',label:'Orden',enum:['recent','old']},
+  };
+  value.functions[0].query = {after:'{after}',count:'{count}',include:'{include}',ratio:'{ratio}',sort:'{sort}'};
+  await f.save(value);
+  const args = {count:0,include:false,ratio:-.5,sort:'recent'};
+  assert.equal((await f.run('verify',args)).status,'ok');
+  const query = new URL(f.calls[0].url).searchParams;
+  assert.equal(query.has('after'),false); assert.equal(query.get('count'),'0'); assert.equal(query.get('include'),'false'); assert.equal(query.get('ratio'),'-0.5');
+  for (const patch of [{count:21},{count:1.5},{include:'false'},{ratio:2},{sort:'invented'},{after:'a'},{after:'x'.repeat(13)},{after:null}]) {
+    const invalid = await f.run('verify',{...args,...patch});
+    assert.equal(invalid.status,'invalid_arguments'); assert.equal(invalid.executed,false);
+    assert.ok(invalid.fields.length);
+    assert.ok(!JSON.stringify(invalid).includes('invented'));
+  }
+  assert.equal(f.calls.length,1);
+});
+
+test('función puntual programable pide el mensaje y ejecuta solo con los datos completos', async t => {
+  const f = await fixture(t);
+  const value = {id:'mail',name:'Mensajes',origin:'https://example.com',functions:[{
+    name:'list',description:'Enviar un mensaje de prueba',parameters:{
+      recipient:{type:'string',label:'Destinatario',description:'Persona indicada por el usuario'},
+      message:{type:'string',label:'Mensaje',description:'Texto exacto que se enviará',maxLength:1000},
+      urgent:{type:'boolean',label:'Urgente',required:false},
+    },transport:'program',path:'/',result_type:'object',code:'await context.send(args); return {sent:true};',
+  }]};
+  await f.save(value);
+  let opened = 0; const sent = [];
+  const plugins = createWebPlugins({directory:f.directory,getContext:() => {opened++;return {newPage:async()=>({close:async()=>{}}),send:async args=>sent.push(args)};}});
+  const run = arguments_ => plugins.dispatch({action:'verify',plugin_id:'mail',function_name:'list',expected_revision:1,program_allowed:true,arguments:arguments_});
+  const missing = await run({recipient:'Cata'});
+  assert.equal(missing.status,'input_required'); assert.equal(missing.fields[0].name,'message'); assert.equal(missing.fields[0].label,'Mensaje'); assert.equal(opened,0); assert.deepEqual(sent,[]);
+  const malformed = await run({recipient:'Cata',message:123});
+  assert.equal(malformed.status,'invalid_arguments'); assert.equal(opened,0);
+  assert.equal((await run({recipient:'Cata',message:'Llegaré a las 8',urgent:false})).status,'ok');
+  assert.deepEqual(sent,[{recipient:'Cata',message:'Llegaré a las 8',urgent:false}]); assert.equal(opened,1);
 });
 test('fallo de transporte no pide login y no publica evidencia de éxito', async t => {
   const f = await fixture(t); await f.save();
@@ -91,7 +187,7 @@ test('no sigue enlaces simbólicos de recetas', async t => {
 test('candidatos aislados: verifica antes de promover y protege la revisión publicada', async t => {
   const f = await fixture(t); await f.save(); await f.run();
   const candidate = createWebPlugins({ directory:path.join(f.directory,'candidates','job_1'),getContext:()=>({ request:{get:async()=>({status:()=>200,headers:()=>({'content-type':'application/json'}),body:async()=>Buffer.from(JSON.stringify({messages:[{id:'two',subject:'Candidato'}]})),dispose:async()=>{}})}}) });
-  const changed={...manifest(),description:'Cobertura de lectura',capabilities:['Listar correos'],limitations:['Solo lectura']};
+  const changed={...manifest(),description:'Cobertura de lectura',capabilities:['Listar correos'],limitations:['Solo lectura'],functions:[{...manifest().functions[0],path:'/api/new-messages'}]};
   await candidate.dispatch({action:'save',manifest:changed,expected_revision:0});
   const promote=()=>f.plugins.dispatch({action:'promote',candidate_id:'job_1',plugin_id:'mail',expected_revision:1});
   assert.equal((await promote()).status,'verification_required');
@@ -237,4 +333,21 @@ test('un fallo de cierre se comunica sin ocultar el resultado de la acción', as
   assert.equal(result.data.verified,true);
   assert.equal(result.cleanup_status,'failed');
   assert.ok(!JSON.stringify(result).includes('private cleanup detail'));
+});
+
+test('prepare valida revisión, verificación y argumentos sin abrir contexto ni ejecutar', async t => {
+  const f = await fixture(t);
+  await f.save();
+  assert.equal((await f.run('prepare')).status, 'verification_required');
+  assert.equal(f.calls.length, 0);
+  await f.run('verify');
+  const count = f.calls.length;
+  const ready = await f.run('prepare');
+  assert.equal(ready.status, 'ready');
+  assert.equal(ready.executed, false);
+  assert.equal((await f.run('prepare', {})).status, 'input_required');
+  assert.equal(f.calls.length, count);
+  await f.save(manifest(), 1);
+  assert.equal((await f.run('prepare', { after: 'today' }, 2)).status, 'verification_required');
+  assert.equal(f.calls.length, count);
 });
