@@ -361,7 +361,7 @@ fn migrating_legacy_events_preserves_records_keys_revisions_and_checksums() {
         assert_eq!(
             c.query_row("SELECT count(*) FROM _soc_migrations_events", [], |r| r
                 .get::<_, i64>(0))?,
-            4
+            10
         );
         Ok(())
     })
@@ -477,7 +477,7 @@ fn method_resolution_uses_current_evidence_and_permission_without_mutating_the_p
     );
     assert_eq!(resolve_method(&d, &[]).unwrap()["status"], "plugin_missing");
     assert_eq!(d, original);
-    let store = store().with_catalogue(Arc::new(move || Ok(vec![plugin.clone()])));
+    let store = store().with_catalogue(Arc::new(move |_| Ok(vec![plugin.clone()])));
     let saved = store.create("resolved", d).unwrap();
     assert_eq!(saved.method_resolution.unwrap()["status"], "unresolved");
     assert_eq!(

@@ -1,8 +1,11 @@
-//! Registro de planes del usuario; no ejecuta trabajos ni entrega notificaciones.
+//! Planes y propuestas revisables; ejecución local explícita y resultados por el bot mediante adaptadores de bootstrap.
+pub mod execution;
 mod follow_up;
 mod method;
+pub mod proposals;
+pub mod schedule;
 pub use method::{Authorization, Method, Route, resolve as resolve_method};
-pub type PluginCatalogue = Arc<dyn Fn() -> Result<Vec<serde_json::Value>> + Send + Sync>;
+pub type PluginCatalogue = Arc<dyn Fn(&[String]) -> Result<Vec<serde_json::Value>> + Send + Sync>;
 mod tools;
 pub use follow_up::FollowUpPolicy;
 use gennie_core::{AppModule, AppState, Migration, Result};
@@ -12,7 +15,7 @@ use std::sync::{
     Arc,
     atomic::{AtomicU64, Ordering},
 };
-pub use tools::tools;
+pub use tools::{tools, tools_with_origin};
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -144,10 +147,34 @@ impl AppModule for AssignmentsModule {
                 version: 4,
                 sql: include_str!("../migrations/0004_instance_identity.sql"),
             },
+            Migration {
+                version: 5,
+                sql: include_str!("../migrations/0005_proposals.sql"),
+            },
+            Migration {
+                version: 6,
+                sql: include_str!("../migrations/0006_execution.sql"),
+            },
+            Migration {
+                version: 7,
+                sql: include_str!("../migrations/0007_execution_notices.sql"),
+            },
+            Migration {
+                version: 8,
+                sql: include_str!("../migrations/0008_review_refinements.sql"),
+            },
+            Migration {
+                version: 9,
+                sql: include_str!("../migrations/0009_review_archives.sql"),
+            },
+            Migration {
+                version: 10,
+                sql: include_str!("../migrations/0010_chat_review_requests.sql"),
+            },
         ]
     }
-    fn start(&self, _: &AppState) -> Result<()> {
-        Ok(())
+    fn start(&self, state: &AppState) -> Result<()> {
+        Store::new(state.db.clone()).recover_reviews()
     }
     fn stop(&self, _: &AppState) -> Result<()> {
         Ok(())
@@ -176,7 +203,15 @@ impl Store {
             let catalogue = self
                 .catalogue
                 .as_ref()
-                .map(|f| f())
+                .map(|f| {
+                    let ids = records
+                        .iter()
+                        .filter_map(|r| r.document.method.as_ref().map(|m| m.plugin_id.clone()))
+                        .collect::<std::collections::BTreeSet<_>>()
+                        .into_iter()
+                        .collect::<Vec<_>>();
+                    f(&ids)
+                })
                 .unwrap_or_else(|| Err("Catálogo no disponible".into()));
             for record in &mut records {
                 record.method_resolution = match &catalogue {
@@ -202,12 +237,21 @@ impl Store {
     pub fn revision(&self) -> u64 {
         self.revision.load(Ordering::Acquire)
     }
-    pub fn create(&self, request_key: &str, mut document: Document) -> Result<Record> {
+    pub fn create(&self, request_key: &str, document: Document) -> Result<Record> {
+        self.create_guarded(request_key, document, None)
+    }
+    pub(crate) fn create_guarded(
+        &self,
+        request_key: &str,
+        mut document: Document,
+        origin: Option<&proposals::Origin>,
+    ) -> Result<Record> {
         text(request_key, 120, "Identificador de petición")?;
         self.validate(&mut document)?;
         let encoded = serde_json::to_string(&document)?;
         let record = self.db.with_connection(|c| {
             let tx = c.transaction()?;
+            if let Some(origin)=origin {proposals::guard_mutation(&tx,origin)?;}
             let existing = {
                 let mut statement = tx.prepare("SELECT id,document FROM assignments WHERE request_key=?1")?;
                 let mut rows = statement.query([request_key])?;
@@ -227,10 +271,20 @@ impl Store {
         self.revision.fetch_add(1, Ordering::Release);
         Ok(self.resolve(vec![record]).remove(0))
     }
-    pub fn update(&self, id: i64, revision: u32, mut document: Document) -> Result<Record> {
+    pub fn update(&self, id: i64, revision: u32, document: Document) -> Result<Record> {
+        self.update_guarded(id, revision, document, None)
+    }
+    pub(crate) fn update_guarded(
+        &self,
+        id: i64,
+        revision: u32,
+        mut document: Document,
+        origin: Option<&proposals::Origin>,
+    ) -> Result<Record> {
         self.validate(&mut document)?;
         let record = self.db.with_connection(|c| {
             let tx = c.transaction()?;
+            if let Some(origin)=origin {proposals::guard_mutation(&tx,origin)?;}
             let changed = tx.execute("UPDATE assignments SET document=?1,revision=revision+1,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?2 AND revision=?3",params![serde_json::to_string(&document)?,id,revision])?;
             if changed != 1 { return Err("El encargo cambió o no existe. Vuelve a consultarlo antes de guardar".into()); }
             let record = read(&tx, id)?;

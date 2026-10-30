@@ -24,8 +24,9 @@ pub enum Route {
     Http,
     Web,
     ComputerUse,
+    Mcp,
 }
-fn identifier(value: &str) -> bool {
+pub(crate) fn identifier(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 64
         && value.as_bytes()[0].is_ascii_lowercase()
@@ -37,7 +38,7 @@ pub(crate) fn validate(d: &Document) -> Result<()> {
     if let Some(a) = &d.authorization {
         text(&a.scope, 2000, "Autorización")?;
         if a.allowed_routes.is_empty()
-            || a.allowed_routes.len() > 3
+            || a.allowed_routes.len() > 4
             || a.allowed_routes
                 .iter()
                 .enumerate()
@@ -50,10 +51,20 @@ pub(crate) fn validate(d: &Document) -> Result<()> {
         if d.authorization.is_none() {
             return Err("El método necesita una autorización explícita".into());
         }
-        if !identifier(&m.plugin_id)
+        let mcp = m.plugin_id.strip_prefix("mcp:");
+        let valid_plugin = mcp
+            .map(identifier)
+            .unwrap_or_else(|| identifier(&m.plugin_id));
+        if !valid_plugin
             || m.functions.is_empty()
             || m.functions.len() > 20
-            || m.functions.iter().any(|f| !identifier(f))
+            || m.functions.iter().any(|f| {
+                if mcp.is_some() {
+                    f.is_empty() || f.len() > 256 || f.chars().any(char::is_control)
+                } else {
+                    !identifier(f)
+                }
+            })
             || m.functions
                 .iter()
                 .enumerate()
@@ -68,11 +79,34 @@ pub(crate) fn validate(d: &Document) -> Result<()> {
 pub fn resolve(d: &Document, catalogue: &[Value]) -> Option<Value> {
     let method = d.method.as_ref()?;
     let authorization = d.authorization.as_ref()?;
+    if method.plugin_id.starts_with("mcp:") {
+        let source = catalogue
+            .iter()
+            .find(|s| s["kind"] == "mcp" && s["id"] == method.plugin_id);
+        let Some(source) = source else {
+            return Some(
+                json!({"status":if catalogue.iter().any(|s|s["kind"]=="mcp_unavailable"){"catalogue_unavailable"}else{"plugin_missing"},"execution_enabled":false}),
+            );
+        };
+        let server = &source["server"];
+        let routes=method.functions.iter().map(|name|{
+            let present=server["tools"].get(name).is_some();
+            let allowed=server["enabled"]==true && authorization.allowed_routes.contains(&Route::Mcp) && server["allowed_tools"].as_array().is_some_and(|tools|tools.iter().any(|t|t==name));
+            let schema=server["schema_status"][name]=="ready";
+            json!({"function":name,"route":"mcp","allowed":allowed,"verified":false,"status":if !present{"function_missing"}else if !allowed{"not_authorized"}else if !schema{"verification_required"}else{"available"}})
+        }).collect::<Vec<_>>();
+        let selected = routes.iter().find(|r| r["status"] == "available").cloned();
+        return Some(
+            json!({"status":if selected.is_some(){"available"}else{"unresolved"},"plugin_revision":server["revision"],"routes":routes,"selected":selected,"execution_enabled":false}),
+        );
+    }
     let Some(plugin) = catalogue
         .iter()
         .find(|p| p["manifest"]["id"] == method.plugin_id)
     else {
-        return Some(json!({"status":"plugin_missing","routes":[],"execution_enabled":false}));
+        return Some(
+            json!({"status":if catalogue.iter().any(|s|s["kind"]=="web_unavailable"){"catalogue_unavailable"}else{"plugin_missing"},"routes":[],"execution_enabled":false}),
+        );
     };
     let revision = &plugin["revision"];
     let functions = plugin["manifest"]["functions"].as_array();
