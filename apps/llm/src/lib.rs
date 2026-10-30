@@ -1,7 +1,25 @@
+pub mod architects;
 pub mod builder;
 mod codex;
+pub mod context;
+pub mod delegation;
+pub mod notices;
+mod reply;
 mod settings;
 mod title;
+mod tool_use;
+mod turn;
+pub use codex::mcp_client;
+pub use tool_use::{ToolOutcome, ToolUse};
+pub use turn::Progress as TurnProgress;
+
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct QuotedMessage {
+    pub speaker: String,
+    pub text: String,
+    pub created_at: String,
+    pub truncated: bool,
+}
 
 pub use settings::Settings;
 
@@ -15,8 +33,55 @@ use std::{
     thread::JoinHandle,
 };
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReplyInterruption {
+    Cancelled,
+    Failed,
+}
+impl ReplyInterruption {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Cancelled => "cancelled",
+            Self::Failed => "failed",
+        }
+    }
+    pub fn parse(value: &str) -> Result<Self> {
+        match value {
+            "cancelled" => Ok(Self::Cancelled),
+            "failed" => Ok(Self::Failed),
+            _ => Err("Estado de respuesta desconocido".into()),
+        }
+    }
+}
+
 /// Persistencia local inyectada por bootstrap; se invoca únicamente desde el worker.
 pub trait ConversationJournal: Send + Sync {
+    fn delegation_origin(&self, _conversation: i64) -> Result<Option<delegation::Origin>> {
+        Err("El diario no admite delegaciones".into())
+    }
+    fn delegation_context(
+        &self,
+        _origin: &delegation::Origin,
+    ) -> Result<Option<Vec<delegation::ContextMessage>>> {
+        Err("El diario no admite contexto de delegaciones".into())
+    }
+    /// Usa la conexión prestada: mensaje y recibo del inbox se confirman juntos.
+    fn deliver_delegation(
+        &self,
+        _connection: &gennie_db::SqliteConnection,
+        _update: &delegation::Update,
+        _text: &str,
+    ) -> Result<bool> {
+        Err("El diario no admite mensajes de delegaciones".into())
+    }
+    fn deliver_execution_notice(
+        &self,
+        _connection: &gennie_db::SqliteConnection,
+        _update: &notices::Update,
+        _text: &str,
+    ) -> Result<bool> {
+        Err("El diario no admite resultados de Encargos".into())
+    }
     /// Participa en la transacción del hilo, sin abrir otra conexión ni confirmar por separado.
     fn activate(
         &self,
@@ -26,6 +91,77 @@ pub trait ConversationJournal: Send + Sync {
         title: Option<&str>,
     ) -> Result<()>;
     fn append(&self, provider: &str, thread_id: &str, speaker: &str, text: &str) -> Result<()>;
+    fn begin_turn(&self, _provider: &str, _thread: &str, _turn: &str) -> Result<()> {
+        Ok(())
+    }
+    fn record_tool(
+        &self,
+        _provider: &str,
+        _thread: &str,
+        _turn: &str,
+        _usage: &ToolUse,
+    ) -> Result<()> {
+        Err("El diario no admite evidencia de herramientas".into())
+    }
+    fn append_response(
+        &self,
+        provider: &str,
+        thread: &str,
+        _turn: &str,
+        _item: Option<&str>,
+        text: &str,
+    ) -> Result<()> {
+        self.append(provider, thread, "assistant", text)
+    }
+    fn append_interrupted_response(
+        &self,
+        _provider: &str,
+        _thread: &str,
+        _turn: &str,
+        _item: Option<&str>,
+        _text: &str,
+        _reason: ReplyInterruption,
+    ) -> Result<()> {
+        Err("El diario no admite respuestas interrumpidas".into())
+    }
+    fn finish_turn(&self, _provider: &str, _thread: &str, _turn: &str) -> Result<()> {
+        Ok(())
+    }
+    /// Guarda entrada y cita juntas; rechaza referencias que no pueda comprobar.
+    fn append_user(
+        &self,
+        provider: &str,
+        thread_id: &str,
+        text: &str,
+        reply_to: Option<i64>,
+    ) -> Result<Option<QuotedMessage>> {
+        if reply_to.is_some() {
+            return Err("El diario no admite citas".into());
+        }
+        self.append(provider, thread_id, "user", text)?;
+        Ok(None)
+    }
+
+    /// Insertar entrada/cita y reservar avisos en una transacción del propietario.
+    fn prepare_user(
+        &self,
+        provider: &str,
+        thread: &str,
+        text: &str,
+        reply_to: Option<i64>,
+    ) -> Result<context::PreparedUser> {
+        Ok(context::PreparedUser {
+            quote: self.append_user(provider, thread, text, reply_to)?,
+            context: None,
+            batch_id: None,
+        })
+    }
+    fn confirm_context(&self, _provider: &str, _thread: &str, _batch: i64) -> Result<()> {
+        Err("El diario no admite recibos de contexto".into())
+    }
+    fn uncertain_context(&self, _provider: &str, _thread: &str, _batch: i64) -> Result<()> {
+        Err("El diario no admite recibos de contexto".into())
+    }
     /// Solo reutilizar un chat visible, activo y sin mensajes persistidos.
     fn is_empty(&self, provider: &str, thread_id: &str) -> Result<bool> {
         let _ = (provider, thread_id);
@@ -58,11 +194,16 @@ fn reuse_empty_chat(
     }
 }
 
+#[cfg(test)]
+type TestConnector = Arc<dyn Fn(codex::ProcessHandle) -> Result<codex::Session> + Send + Sync>;
 pub struct LlmModule {
     invocation: Arc<Mutex<Option<String>>>,
     journal: Option<Arc<dyn ConversationJournal>>,
     tools: Mutex<Option<gennie_mcp::Launch>>,
+    notice_guide: Mutex<Option<notices::guidance::GuideFactory>>,
     worker: Mutex<Option<Worker>>,
+    #[cfg(test)]
+    test_connector: Mutex<Option<TestConnector>>,
 }
 struct Worker {
     sender: SyncSender<Command>,
@@ -70,21 +211,29 @@ struct Worker {
     pending: Arc<AtomicBool>,
     stopping: Arc<AtomicBool>,
     process: codex::ProcessHandle,
+    turns: turn::Control,
     handle: JoinHandle<()>,
+    delegations: delegation::Worker,
     settings: Arc<Mutex<Settings>>,
 }
 #[derive(Clone)]
 pub struct Controller {
+    delegations: delegation::Receiver,
     sender: SyncSender<Command>,
     events: Arc<Mutex<Receiver<Event>>>,
     pending: Arc<AtomicBool>,
     settings: Arc<Mutex<Settings>>,
+    turns: turn::Control,
 }
 enum Command {
     Connect,
-    Speak(String),
+    Speak(String, Option<i64>, turn::Ticket),
     NewChat,
     SaveSettings(Settings),
+    SaveArchitect(
+        architects::Profile,
+        mpsc::Sender<std::result::Result<architects::Profile, String>>,
+    ),
     Shutdown,
 }
 #[derive(Debug)]
@@ -92,14 +241,31 @@ pub enum Event {
     Connected,
     Connecting,
     Disconnected(String),
-    UserMessageSaved(String),
     HistoryWarning(String),
-    ReplyDelta(String),
-    Reply(String),
+    Speech { id: String, event: SpeechEvent },
     NewChatReady,
     Failed(String),
     SettingsSaved(Settings),
     SettingsSaveFailed(String),
+}
+
+#[derive(Debug)]
+pub enum SpeechEvent {
+    Connecting,
+    Connected,
+    UserSaved(String),
+    Delta(String),
+    Complete(String),
+    Interrupted {
+        text: String,
+        saved: bool,
+        reason: ReplyInterruption,
+    },
+    HistoryWarning(String),
+    Finished {
+        cancelled: bool,
+        error: Option<String>,
+    },
 }
 
 impl Default for LlmModule {
@@ -108,11 +274,30 @@ impl Default for LlmModule {
             invocation: Arc::default(),
             journal: None,
             tools: Mutex::new(None),
+            notice_guide: Mutex::new(None),
             worker: Mutex::new(None),
+            #[cfg(test)]
+            test_connector: Mutex::new(None),
         }
     }
 }
 impl LlmModule {
+    /// Composición previa al arranque; la guía se consulta solo para políticas consentidas.
+    pub fn configure_notice_guide(&self, guide: notices::guidance::GuideFactory) -> Result<()> {
+        if self
+            .worker
+            .lock()
+            .map_err(|_| "Worker de conversación inválido")?
+            .is_some()
+        {
+            return Err("Configura la guía antes de arrancar".into());
+        }
+        *self
+            .notice_guide
+            .lock()
+            .map_err(|_| "Guía de avisos inválida")? = Some(guide);
+        Ok(())
+    }
     /// Hilo emisor del turno en curso; no sigue la selección de lectura de la UI.
     pub fn invocation_context(&self) -> Arc<Mutex<Option<String>>> {
         self.invocation.clone()
@@ -139,6 +324,11 @@ impl AppModule for LlmModule {
     fn name(&self) -> &'static str {
         "llm"
     }
+    fn optional_dependencies(&self) -> &'static [&'static str] {
+        // Los pendientes del bot solo se atienden después de habilitar el cliente
+        // de guía si está activo; no confundir su arranque con indisponibilidad.
+        &["proactivity"]
+    }
     fn migrations(&self) -> &'static [Migration] {
         &[
             Migration {
@@ -157,6 +347,30 @@ impl AppModule for LlmModule {
                 version: 4,
                 sql: include_str!("../migrations/0004_remove_memory.sql"),
             },
+            Migration {
+                version: 5,
+                sql: include_str!("../migrations/0005_architects.sql"),
+            },
+            Migration {
+                version: 6,
+                sql: include_str!("../migrations/0006_delegations.sql"),
+            },
+            Migration {
+                version: 7,
+                sql: include_str!("../migrations/0007_delegation_render_metrics.sql"),
+            },
+            Migration {
+                version: 8,
+                sql: include_str!("../migrations/0008_execution_notices.sql"),
+            },
+            Migration {
+                version: 9,
+                sql: include_str!("../migrations/0009_contextual_notices.sql"),
+            },
+            Migration {
+                version: 10,
+                sql: include_str!("../migrations/0010_expandable_architects.sql"),
+            },
         ]
     }
     fn start(&self, state: &AppState) -> Result<()> {
@@ -172,7 +386,15 @@ impl AppModule for LlmModule {
         let events = Arc::new(Mutex::new(events));
         let pending = Arc::new(AtomicBool::new(false));
         let stopping = Arc::new(AtomicBool::new(false));
+        #[cfg(test)]
+        let test_connector = self
+            .test_connector
+            .lock()
+            .map_err(|_| "Fixture de sesión inválido")?
+            .take();
         let process = codex::ProcessHandle::default();
+        let turns = turn::Control::new(process.clone());
+        let worker_turns = turns.clone();
         let db = state.db.clone();
         let journal = self.journal.clone();
         let tools = self
@@ -180,12 +402,22 @@ impl AppModule for LlmModule {
             .lock()
             .map_err(|_| "Configuración MCP inválida")?
             .clone();
+        architects::list(&db)?;
         let settings = Arc::new(Mutex::new(settings::load(&db)?));
         let invocation = self.invocation.clone();
         let worker_settings = settings.clone();
         let worker_pending = pending.clone();
         let worker_stopping = stopping.clone();
         let worker_process = process.clone();
+        let delegations = delegation::Worker::start(
+            db.clone(),
+            journal.clone(),
+            event_sender.clone(),
+            self.notice_guide
+                .lock()
+                .map_err(|_| "Guía de avisos inválida")?
+                .clone(),
+        )?;
         let handle = std::thread::Builder::new()
             .name("llm-conversation".into())
             .spawn(move || {
@@ -200,7 +432,7 @@ impl AppModule for LlmModule {
                     if let Command::SaveSettings(next) = command {
                         let result = settings::save(&db, &next);
                         match result {
-                            Ok(()) => {
+                            Ok(next) => {
                                 *worker_settings
                                     .lock()
                                     .expect("Ajustes de conversación inválidos") = next.clone();
@@ -219,44 +451,109 @@ impl AppModule for LlmModule {
                         worker_pending.store(false, Ordering::SeqCst);
                         continue;
                     }
+                    if let Command::SaveArchitect(profile, reply) = command {
+                        let bot = profile.id == architects::Role::Bot.id();
+                        let result = architects::save(&db, &profile);
+                        if result.is_ok() && bot {
+                            // La fila confirmada ya está validada; no volver a leer después del commit.
+                            let next = profile.settings();
+                            *worker_settings
+                                .lock()
+                                .expect("Ajustes de conversación inválidos") = next.clone();
+                            session = None;
+                            worker_process.kill();
+                            let _ = event_sender.send(Event::Disconnected(
+                                "Ajustes guardados; se conectará al hablar".into(),
+                            ));
+                            let _ = event_sender.send(Event::SettingsSaved(next));
+                        }
+                        worker_pending.store(false, Ordering::SeqCst);
+                        let _ = reply.send(result.map_err(|e| e.to_string()));
+                        continue;
+                    }
+                    let ticket = match &command {
+                        Command::Speak(_, _, ticket) => Some(ticket.clone()),
+                        _ => None,
+                    };
+                    let emit_connection = |connecting: bool| {
+                        let event = if let Some(ticket) = &ticket {
+                            Event::Speech {
+                                id: ticket.id.clone(),
+                                event: if connecting {
+                                    SpeechEvent::Connecting
+                                } else {
+                                    SpeechEvent::Connected
+                                },
+                            }
+                        } else if connecting {
+                            Event::Connecting
+                        } else {
+                            Event::Connected
+                        };
+                        let _ = event_sender.send(event);
+                    };
                     let current = worker_settings
                         .lock()
                         .expect("Ajustes de conversación inválidos")
                         .clone();
                     let result = (|| -> Result<Option<Event>> {
+                        if let Some(ticket) = &ticket {
+                            ticket.context.check()?;
+                        }
                         if matches!(&command, Command::NewChat)
                             && reuse_empty_chat(&db, journal.as_deref())?
                         {
                             return Ok(Some(Event::NewChatReady));
                         }
                         if session.is_none() {
-                            let _ = event_sender.send(Event::Connecting);
-                            session = Some(if matches!(&command, Command::NewChat) {
-                                codex::Session::connect_recorded(
+                            emit_connection(true);
+                            let scripted = {
+                                #[cfg(test)]
+                                {
+                                    test_connector
+                                        .as_ref()
+                                        .map(|connect| connect(worker_process.clone()))
+                                        .transpose()?
+                                }
+                                #[cfg(not(test))]
+                                {
+                                    None::<codex::Session>
+                                }
+                            };
+                            session = Some(if let Some(scripted) = scripted {
+                                scripted
+                            } else if matches!(&command, Command::NewChat) {
+                                codex::Session::connect_recorded_for_turn(
                                     &db,
                                     worker_process.clone(),
                                     &current,
                                     true,
                                     journal.clone(),
                                     tools.clone(),
+                                    ticket.clone(),
                                 )?
                             } else {
-                                codex::Session::connect_recorded(
+                                codex::Session::connect_recorded_for_turn(
                                     &db,
                                     worker_process.clone(),
                                     &current,
                                     false,
                                     journal.clone(),
                                     tools.clone(),
+                                    ticket.clone(),
                                 )?
                             });
-                            let _ = event_sender.send(Event::Connected);
+                            emit_connection(false);
                             if matches!(&command, Command::NewChat) {
                                 return Ok(Some(Event::NewChatReady));
                             }
                         }
                         match command {
-                            Command::Speak(text) => {
+                            Command::Speak(text, reply_to, ticket) => {
+                                session
+                                    .as_mut()
+                                    .expect("sesión creada")
+                                    .bind_turn(Some(ticket.clone()));
                                 *invocation
                                     .lock()
                                     .map_err(|_| "Contexto de turno inválido")? = Some(
@@ -266,36 +563,81 @@ impl AppModule for LlmModule {
                                         .thread_id()
                                         .to_owned(),
                                 );
-                                session.as_mut().expect("sesión creada").speak_stream(
-                                    &text,
-                                    |event| {
+                                session
+                                    .as_mut()
+                                    .expect("sesión creada")
+                                    .speak_stream_reply(&text, reply_to, |event| {
                                         let event = match event {
                                             codex::StreamEvent::UserSaved(text) => {
-                                                Event::UserMessageSaved(text)
+                                                SpeechEvent::UserSaved(text)
                                             }
                                             codex::StreamEvent::Delta(text) => {
-                                                Event::ReplyDelta(text)
+                                                SpeechEvent::Delta(text)
                                             }
                                             codex::StreamEvent::Completed(text) => {
-                                                Event::Reply(text)
+                                                SpeechEvent::Complete(text)
+                                            }
+                                            codex::StreamEvent::Interrupted {
+                                                text,
+                                                saved,
+                                                reason,
+                                            } => SpeechEvent::Interrupted {
+                                                text,
+                                                saved,
+                                                reason,
+                                            },
+                                            codex::StreamEvent::PersistenceWarning(text) => {
+                                                SpeechEvent::HistoryWarning(text)
                                             }
                                         };
-                                        let _ = event_sender.send(event);
-                                    },
-                                )?;
+                                        let _ = event_sender.send(Event::Speech {
+                                            id: ticket.id.clone(),
+                                            event,
+                                        });
+                                    })?;
                                 Ok(None)
                             }
                             Command::NewChat => {
                                 session.as_mut().expect("sesión creada").new_chat(&db)?;
                                 Ok(Some(Event::NewChatReady))
                             }
-                            Command::Connect | Command::Shutdown | Command::SaveSettings(_) => {
-                                Ok(None)
-                            }
+                            Command::Connect
+                            | Command::Shutdown
+                            | Command::SaveSettings(_)
+                            | Command::SaveArchitect(..) => Ok(None),
                         }
                     })();
                     if let Ok(mut origin) = invocation.lock() {
                         *origin = None;
+                    }
+                    if let Some(ticket) = ticket {
+                        let cancelled = ticket.context.is_cancelled();
+                        let mut error = result.err().map(|e| e.to_string());
+                        if !cancelled
+                            && let Some(message) = &mut error
+                            && let Some(current) = &session
+                            && let Err(save_error) = current.record_error(message)
+                        {
+                            *message = format!(
+                                "{message}. No se pudo guardar en el historial: {save_error}"
+                            );
+                        }
+                        if cancelled || error.is_some() {
+                            session = None;
+                            worker_process.kill();
+                        } else if let Some(current) = &mut session {
+                            current.bind_turn(None);
+                        }
+                        worker_turns.finish(&ticket.id);
+                        worker_pending.store(false, Ordering::SeqCst);
+                        let _ = event_sender.send(Event::Speech {
+                            id: ticket.id.clone(),
+                            event: SpeechEvent::Finished {
+                                cancelled,
+                                error: if cancelled { None } else { error },
+                            },
+                        });
+                        continue;
                     }
                     match result {
                         Ok(Some(event)) => {
@@ -327,7 +669,9 @@ impl AppModule for LlmModule {
             pending,
             stopping,
             process,
+            turns,
             handle,
+            delegations,
             settings,
         });
         Ok(())
@@ -337,15 +681,21 @@ impl AppModule for LlmModule {
             .worker
             .lock()
             .map_err(|_| "Worker de conversación inválido")?;
-        if let Some(worker) = guard.take() {
+        if let Some(mut worker) = guard.take() {
+            let gate = worker.delegations.close_ingress();
             worker.stopping.store(true, Ordering::SeqCst);
             let _ = worker.sender.try_send(Command::Shutdown);
-            worker.process.kill();
+            worker.turns.cancel_current();
+            worker.process.cancel();
             drop(worker.sender);
-            worker
+            let conversation = worker
                 .handle
                 .join()
-                .map_err(|_| "Worker de conversación terminó inesperadamente")?;
+                .map_err(|_| "Worker de conversación terminó inesperadamente");
+            let deliveries = worker.delegations.stop();
+            gate?;
+            conversation?;
+            deliveries?;
         }
         Ok(())
     }
@@ -358,14 +708,19 @@ impl LlmModule {
             .map_err(|_| "Worker de conversación inválido")?;
         let worker = guard.as_ref().ok_or("Conversación no iniciada")?;
         Ok(Controller {
+            delegations: worker.delegations.receiver.clone(),
             sender: worker.sender.clone(),
             events: worker.events.clone(),
             pending: worker.pending.clone(),
             settings: worker.settings.clone(),
+            turns: worker.turns.clone(),
         })
     }
 }
 impl Controller {
+    pub fn delegations(&self) -> delegation::Receiver {
+        self.delegations.clone()
+    }
     fn submit(&self, command: Command) -> Result<()> {
         if self.pending.swap(true, Ordering::SeqCst) {
             return Err("Gennie aún está respondiendo".into());
@@ -392,12 +747,62 @@ impl Controller {
         next.validate()?;
         self.submit(Command::SaveSettings(next))
     }
+    /// Commit corto en el worker serial; nunca espera red ni consume inferencia.
+    pub fn save_architect(&self, profile: architects::Profile) -> Result<architects::Profile> {
+        profile.validate()?;
+        let (reply, result) = mpsc::channel();
+        self.submit(Command::SaveArchitect(profile, reply))?;
+        result
+            .recv()
+            .map_err(|_| "El worker terminó antes de confirmar el arquitecto")?
+            .map_err(Into::into)
+    }
     pub fn speak(&self, text: &str) -> Result<()> {
-        let text = text.trim();
-        if text.is_empty() || text.chars().count() > 1200 {
+        if text.trim().is_empty() || text.chars().count() > 1200 {
             return Err("Mensaje vacío o demasiado largo".into());
         }
-        self.submit(Command::Speak(text.into()))
+        self.speak_turn(text, None).map(|_| ())
+    }
+    pub fn speak_reply(&self, text: &str, reply_to: i64) -> Result<()> {
+        if text.trim().is_empty() || text.chars().count() > 1200 || reply_to <= 0 {
+            return Err("Mensaje o referencia de respuesta inválidos".into());
+        }
+        self.speak_turn(text, Some(reply_to)).map(|_| ())
+    }
+    pub fn speak_turn(&self, text: &str, reply_to: Option<i64>) -> Result<String> {
+        if text.trim().is_empty()
+            || text.chars().count() > 1200
+            || reply_to.is_some_and(|id| id <= 0)
+        {
+            return Err("Mensaje o referencia de respuesta inválidos".into());
+        }
+        if self.pending.swap(true, Ordering::SeqCst) {
+            return Err("Gennie aún está respondiendo".into());
+        }
+        let ticket = match self.turns.begin() {
+            Ok(t) => t,
+            Err(e) => {
+                self.pending.store(false, Ordering::SeqCst);
+                return Err(e);
+            }
+        };
+        let id = ticket.id.clone();
+        if self
+            .sender
+            .try_send(Command::Speak(text.into(), reply_to, ticket))
+            .is_err()
+        {
+            self.turns.finish(&id);
+            self.pending.store(false, Ordering::SeqCst);
+            return Err("No se pudo enviar el mensaje".into());
+        }
+        Ok(id)
+    }
+    pub fn turn_progress(&self) -> Option<TurnProgress> {
+        self.turns.progress()
+    }
+    pub fn cancel_turn(&self, id: &str) -> Result<bool> {
+        self.turns.cancel(id)
     }
     pub fn is_pending(&self) -> bool {
         self.pending.load(Ordering::SeqCst)
@@ -568,6 +973,7 @@ mod tests {
             local_actions: false,
             model: "gpt-6-astra".into(),
             effort: "high".into(),
+            ..Default::default()
         };
         settings::save(&db, &next).unwrap();
         assert_eq!(settings::load(&db).unwrap(), next);
@@ -753,5 +1159,42 @@ mod tests {
         assert_eq!(load_thread(&db).unwrap().unwrap(), current);
         drop(resumed);
         let _ = std::fs::remove_dir_all(base);
+    }
+}
+
+#[cfg(test)]
+mod reply_input_tests {
+    use super::*;
+    #[test]
+    fn queue_preserves_literal_spaces_and_newlines_for_ordinary_and_quoted_inputs() {
+        for quoted in [false, true] {
+            let (sender, commands) = mpsc::sync_channel(4);
+            let (_, events) = mpsc::channel();
+            let controller = Controller {
+                delegations: delegation::Receiver::new(
+                    gennie_db::Database::memory().unwrap(),
+                    None,
+                )
+                .0,
+                sender,
+                events: Arc::new(Mutex::new(events)),
+                pending: Arc::new(AtomicBool::new(false)),
+                turns: turn::Control::new(Default::default()),
+                settings: Arc::new(Mutex::new(Settings::default())),
+            };
+            let text = "  Texto literal\ncon salto  ";
+            if quoted {
+                controller.speak_reply(text, 42).unwrap();
+            } else {
+                controller.speak(text).unwrap();
+            }
+            match commands.recv().unwrap() {
+                Command::Speak(saved, source, _) => {
+                    assert_eq!(saved, text);
+                    assert_eq!(source, if quoted { Some(42) } else { None });
+                }
+                _ => panic!("Se esperaba una entrada de conversación"),
+            }
+        }
     }
 }

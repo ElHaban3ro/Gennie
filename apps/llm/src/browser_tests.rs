@@ -29,7 +29,7 @@ fn capabilities_distinguish_missing_tools_from_disabled_permissions() {
         false
     );
     assert_eq!(
-        plugin_ready["web_plugins"]["scheduled_execution_available"],
+        plugin_ready["web_plugins"]["builder_schedules_assignments"],
         false
     );
     with_plugins.push("plugin_build_start".into());

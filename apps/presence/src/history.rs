@@ -13,8 +13,106 @@ pub(crate) struct Journal {
     pub db: Database,
     pub revision: Arc<AtomicU64>,
 }
+#[cfg(test)]
+pub(crate) mod legacy_fixture;
+#[cfg(test)]
+mod proposal_turn_tests;
+
+pub struct UserTurn {
+    pub message_id: i64,
+    pub conversation_id: i64,
+    pub epoch: i64,
+    pub text: String,
+    pub truncated: bool,
+    pub created_at: String,
+}
+/// Fuente local para una herramienta del turno activo; no sigue la selección de lectura.
+pub fn user_turn_for_thread(db: &Database, thread: &str) -> Result<UserTurn> {
+    db.with_connection(|c|Ok(c.query_row("SELECT h.id,c.id,c.delivery_epoch,substr(h.text,1,4000),length(h.text)>4000,h.created_at FROM presence_history h JOIN presence_conversations c ON c.id=h.conversation_id JOIN presence_current_conversation a ON a.conversation_id=c.id WHERE c.provider='codex' AND c.provider_thread_id=?1 AND c.deleted=0 AND h.speaker='user' ORDER BY h.id DESC LIMIT 1",[thread],|r|Ok(UserTurn{message_id:r.get(0)?,conversation_id:r.get(1)?,epoch:r.get(2)?,text:r.get(3)?,truncated:r.get(4)?,created_at:r.get(5)?}))?))
+}
 
 impl gennie_llm::ConversationJournal for Journal {
+    fn delegation_origin(
+        &self,
+        conversation: i64,
+    ) -> Result<Option<gennie_llm::delegation::Origin>> {
+        crate::delegation::origin(&self.db, conversation)
+    }
+    fn delegation_context(
+        &self,
+        origin: &gennie_llm::delegation::Origin,
+    ) -> Result<Option<Vec<gennie_llm::delegation::ContextMessage>>> {
+        crate::delegation::context(&self.db, origin)
+    }
+    fn deliver_delegation(
+        &self,
+        c: &SqliteConnection,
+        update: &gennie_llm::delegation::Update,
+        text: &str,
+    ) -> Result<bool> {
+        crate::delegation::deliver(c, update, text)
+    }
+    fn deliver_execution_notice(
+        &self,
+        c: &SqliteConnection,
+        update: &gennie_llm::notices::Update,
+        text: &str,
+    ) -> Result<bool> {
+        crate::execution_notices::deliver(c, update, text)
+    }
+    fn begin_turn(&self, provider: &str, thread: &str, turn: &str) -> Result<()> {
+        if crate::tool_evidence::begin_turn(&self.db, provider, thread, turn)? {
+            self.committed();
+        }
+        Ok(())
+    }
+    fn record_tool(
+        &self,
+        provider: &str,
+        thread: &str,
+        turn: &str,
+        usage: &gennie_llm::ToolUse,
+    ) -> Result<()> {
+        if crate::tool_evidence::record(&self.db, provider, thread, turn, usage)? {
+            self.committed();
+        }
+        Ok(())
+    }
+    fn append_response(
+        &self,
+        provider: &str,
+        thread: &str,
+        turn: &str,
+        item: Option<&str>,
+        text: &str,
+    ) -> Result<()> {
+        if crate::tool_evidence::append_response(&self.db, provider, thread, turn, item, text)? {
+            self.committed();
+        }
+        Ok(())
+    }
+    fn append_interrupted_response(
+        &self,
+        provider: &str,
+        thread: &str,
+        turn: &str,
+        item: Option<&str>,
+        text: &str,
+        reason: gennie_llm::ReplyInterruption,
+    ) -> Result<()> {
+        if crate::tool_evidence::append_interrupted_response(
+            &self.db, provider, thread, turn, item, text, reason,
+        )? {
+            self.committed();
+        }
+        Ok(())
+    }
+    fn finish_turn(&self, provider: &str, thread: &str, turn: &str) -> Result<()> {
+        if crate::tool_evidence::finish_turn(&self.db, provider, thread, turn)? {
+            self.committed();
+        }
+        Ok(())
+    }
     fn is_empty(&self, provider: &str, thread_id: &str) -> Result<bool> {
         self.db.with_connection(|connection| {
             Ok(connection.query_row(
@@ -59,6 +157,39 @@ impl gennie_llm::ConversationJournal for Journal {
             self.committed();
         }
         Ok(())
+    }
+    fn append_user(
+        &self,
+        provider: &str,
+        thread_id: &str,
+        text: &str,
+        reply_to: Option<i64>,
+    ) -> Result<Option<gennie_llm::QuotedMessage>> {
+        let Some(source) = reply_to else {
+            self.append(provider, thread_id, "user", text)?;
+            return Ok(None);
+        };
+        let quote = crate::replies::append_user(&self.db, provider, thread_id, text, source)?;
+        self.committed();
+        Ok(Some(quote))
+    }
+    fn prepare_user(
+        &self,
+        provider: &str,
+        thread: &str,
+        text: &str,
+        reply_to: Option<i64>,
+    ) -> Result<gennie_llm::context::PreparedUser> {
+        let prepared =
+            crate::provider_context::prepare(&self.db, provider, thread, text, reply_to)?;
+        self.committed();
+        Ok(prepared)
+    }
+    fn confirm_context(&self, provider: &str, thread: &str, batch: i64) -> Result<()> {
+        crate::provider_context::confirm(&self.db, provider, thread, batch)
+    }
+    fn uncertain_context(&self, provider: &str, thread: &str, batch: i64) -> Result<()> {
+        crate::provider_context::uncertain(&self.db, provider, thread, batch)
     }
     fn claim_title_input(
         &self,
@@ -118,6 +249,7 @@ pub enum Event {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Message {
+    pub interruption: Option<gennie_llm::ReplyInterruption>,
     pub speaker: String,
     pub text: String,
     pub created_at: String,
@@ -240,24 +372,36 @@ pub fn rename(db: &Database, id: i64, title: &str) -> Result<()> {
 pub fn delete(db: &Database, id: i64) -> Result<()> {
     db.with_connection(|connection| {
         let tx = connection.transaction()?;
-        if tx.execute("UPDATE presence_conversations SET deleted=1,title='Nuevo chat',automatic_title=1,local_title=NULL,provider_title=NULL WHERE id=?1 AND deleted=0",[id])? != 1 {return Err("El chat ya no está disponible".into());}
+        if tx.execute("UPDATE presence_conversations SET delivery_epoch=delivery_epoch+1,deleted=1,title='Nuevo chat',automatic_title=1,local_title=NULL,provider_title=NULL WHERE id=?1 AND deleted=0",[id])? != 1 {return Err("El chat ya no está disponible".into());}
         tx.execute("DELETE FROM presence_history WHERE conversation_id=?1",[id])?;
         tx.commit()?;
         Ok(())
     })
 }
-fn messages(connection: &SqliteConnection, id: Option<i64>) -> Result<Vec<Message>> {
-    let mut statement = connection.prepare(
-        "SELECT speaker,text,created_at FROM presence_history WHERE conversation_id=?1 ORDER BY id",
-    )?;
-    let rows = statement.query_map([id], |row| {
-        Ok(Message {
+fn messages(connection: &SqliteConnection, id: Option<i64>, bounded: bool) -> Result<Vec<Message>> {
+    let mut statement = connection.prepare("SELECT speaker,text,created_at,interruption FROM presence_history WHERE conversation_id=?1 ORDER BY id DESC LIMIT ?2")?;
+    let mut rows = statement.query(params![id, if bounded { 60 } else { -1 }])?;
+    let mut result = Vec::new();
+    let mut characters = 0usize;
+    while let Some(row) = rows.next()? {
+        let text: String = row.get(1)?;
+        characters = characters.saturating_add(text.chars().count());
+        if bounded && !result.is_empty() && characters > 24_000 {
+            break;
+        }
+        result.push(Message {
             speaker: row.get(0)?,
-            text: row.get(1)?,
+            text,
             created_at: row.get(2)?,
-        })
-    })?;
-    Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+            interruption: row
+                .get::<_, Option<String>>(3)?
+                .as_deref()
+                .map(gennie_llm::ReplyInterruption::parse)
+                .transpose()?,
+        });
+    }
+    result.reverse();
+    Ok(result)
 }
 /// Registra un aviso local sin reactivar chats eliminados ni contactar al proveedor.
 /// Los errores del proveedor pueden haber sido guardados por su propio worker.
@@ -322,6 +466,17 @@ pub fn deliver_message(
 pub fn conversation_for_thread(db: &Database, thread: &str) -> Result<i64> {
     db.with_connection(|c|Ok(c.query_row("SELECT id FROM presence_conversations WHERE provider='codex' AND provider_thread_id=?1 AND deleted=0",[thread],|r|r.get(0))?))
 }
+pub fn session_started_at(db: &Database, id: Option<i64>) -> Result<Option<String>> {
+    db.with_connection(|c| {
+        Ok(
+            c.prepare("SELECT created_at FROM presence_conversations WHERE id=?1 AND deleted=0")?
+                .query_map([id], |r| r.get::<_, String>(0))?
+                .next()
+                .transpose()?,
+        )
+    })
+}
+
 pub fn conversation_exists(db: &Database, id: i64) -> Result<bool> {
     db.with_connection(|c| {
         Ok(c.query_row(
@@ -333,6 +488,13 @@ pub fn conversation_exists(db: &Database, id: i64) -> Result<bool> {
 }
 
 pub fn load(db: &Database, selected: Option<i64>) -> Result<Snapshot> {
+    load_inner(db, selected, false)
+}
+/// Compatibilidad de snapshots acotada; la UI usa assistants::page para el chat continuo.
+pub fn load_recent(db: &Database, selected: Option<i64>) -> Result<Snapshot> {
+    load_inner(db, selected, true)
+}
+fn load_inner(db: &Database, selected: Option<i64>, bounded: bool) -> Result<Snapshot> {
     db.with_connection(|connection| {
         // El índice (conversation_id,id) resuelve el último mensaje sin cargar
         // todos los historiales. El límite afecta solo a la vista previa.
@@ -341,8 +503,13 @@ pub fn load(db: &Database, selected: Option<i64>) -> Result<Snapshot> {
         let conversations: Vec<_> = rows.collect::<std::result::Result<_,_>>()?;
         let active = connection.prepare("SELECT c.id FROM presence_current_conversation a JOIN presence_conversations c ON c.id=a.conversation_id WHERE a.id=1 AND c.deleted=0")?.query_map([], |row|row.get::<_,i64>(0))?.next().transpose()?;
         let selected_id = selected.filter(|id| conversations.iter().any(|chat|chat.id==*id)).or(active).or_else(|| conversations.first().map(|chat| chat.id));
-        Ok(Snapshot {messages:messages(connection,active)?,selected_messages:messages(connection,selected_id)?,conversations,selected_id,active_id:active})
+        Ok(Snapshot {messages:messages(connection,active,bounded)?,selected_messages:messages(connection,selected_id,bounded)?,conversations,selected_id,active_id:active})
     })
+}
+
+/// Referencia activa visible sin cargar mensajes ni cambiar selección.
+pub fn active_conversation(db: &Database) -> Result<Option<i64>> {
+    db.with_connection(|c| {let mut q=c.prepare("SELECT c.id FROM presence_current_conversation a JOIN presence_conversations c ON c.id=a.conversation_id WHERE a.id=1 AND c.deleted=0")?;Ok(q.query_map([],|r|r.get(0))?.next().transpose()?)})
 }
 
 #[cfg(test)]

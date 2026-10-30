@@ -29,8 +29,8 @@ pub(crate) fn prompt(user: &str, assistant: &str) -> String {
     )
 }
 
-pub(crate) fn start_request(cwd: &Path, model: &str) -> Value {
-    json!({"jsonrpc":"2.0","id":8,"method":"thread/start","params":{
+pub(crate) fn start_request(cwd: &Path, model: &str, has_mcp: bool) -> Value {
+    let mut request = json!({"jsonrpc":"2.0","id":8,"method":"thread/start","params":{
         "cwd":cwd,"model":model,"ephemeral":true,"approvalPolicy":"never",
         "permissions":"gennie_title","baseInstructions":INSTRUCTIONS,
         "developerInstructions":INSTRUCTIONS,
@@ -39,10 +39,13 @@ pub(crate) fn start_request(cwd: &Path, model: &str) -> Value {
             "features.apply_patch_freeform":false,"features.multi_agent":false,
             "features.computer_use":false,"features.browser_use":false,
             "features.browser_use_external":false,"features.apps":false,
-            "features.plugins":false,"web_search":"disabled",
-            "mcp_servers.gennie.enabled":false
+            "features.plugins":false,"web_search":"disabled"
         }
-    }})
+    }});
+    if has_mcp {
+        request["params"]["config"]["mcp_servers.gennie.enabled"] = json!(false);
+    }
+    request
 }
 
 pub(crate) fn turn_request(
@@ -101,11 +104,20 @@ mod tests {
             "Titula este primer intercambio:\n{\"asistente\":\"¡Qué onda! ¿Cómo vas?\",\"usuario\":\"Qué onda pa\"}"
         );
         assert!(INSTRUCTIONS.contains("Si solo hay un saludo"));
-        let request = start_request(Path::new("/tmp"), "chosen-model");
+        let request = start_request(Path::new("/tmp"), "chosen-model", false);
         assert_eq!(request["params"]["ephemeral"], true);
         assert_eq!(request["params"]["config"]["features.shell_tool"], false);
         assert_eq!(request["params"]["config"]["web_search"], "disabled");
         assert_eq!(request["params"]["model"], "chosen-model");
+        assert!(
+            request["params"]["config"]
+                .get("mcp_servers.gennie.enabled")
+                .is_none()
+        );
+        assert_eq!(
+            start_request(Path::new("/tmp"), "chosen-model", true)["params"]["config"]["mcp_servers.gennie.enabled"],
+            false
+        );
         let turn = turn_request(
             "temporary",
             Path::new("/tmp"),

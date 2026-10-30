@@ -1,7 +1,14 @@
 // Datos del escritorio. La presentación vive en frontend y no posee SQLite.
 mod answer;
+pub mod assistants;
+pub mod avatar;
+pub mod delegation;
+mod execution_notices;
 pub mod history;
 pub mod narration;
+mod provider_context;
+pub mod replies;
+pub mod tool_evidence;
 use gennie_core::{AppModule, AppState, Migration, Result};
 use std::sync::{Arc, atomic::AtomicU64};
 #[derive(Default)]
@@ -75,9 +82,46 @@ impl AppModule for PresenceModule {
                 version: 11,
                 sql: include_str!("../migrations/0011_plugin_messages.sql"),
             },
+            Migration {
+                version: 12,
+                sql: include_str!("../migrations/0012_assistant_identity.sql"),
+            },
+            Migration {
+                version: 13,
+                sql: include_str!("../migrations/0013_message_replies.sql"),
+            },
+            Migration {
+                version: 14,
+                sql: include_str!("../migrations/0014_assistant_avatar.sql"),
+            },
+            Migration {
+                version: 15,
+                sql: include_str!("../migrations/0015_tool_evidence.sql"),
+            },
+            Migration {
+                version: 16,
+                sql: include_str!("../migrations/0016_delegation_messages.sql"),
+            },
+            Migration {
+                version: 17,
+                sql: include_str!("../migrations/0017_execution_messages.sql"),
+            },
+            Migration {
+                version: 18,
+                sql: include_str!("../migrations/0018_provider_context.sql"),
+            },
+            Migration {
+                version: 19,
+                sql: include_str!("../migrations/0019_interrupted_responses.sql"),
+            },
         ]
     }
-    fn start(&self, _: &AppState) -> Result<()> {
+    fn start(&self, state: &AppState) -> Result<()> {
+        provider_context::recover(&state.db)?;
+        if tool_evidence::recover(&state.db)? {
+            self.revision
+                .fetch_add(1, std::sync::atomic::Ordering::Release);
+        }
         Ok(())
     }
     fn stop(&self, _: &AppState) -> Result<()> {
