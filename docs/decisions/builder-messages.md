@@ -1,0 +1,35 @@
+# D-042 — Mensajes confirmados del bot en la ficha del constructor
+
+29 de octubre de 2026. Cierra la ruta narrativa identificada en [D-041](plugin-inventory.md). Cambios locales, sin migración, dependencia nueva, regeneración FRB ni modificación del estilo general o la barra lateral.
+
+## Problema y comportamiento
+
+La ficha de Plugins presentaba directamente job.summary y events[].message. El helper puede aportar texto libre a esos campos mediante report(progress), por lo que la mediación del chat no bastaba para cumplir que toda comunicación del helper al usuario pase por el bot.
+
+Plugins añade bot_presentation al JSON existente de los trabajos. Presence consulta únicamente mensajes assistant ya confirmados con atribución plugin_builder, trabajo, plugin, delegación y secuencia coincidentes. Comprueba también asistente, conversación no eliminada, época e hilo del proveedor originales. Bootstrap adapta esta lectura pública mediante BuildJournal; Plugins no consulta tablas de Presence ni necesita iniciar el worker LLM para leer mensajes guardados. No se redacta, activa o entrega nada durante la lectura.
+
+La consulta devuelve como máximo doce mensajes completos y ocho mil caracteres Unicode, hasta la última secuencia del trabajo leída. Origen desaparecido, atribución ausente, fallo o datos inválidos producen estados diferenciados y ningún texto del helper como sustituto. La vista valida de nuevo tamaño, orden, IDs y fechas. Conserva únicamente estados operativos fijos del host mientras no haya mensajes confirmados, con explicación visible y recarga ante fallo. El historial y la última actualización muestran el nombre local del asistente y las fechas de sus mensajes.
+
+summary/events técnicos permanecen en la API para el bot y validación de acciones históricas; no se alteran ni se presentan como narrativa en la ficha humana. Artefactos, procedencia y controles mantienen sus comprobaciones previas. La validación histórica de acciones en el chat no convierte ese texto técnico en mensaje. No se añade un filtro cosmético que cambie el informe guardado del constructor.
+
+También se corrige una actualización perdida: si llega un snapshot mientras se está leyendo el catálogo, se encola otra lectura mediante el mecanismo existente. Antes, un trabajo terminado/interrumpido podía conservar la presentación anterior indefinidamente al no tener sondeo periódico.
+
+## Evidencia y límites
+
+Tres nuevas pruebas Rust comprueban lectura transaccional, exclusión por origen/trabajo/plugin/época/hilo, límites Unicode y error de DB, y proyección sin sustituir texto con el del helper. Se amplía la integración del outbox real al bot y Presence, incluida reapertura y retirada del origen, sin inferencia. La regresión de recarga concurrente falla con la guarda anterior y pasa con el cambio.
+
+Catorce pruebas Flutter específicas incluyen metadatos ausentes/inválidos, fuente no disponible, fallo recuperable, mensajes confirmados y seis combinaciones de tema/tamaño/escala. Doce capturas de resumen/actividad revisadas: claro/oscuro, 1100 × 720 y 640 × 420, texto normal y 150 % en ventana mínima. No hay solapamiento; los contenidos largos requieren scroll. Las doce medidas de contraste de rótulos nuevos tienen mínimo 9,87:1; no certifican todo el producto.
+
+La sonda optativa scripts/probes/job_messages_bridge.py ejecuta cuatro recorridos por controles Flutter, FRB real y SQLite privado, con biblioteca/helper recompilados. Comprueba mensaje confirmado, ausencia del texto privado en la ficha, ID/secuencia recibidos, eliminación del origen y conservación del chat seleccionado. Conserva informe/evento técnicos intactos; cero hilos Codex, intentos MCP y ejecuciones. Integridad y claves correctas; cierre y retirada de la fixture. Sin modelos, cuentas, navegador o efectos externos. Evidencia job-messages-real-{dark,light}-{1100,640}.png y job-messages-bridge.log en .verification/assistant-chat-real.
+
+Cierre: 369 pruebas Rust y 312 Flutter correctas, con 24/46 optativas omitidas en las suites habituales; la sonda FRB se ejecutó aparte con cuatro resultados correctos. Clippy workspace/all-targets con -D warnings, análisis Dart, formato Rust/Dart, invariantes y diff correctos. Biblioteca/helper debug y paquete macOS release compilados por los lanzadores del proyecto, firma ad hoc local verificada. Logs job-messages-{workspace,flutter,clippy,analyze,format,invariants,diff,debug-build,release}.log. No se abrió ni instaló el paquete nuevo; la instancia anterior del usuario permaneció en ejecución. La recompilación vuelve a exigir un manifiesto actualizado antes de la campaña D-038, que sigue sin inferencia y pendiente de autorización. Las capturas del motor Flutter con FRB no prueban material, entrada física o VoiceOver del runner macOS. Persisten la auditoría integral de otras comunicaciones, equivalencia/contenido MCP nativo, diario web/cancelación, evaluación semántica autorizada y comprensión real de citas. Goal activo; sin commit/push, instalación o despliegue.
+
+## Continuación de la auditoría
+
+La revisión estática de Encargos distingue el origen del contenido: rationale/expected_benefit/questions de las propuestas proceden del bot mediante assignments_propose; la interfaz no imprime el objeto guide. El motivo de «Criterio de aviso» procede de Decision del bot o de estados fijos del host, no de la respuesta de la guía. La guía entrega probabilidades al bot y la UI solo indica si esa valoración existe. Esta comprobación de rutas no es evidencia semántica de que el bot razone correctamente ni completa por sí sola la auditoría de todas las superficies.
+
+Relectura estática tras D-055: assignment_execution.dart solo presenta reason cuando no hay failure_code y estados fijos de guide_state; notices/guidance.rs recibe guide_advice como entrada del bot y notices/store.rs guarda por separado decisión, motivo y consejo. La proyección API conserva el consejo técnico, pero la vista examinada no lo imprime. Esto no acredita aún todas las rutas de historial, errores y exportación.
+
+Corregido después de D-056: el fallback de delegation/worker.rs y delegation/store.rs ya no remite al detalle de una explicación fallida en Plugins. Update concentra el texto común: «No pude preparar el detalle de esta actualización. En Plugins puedes consultar el estado del trabajo». La ficha conserva estados operativos y mensajes confirmados; no se reexpone el informe privado. Las regresiones de reserva fallida, salida inválida, recuperación y reapertura fallaron antes y ahora exigen el alcance correcto del enlace, ausencia de informe privado y ninguna inferencia repetida. Se conservan mensajes/salidas ya preparados, sin reescribir historial o reintentar redacción.
+
+Auditoría estática y evidencia por superficie en [comunicación de arquitectos](../verification/architect-communication.md). Los títulos/descripciones y contratos del catálogo son artefactos técnicos; no se convierten en mensajes confirmados del bot ni deben sustituir una petición de intervención. Esta auditoría conserva sus rutas y límites explícitos, sin atribuir verificación semántica a una búsqueda textual.
