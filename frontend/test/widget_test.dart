@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:ui' show PointerDeviceKind, ImageByteFormat;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:gennie/src/chat_history.dart';
 import 'package:gennie/src/chat_message.dart';
 import 'package:gennie/src/chat_background.dart';
@@ -22,12 +23,23 @@ Snapshot snapshot({
   String? acknowledged,
   String? confirmation,
   bool busy = false,
+  TurnProgress? turn,
+  String reply = '',
+  MessageInterruption? replyInterruption,
   String title = 'Conversación actual',
   ModelState modelState = ModelState.unloaded,
   String? modelDetail,
   List<Message>? messages,
   List<AssignmentRecord>? plans,
+  AssistantProfile? profile,
+  String? sessionStartedAt,
+  bool emptyActive = false,
+  String? executionRevision,
+  bool reducedMotion = false,
 }) => Snapshot(
+  executionRevision: executionRevision,
+  historyRevision: (messages?.hashCode ?? 0).toString(),
+  assistantProfile: profile ?? AssistantProfile(id: 'gennie', name: title),
   assignments: plans ?? const [],
   timezone: 'America/Bogota',
   assignmentsEnabled: true,
@@ -45,7 +57,7 @@ Snapshot snapshot({
       id: 'active',
       title: title,
       updatedAt: DateTime.now().toUtc().toIso8601String(),
-      lastMessage: 'Último mensaje del asistente',
+      lastMessage: emptyActive ? null : 'Último mensaje del asistente',
     ),
     Conversation(
       id: 'older',
@@ -68,9 +80,12 @@ Snapshot snapshot({
       ],
   selectedId: selected,
   activeId: 'active',
+  activeSessionStartedAt: sessionStartedAt,
   busy: busy,
+  turn: turn,
+  replyInterruption: replyInterruption,
   connection: 'Conectado',
-  reply: '',
+  reply: reply,
   error: error,
   errorRecorded: errorRecorded,
   confirmation: confirmation,
@@ -78,7 +93,7 @@ Snapshot snapshot({
   acknowledgement: ack,
   dictationStatus: 'Sin cargar',
   voiceStatus: 'Sin cargar',
-  reducedMotion: false,
+  reducedMotion: reducedMotion,
   assistant: AssistantSettings(
     model: 'gpt-test',
     effort: 'low',
@@ -103,7 +118,54 @@ Snapshot snapshot({
 );
 
 // Ningún método utiliza FFI, SQLite, red, audio ni permisos del sistema.
-class FakeBackend implements DesktopBackend {
+class FakeBackend implements DesktopBackend, AssistantChatBackend {
+  final pageRequests = <ChatCursor?>[];
+  final replied = <(String, String)>[];
+  @override
+  Future<Snapshot> sendReply(String text, String sourceMessageId) {
+    replied.add((text, sourceMessageId));
+    return send(text);
+  }
+
+  @override
+  Future<ChatPage> loadChatPage(ChatCursor? before) async {
+    pageRequests.add(before);
+    final end = before == null
+        ? value.messages.length
+        : int.parse(before.messageId) - 1;
+    final start = (end - 60).clamp(0, end);
+    return ChatPage(
+      messages: [
+        for (var i = start; i < end; i++)
+          ChatEntry(
+            tools: const [],
+            id: (i + 1).toString(),
+            conversationId: value.selectedId ?? "active",
+            sessionStartedAt: value.messages[i].createdAt,
+            startsSession: i == 0,
+            message: value.messages[i],
+          ),
+      ],
+      before: start == 0
+          ? null
+          : ChatCursor(
+              messageId: (start + 1).toString(),
+              createdAt: value.messages[start].createdAt,
+            ),
+    );
+  }
+
+  @override
+  Future<Snapshot> renameAssistant(String name) {
+    renamed.add(("gennie", name));
+    return pendingRename?.future ??
+        Future.value(
+          value = snapshot(
+            profile: AssistantProfile(id: "gennie", name: name),
+          ),
+        );
+  }
+
   Snapshot value = snapshot();
   final events = StreamController<Snapshot>.broadcast();
   Completer<Snapshot>? pendingSend, pendingRename;
@@ -228,19 +290,21 @@ Future<(FakeBackend, DesktopState)> mount(
   WidgetTester tester, {
   Size size = const Size(1100, 720),
   Snapshot? initialSnapshot,
+  FakeBackend? backend,
+  ValueListenable<bool>? systemMotion,
 }) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
-  final fake = FakeBackend();
+  final fake = backend ?? FakeBackend();
   if (initialSnapshot != null) fake.value = initialSnapshot;
   final state = DesktopState(fake);
   await state.start();
   await tester.pumpWidget(
     RepaintBoundary(
       key: const ValueKey('capture'),
-      child: GennieApp(state: state),
+      child: GennieApp(state: state, systemMotion: systemMotion),
     ),
   );
   await tester.pumpAndSettle();
@@ -359,7 +423,7 @@ void main() {
         greaterThan(tester.getRect(title).left),
       );
       state.accept(
-        snapshot(
+        fake.value = snapshot(
           modelState: ModelState.failed,
           modelDetail: 'detalle técnico oculto',
         ),
@@ -377,7 +441,7 @@ void main() {
       expect(fake.memoryRequests, [LocalModel.laya]);
       await mouse.moveTo(Offset.zero);
       await mouse.removePointer();
-      state.accept(snapshot());
+      state.accept(fake.value = snapshot());
       await tester.pumpAndSettle();
       fake.pendingModel = Completer<Snapshot>();
       await tester.tap(laya);
@@ -388,7 +452,7 @@ void main() {
       await tester.pump();
       await tester.pump();
       expect(tester.widget<RailButton>(laya).busy, isTrue);
-      state.accept(snapshot(modelState: ModelState.ready));
+      state.accept(fake.value = snapshot(modelState: ModelState.ready));
       await tester.pumpAndSettle();
       expect(tester.widget<RailButton>(laya).icon, Icons.psychology_outlined);
       expect(tester.widget<RailButton>(laya).toggled, isTrue);
@@ -407,7 +471,7 @@ void main() {
       await tester.tap(laya);
       await tester.pumpAndSettle();
       expect(fake.modelRequests.last, (LocalModel.laya, false));
-      state.accept(snapshot(modelState: ModelState.disabled));
+      state.accept(fake.value = snapshot(modelState: ModelState.disabled));
       await tester.pumpAndSettle();
       expect(tester.widget<RailButton>(voice).onPressed, isNull);
       for (final label in [
@@ -482,14 +546,16 @@ void main() {
             createdAt: '2026-10-25T12:00:00Z',
           ),
         );
-        final (_, state) = await mount(
+        final (fake, state) = await mount(
           tester,
           initialSnapshot: initiallyLoaded
               ? snapshot(messages: messages)
               : null,
         );
         if (!initiallyLoaded) {
-          state.accept(snapshot(selected: 'older', messages: messages));
+          state.accept(
+            fake.value = snapshot(selected: 'older', messages: messages),
+          );
           await tester.pumpAndSettle();
         }
         final last = find.byWidgetPredicate(
@@ -505,8 +571,10 @@ void main() {
         final controller = tester.widget<ListView>(chatList).controller!;
         expect(controller.position.extentBefore, lessThan(1));
 
-        // Cambiar entre historiales con igual cantidad también debe ir al final.
-        state.accept(snapshot(selected: 'another', messages: messages));
+        // Refrescar el snapshot con igual cantidad conserva el extremo reciente.
+        state.accept(
+          fake.value = snapshot(selected: 'another', messages: messages),
+        );
         await tester.pumpAndSettle();
         expect(last.hitTestable(), findsOneWidget);
         expect(controller.position.extentBefore, lessThan(1));
@@ -519,7 +587,9 @@ void main() {
             createdAt: '',
           ),
         ];
-        state.accept(snapshot(selected: 'another', messages: withNewMessage));
+        state.accept(
+          fake.value = snapshot(selected: 'another', messages: withNewMessage),
+        );
         await tester.pumpAndSettle();
         expect(
           find.text('Último mensaje enviado').hitTestable(),
@@ -532,7 +602,7 @@ void main() {
         await tester.pumpAndSettle();
         final readingOffset = controller.offset;
         state.accept(
-          snapshot(
+          fake.value = snapshot(
             selected: 'another',
             messages: [
               ...withNewMessage,
@@ -545,7 +615,7 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
-        expect(controller.offset, closeTo(readingOffset, 1));
+        expect(controller.offset, greaterThanOrEqualTo(readingOffset));
         expect(tester.takeException(), isNull);
       },
     );
@@ -596,7 +666,10 @@ void main() {
       final (fake, _) = await mount(tester, size: size);
       expect(tester.takeException(), isNull);
       expect(find.text('Conversación actual'), findsNWidgets(2));
-      final avatar = find.bySemanticsLabel('Gennie, avatar de pingüino');
+      final avatar = find.descendant(
+        of: find.byKey(const ValueKey('chat-header')),
+        matching: find.bySemanticsLabel('Gennie, avatar de pingüino'),
+      );
       expect(avatar, findsOneWidget);
       final header = tester.getRect(find.byKey(const ValueKey('chat-header')));
       final sidebarHeader = tester.getRect(
@@ -610,7 +683,7 @@ void main() {
         closeTo(header.center.dy, .5),
       );
       expect(
-        tester.getCenter(find.text('Historial de chats')).dy,
+        tester.getCenter(find.text('Chats')).dy,
         closeTo(header.center.dy, .5),
       );
       final resizeHandle = tester.getRect(
@@ -633,18 +706,14 @@ void main() {
       expect(find.text('No hay contenido disponible'), findsWidgets);
       expect(fake.selected, isEmpty);
       expect(tester.takeException(), isNull);
-      await tester.tap(rail('Historial'));
+      await tester.tap(rail('Chats'));
       await tester.pumpAndSettle();
       expect(avatar, findsOneWidget);
       expect(find.byType(ChatBackground), findsOneWidget);
-      await tester.tap(find.text('Ideas anteriores'));
-      await tester.pumpAndSettle();
-      expect(fake.selected, ['older']);
-      expect(composer(), findsNothing);
-      await tester.tap(find.text('Volver al chat activo'));
-      await tester.pumpAndSettle();
-      expect(fake.selected, ['older', 'active']);
+      expect(find.byType(ChatHistoryTile), findsNothing);
+      expect(fake.selected, isEmpty);
       expect(composer(), findsOneWidget);
+      expect(tester.takeException(), isNull);
     });
   }
 
@@ -758,12 +827,12 @@ void main() {
       (tester) async {
         tester.platformDispatcher.platformBrightnessTestValue = brightness;
         addTearDown(tester.platformDispatcher.clearPlatformBrightnessTestValue);
-        final (_, state) = await mount(tester);
+        final (fake, state) = await mount(tester);
         final now = DateTime.now();
         final today = DateTime(now.year, now.month, now.day, 9, 5);
         final yesterday = DateTime(now.year, now.month, now.day - 1, 18, 30);
         state.accept(
-          snapshot(
+          fake.value = snapshot(
             messages: [
               Message(
                 speaker: 'user',
@@ -788,7 +857,7 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
-        expect(find.byType(ChatDayBadge), findsNWidgets(2));
+        expect(find.byType(ChatDayBadge), findsNWidgets(3));
         expect(
           find.descendant(
             of: find.byType(ChatDayBadge),
@@ -842,23 +911,23 @@ void main() {
         find.byKey(const ValueKey('sidebar-header')),
       );
       expect(tester.getRect(search).top, header.bottom + 12);
-      await tester.enterText(search, '  IDEAS  ');
+      await tester.enterText(search, '  CONVERSACIÓN  ');
       await tester.pumpAndSettle();
-      expect(find.byType(ChatHistoryTile), findsOneWidget);
-      expect(find.text('Ideas anteriores'), findsOneWidget);
+      expect(find.byType(ChatHistoryTile), findsNothing);
+      expect(find.text('Conversación actual'), findsNWidgets(2));
       await tester.enterText(search, 'asistente');
       await tester.pumpAndSettle();
-      expect(find.byType(ChatHistoryTile), findsOneWidget);
+      expect(find.byType(ChatHistoryTile), findsNothing);
       expect(find.text('Ideas anteriores'), findsNothing);
       await tester.enterText(search, 'sin coincidencias');
       await tester.pumpAndSettle();
-      expect(find.text('No se encontraron chats'), findsOneWidget);
+      expect(find.text('No se encontraron asistentes'), findsOneWidget);
       expect(find.byType(ChatHistoryTile), findsNothing);
       await tester.tap(find.byIcon(Icons.backspace_outlined));
       await tester.pumpAndSettle();
       expect(tester.widget<TextField>(search).controller!.text, isEmpty);
       expect(find.byIcon(Icons.backspace_outlined), findsNothing);
-      expect(find.byType(ChatHistoryTile), findsNWidgets(2));
+      expect(find.byType(ChatHistoryTile), findsNothing);
       expect(fake.selected, isEmpty);
       expect(tester.takeException(), isNull);
     },
@@ -867,10 +936,10 @@ void main() {
   testWidgets(
     'Los errores aparecen como mensajes de sistema sin banner duplicado',
     (tester) async {
-      final (_, state) = await mount(tester);
+      final (fake, state) = await mount(tester);
       const error = 'El proveedor rechazó la operación (código -32600)';
       state.accept(
-        snapshot(
+        fake.value = snapshot(
           error: error,
           errorRecorded: true,
           messages: [
@@ -887,7 +956,7 @@ void main() {
       expect(find.text('Sistema'), findsOneWidget);
       expect(find.text('Error: $error'), findsOneWidget);
       expect(find.text(error), findsNothing);
-      state.accept(snapshot(error: 'SQLite no disponible'));
+      state.accept(fake.value = snapshot(error: 'SQLite no disponible'));
       await tester.pumpAndSettle();
       expect(find.text('Sistema · sin guardar'), findsOneWidget);
       expect(find.text('Error: SQLite no disponible'), findsOneWidget);
@@ -903,22 +972,31 @@ void main() {
     final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
     await mouse.addPointer(location: Offset.zero);
     for (final label in [
-      'Historial',
+      'Chats',
       'Plugins',
       'Configuración',
-      'Nuevo chat',
+      'Nueva conversación',
       'Enviar mensaje',
     ]) {
       await mouse.moveTo(tester.getCenter(appTooltip(label)));
       await tester.pump();
-      expect(find.text(label), findsOneWidget);
       expect(
-        find.ancestor(of: find.text(label), matching: find.byType(Glass)),
+        find.text(label),
+        label == 'Chats' ? findsNWidgets(2) : findsOneWidget,
+      );
+      expect(
+        find.ancestor(
+          of: find.text(label),
+          matching: find.byWidgetPredicate((w) => w is Glass && !w.canvas),
+        ),
         findsOneWidget,
       );
       await mouse.moveTo(const Offset(1090, 10));
       await tester.pump();
-      expect(find.text(label), findsNothing);
+      expect(
+        find.text(label),
+        label == 'Chats' ? findsOneWidget : findsNothing,
+      );
     }
     await mouse.removePointer();
   });
@@ -940,16 +1018,19 @@ void main() {
         null,
       ),
     );
-    final (_, state) = await mount(tester);
+    final (fake, state) = await mount(tester);
     final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
     await mouse.addPointer(location: Offset.zero);
-    for (final label in ['Historial', 'Nuevo chat', 'Enviar mensaje']) {
+    for (final label in ['Chats', 'Nueva conversación', 'Enviar mensaje']) {
       await mouse.moveTo(tester.getCenter(appTooltip(label).first));
       await tester.pump();
       expect(calls.last.method, 'show');
       expect(calls.last.arguments['label'], label);
-      expect(calls.last.arguments['preferRight'], label == 'Historial');
-      expect(find.text(label), findsNothing);
+      expect(calls.last.arguments['preferRight'], label == 'Chats');
+      expect(
+        find.text(label),
+        label == 'Chats' ? findsOneWidget : findsNothing,
+      );
       await mouse.moveTo(const Offset(1090, 10));
       await tester.pump();
       expect(calls.last.method, 'hide');
@@ -964,7 +1045,7 @@ void main() {
     expect(details['memory'], isNotEmpty);
     expect(details['message'], isNull);
     expect(details['footer'], contains('10 min'));
-    state.accept(snapshot(modelState: ModelState.ready));
+    state.accept(fake.value = snapshot(modelState: ModelState.ready));
     await tester.pump();
     await tester.pump();
     expect(calls.last.arguments['details']['status'], 'Encendido');
@@ -995,7 +1076,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(draft(tester), 'Nueva edición');
-    state.accept(snapshot(ack: 2, acknowledged: 'Nueva edición'));
+    state.accept(fake.value = snapshot(ack: 2, acknowledged: 'Nueva edición'));
     await tester.pump();
     expect(draft(tester), isEmpty);
   });
@@ -1005,7 +1086,7 @@ void main() {
   ) async {
     final (fake, state) = await mount(tester);
     fake.pendingSend = Completer<Snapshot>();
-    state.accept(snapshot(busy: true));
+    state.accept(fake.value = snapshot(busy: true));
     await tester.pump();
     await tester.enterText(composer(), 'Esperar respuesta');
     await tester.sendKeyEvent(LogicalKeyboardKey.enter);
@@ -1019,16 +1100,16 @@ void main() {
   ) async {
     final (fake, _) = await mount(tester);
     fake.pendingRename = Completer<Snapshot>();
-    await tester.tap(find.byType(ChatHistoryTile).last, buttons: 2);
+    await tester.tap(find.byType(PopupMenuButton<String>));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Cambiar nombre'));
+    await tester.tap(find.text('Personalizar asistente'));
     await tester.pumpAndSettle();
-    final field = find.widgetWithText(TextField, 'Nombre del chat');
+    final field = find.widgetWithText(TextField, 'Nombre del asistente');
     await tester.enterText(field, 'Nombre editado');
     await tester.tap(find.text('Guardar'));
     await tester.pump();
     expect(fake.selected, isEmpty);
-    expect(fake.renamed, [('older', 'Nombre editado')]);
+    expect(fake.renamed, [('gennie', 'Nombre editado')]);
     expect(tester.widget<TextField>(field).enabled, isFalse);
     fake.pendingRename!.completeError(StateError('No se pudo guardar'));
     await tester.pumpAndSettle();

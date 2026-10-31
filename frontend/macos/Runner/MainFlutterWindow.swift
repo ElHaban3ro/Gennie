@@ -6,6 +6,8 @@ class MainFlutterWindow: NSWindow {
   private var assignmentLogos: AssignmentLogoResolver?
   private var tooltipChannel: FlutterMethodChannel?
   private var tooltipPanel: NSPanel?
+  private var systemMotion: GennieSystemMotion?
+
 
   private var tooltipFonts: [String: NSFont] = [:]
   private func tooltipFont(_ face: String, size: CGFloat) -> NSFont {
@@ -170,6 +172,10 @@ class MainFlutterWindow: NSWindow {
     (NSApp.delegate as? AppDelegate)?.configureLifecycle(controller)
     assignmentLogos = AssignmentLogoResolver(controller)
     configureTooltips(controller)
+    systemMotion = GennieSystemMotion(controller)
+    (NSApp.delegate as? AppDelegate)?.stopSystemMotion = { [weak self] in
+      self?.systemMotion?.stop()
+    }
     RegisterGeneratedPlugins(registry: controller)
     super.awakeFromNib()
     positionWindowButtons()
@@ -199,6 +205,48 @@ class MainFlutterWindow: NSWindow {
       }
     }
   }
+}
+
+// El embedder actual no transmite Reducir movimiento a MediaQuery en macOS.
+// Solo observamos AppKit: no cambiamos preferencias ni persistimos el valor.
+private final class GennieSystemMotion: NSObject, FlutterStreamHandler {
+  private let channel: FlutterEventChannel
+  private var observer: NSObjectProtocol?
+  private var sink: FlutterEventSink?
+
+  init(_ controller: FlutterViewController) {
+    channel = FlutterEventChannel(name: "gennie/system-motion",
+      binaryMessenger: controller.engine.binaryMessenger)
+    super.init()
+    channel.setStreamHandler(self)
+  }
+
+  func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
+    stop()
+    sink = events
+    observer = NSWorkspace.shared.notificationCenter.addObserver(
+      forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
+      object: nil, queue: .main) { [weak self] _ in self?.publish() }
+    publish()
+    return nil
+  }
+
+  func onCancel(withArguments arguments: Any?) -> FlutterError? {
+    stop()
+    return nil
+  }
+
+  private func publish() {
+    sink?(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+  }
+
+  func stop() {
+    if let observer { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
+    observer = nil
+    sink = nil
+  }
+
+  deinit { stop() }
 }
 
 // El mismo contenido estructurado del tooltip Flutter, con márgenes medidos en puntos.

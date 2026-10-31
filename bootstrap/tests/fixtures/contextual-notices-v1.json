@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "unchanged",
+      "request": "Sigue el estado de mi solicitud ficticia. Estaba pendiente. Avísame únicamente cuando cambie; si sigue igual, guarda el resultado sin interrumpirme. Solo consulta.",
+      "observation": "Estado actual: pendiente. La función informa que sigue igual, sin cambios respecto a pendiente.",
+      "guidance": "Comunica solo un cambio de estado. Si no cambia, conserva la observación sin mensaje.",
+      "expected_action": "record",
+      "baseline_changed": false
+    },
+    {
+      "id": "useful_change",
+      "request": "Sigue el estado de mi solicitud ficticia. Estaba pendiente. Avísame cuando pase a aprobado, diciendo el estado observado. Solo consulta; no envíes solicitudes.",
+      "observation": "La función informa que el estado pasó de pendiente a aprobado.",
+      "guidance": "Comunica el paso observado de pendiente a aprobado, sin afirmar verificación propia ni acciones posteriores.",
+      "expected_action": "notify",
+      "baseline_changed": true
+    },
+    {
+      "id": "essential_question",
+      "request": "Revisa los borradores ficticios para preparar mi solicitud. Si no puedes distinguir cuál es el definitivo, pregúntame cuál usar antes de seguir. No elijas por mí ni envíes nada.",
+      "observation": "La consulta terminó. Hay dos borradores, A y B, sin marca de definitivo y con la misma fecha; no hay criterio para elegir. A y B son alternativas diferentes.",
+      "guidance": "Ante dos alternativas sin criterio suficiente, pregunta cuál es el borrador definitivo. No inventes una preferencia ni ejecutes pasos posteriores.",
+      "expected_action": "ask",
+      "baseline_changed": true
+    },
+    {
+      "id": "concrete_help",
+      "request": "Revisa si los datos ficticios de mi solicitud ya están completos. Cuando estén completos, ofréceme ayuda para redactarla, pero espera mi respuesta antes de hacerlo. No la envíes.",
+      "observation": "La función informa que los datos requeridos están completos y disponibles para redactar. No se ha redactado ni enviado la solicitud.",
+      "guidance": "Si los datos están completos, ofrece ayuda concreta para redactar y espera aceptación; no redactes todavía ni prometas envíos.",
+      "expected_action": "offer_help",
+      "baseline_changed": true
+    }
+  ]
+}

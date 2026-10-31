@@ -1,9 +1,11 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
 import 'src/backend.dart';
 import 'src/desktop.dart';
 import 'src/glass.dart';
+import 'src/system_motion.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -11,7 +13,10 @@ Future<void> main() async {
     await configureDesktopWindow();
   }
   final state = DesktopState(RustBackend());
-  runApp(GennieApp(state: state));
+  final motion = Platform.isMacOS ? SystemMotion() : null;
+  // Obtener el valor inicial antes del primer frame; después llegan cambios.
+  await motion?.start();
+  runApp(GennieApp(state: state, systemMotion: motion));
   await state.start();
 }
 
@@ -35,8 +40,9 @@ Future<void> configureDesktopWindow() async {
 }
 
 class GennieApp extends StatelessWidget {
-  const GennieApp({super.key, required this.state});
+  const GennieApp({super.key, required this.state, this.systemMotion});
   final DesktopState state;
+  final ValueListenable<bool>? systemMotion;
   @override
   Widget build(BuildContext context) {
     ThemeData theme(Brightness brightness) => ThemeData(
@@ -63,11 +69,14 @@ class GennieApp extends StatelessWidget {
       theme: theme(Brightness.light),
       darkTheme: theme(Brightness.dark),
       builder: (context, child) => ListenableBuilder(
-        listenable: state,
+        listenable: Listenable.merge([state, systemMotion]),
         builder: (context, _) => MediaQuery(
-          data: MediaQuery.of(
-            context,
-          ).copyWith(disableAnimations: state.snapshot?.reducedMotion ?? false),
+          data: MediaQuery.of(context).copyWith(
+            disableAnimations:
+                MediaQuery.disableAnimationsOf(context) ||
+                (systemMotion?.value ?? false) ||
+                (state.snapshot?.reducedMotion ?? false),
+          ),
           child: GlassCanvas(child: child!),
         ),
       ),

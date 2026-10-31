@@ -28,6 +28,9 @@ mkdir -p "$app/Contents/Frameworks" "$app/Contents/Resources/ThirdParty/Inter"
 cp "$CARGO_TARGET_DIR/$rust_target/release/libgennie_backend.dylib" "$app/Contents/Frameworks/"
 cp "$CARGO_TARGET_DIR/$rust_target/release/gennie" "$app/Contents/MacOS/gennie-helper"
 cp "$root/frontend/assets/fonts/LICENSE.txt" "$app/Contents/Resources/ThirdParty/Inter/"
+cp "$root/third_party/avatar-licenses.txt" "$app/Contents/Resources/ThirdParty/"
+cp "$root/third_party/mcp-licenses.txt" "$app/Contents/Resources/ThirdParty/"
+cp "$root/third_party/time-licenses.txt" "$app/Contents/Resources/ThirdParty/"
 install_name_tool -id '@rpath/libgennie_backend.dylib' "$app/Contents/Frameworks/libgennie_backend.dylib"
 # Evita publicar un paquete que dependa de rutas del checkout o Homebrew.
 for binary in "$app/Contents/Frameworks/libgennie_backend.dylib" "$app/Contents/MacOS/gennie-helper"; do

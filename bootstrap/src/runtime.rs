@@ -2,7 +2,7 @@
 use crate::{api::*, frb_generated::StreamSink, registry, startup};
 use gennie_core::{AppModule, AppState, Result, Shutdown};
 use gennie_db::Database;
-use gennie_presence::{PresenceModule, history};
+use gennie_presence::{PresenceModule, assistants, history};
 use std::{
     path::Path,
     sync::{
@@ -15,10 +15,21 @@ use std::{
 
 type Reply = Sender<std::result::Result<Snapshot, String>>;
 pub(crate) enum Operation {
+    StopResponse(String),
     Select(Option<String>),
+    ReadChatPage(
+        Option<ChatCursor>,
+        Sender<std::result::Result<ChatPage, String>>,
+    ),
+    ArchitectRequest(String, Sender<std::result::Result<String, String>>),
+    ProposalRequest(String, Sender<std::result::Result<String, String>>),
+    RenameAssistant(String),
+    SaveAssistantProfile(String, Option<Vec<u8>>),
+    ReadAssistantAvatar(String, Sender<std::result::Result<Vec<u8>, String>>),
     SaveAssignment(Option<String>, Option<u32>, String, String),
     DeleteAssignment(String, u32),
     Send(String),
+    SendReply(String, String),
     NewChat,
     Connect,
     OpenBrowser,
@@ -41,6 +52,7 @@ struct Handle {
     thread: JoinHandle<()>,
 }
 static PLUGINS: Mutex<Option<gennie_plugins::Controller>> = Mutex::new(None);
+static EXECUTIONS: Mutex<Option<gennie_assignments::execution::Controller>> = Mutex::new(None);
 static HANDLE: Mutex<Option<Handle>> = Mutex::new(None);
 static CURRENT: Mutex<Option<Snapshot>> = Mutex::new(None);
 static SINKS: Mutex<Vec<StreamSink<Snapshot>>> = Mutex::new(Vec::new());
@@ -69,6 +81,9 @@ pub(crate) fn start(env: String, helper: String) -> std::result::Result<Snapshot
             if let Ok(mut slot) = PLUGINS.lock() {
                 *slot = Some(backend.plugins.clone());
             }
+            if let Ok(mut slot) = EXECUTIONS.lock() {
+                *slot = backend.execution_control.clone();
+            }
             backend.publish();
             let _ = ready_tx.send(Ok(backend.snapshot.clone()));
             loop {
@@ -84,10 +99,41 @@ pub(crate) fn start(env: String, helper: String) -> std::result::Result<Snapshot
                     Ok((Operation::Memory(model, reply), _)) => {
                         let _ = reply.send(backend.model_memory(model));
                     }
+                    Ok((Operation::ArchitectRequest(request, reply), _)) => {
+                        let result = backend
+                            .architect_request(&request)
+                            .map_err(|e| e.to_string());
+                        let _ = reply.send(result);
+                    }
+                    Ok((Operation::ProposalRequest(request, reply), _)) => {
+                        let result = backend
+                            .proposal_request(&request)
+                            .map_err(|e| e.to_string());
+                        let _ = reply.send(result);
+                    }
+                    Ok((Operation::ReadChatPage(before, reply), _)) => {
+                        let _ = reply
+                            .send(chat_page(&backend.state.db, before).map_err(|e| e.to_string()));
+                    }
+                    Ok((Operation::ReadAssistantAvatar(revision, reply), _)) => {
+                        let result = revision
+                            .parse::<i64>()
+                            .map_err(|_| "Revisión de imagen inválida".into())
+                            .and_then(|revision| {
+                                gennie_presence::avatar::load(
+                                    &backend.state.db,
+                                    assistants::DEFAULT_ASSISTANT_ID,
+                                    revision,
+                                )
+                            });
+                        let _ = reply.send(result.map_err(|error| error.to_string()));
+                    }
                     Ok((operation, reply)) => {
-                        backend.snapshot.error = None;
-                        backend.snapshot.error_recorded = false;
-                        backend.snapshot.confirmation = None;
+                        if !matches!(&operation, Operation::StopResponse(_)) {
+                            backend.snapshot.error = None;
+                            backend.snapshot.error_recorded = false;
+                            backend.snapshot.confirmation = None;
+                        }
                         let result = backend.apply(operation).and_then(|()| backend.refresh());
                         if let Err(e) = &result {
                             backend.record_error(e.to_string(), false, false);
@@ -134,6 +180,172 @@ pub(crate) fn request(op: Operation) -> std::result::Result<Snapshot, String> {
         .map_err(|_| "El backend está ocupado o se está cerrando")?;
     result.recv().map_err(|_| "El backend dejó de responder")?
 }
+pub(crate) fn read_chat_page(before: Option<ChatCursor>) -> std::result::Result<ChatPage, String> {
+    let sender = HANDLE
+        .lock()
+        .map_err(|_| "Estado inválido")?
+        .as_ref()
+        .ok_or("El backend no está iniciado")?
+        .sender
+        .clone();
+    let (reply, result) = mpsc::channel();
+    let (unused, _) = mpsc::channel();
+    sender
+        .try_send((Operation::ReadChatPage(before, reply), unused))
+        .map_err(|_| "El backend está ocupado o se está cerrando")?;
+    result.recv().map_err(|_| "El backend dejó de responder")?
+}
+
+pub(crate) fn read_assistant_avatar(revision: String) -> std::result::Result<Vec<u8>, String> {
+    let sender = HANDLE
+        .lock()
+        .map_err(|_| "Estado inválido")?
+        .as_ref()
+        .ok_or("El backend no está iniciado")?
+        .sender
+        .clone();
+    let (reply, result) = mpsc::channel();
+    let (unused, _) = mpsc::channel();
+    sender
+        .try_send((Operation::ReadAssistantAvatar(revision, reply), unused))
+        .map_err(|_| "El backend está ocupado o se está cerrando")?;
+    result.recv().map_err(|_| "El backend dejó de responder")?
+}
+
+fn message_interruption(value: gennie_llm::ReplyInterruption) -> MessageInterruption {
+    match value {
+        gennie_llm::ReplyInterruption::Cancelled => MessageInterruption::Cancelled,
+        gennie_llm::ReplyInterruption::Failed => MessageInterruption::Failed,
+    }
+}
+
+fn chat_page(db: &Database, before: Option<ChatCursor>) -> Result<ChatPage> {
+    let cursor = before
+        .map(|value| -> Result<assistants::Cursor> {
+            Ok(assistants::Cursor {
+                message_id: value.message_id.parse()?,
+                created_at: value.created_at,
+            })
+        })
+        .transpose()?;
+    let page = assistants::page(
+        db,
+        assistants::DEFAULT_ASSISTANT_ID,
+        cursor.as_ref(),
+        60,
+        24_000,
+    )?;
+    Ok(ChatPage {
+        messages: page
+            .messages
+            .into_iter()
+            .map(|entry| ChatEntry {
+                id: entry.id.to_string(),
+                execution: entry.execution.map(|e| ExecutionCall {
+                    state: e.state,
+                    assignment_id: e.assignment_id.to_string(),
+                    instance_id: e.instance_id,
+                    policy_id: e.policy_id,
+                    policy_revision: e.policy_revision,
+                    run_id: e.run_id.to_string(),
+                }),
+                delegation: entry.delegation.map(|d| DelegationCall {
+                    job_id: d.job_id.to_string(),
+                    source_sequence: d.source_sequence.to_string(),
+                    plugin_id: d.plugin_id,
+                }),
+                tools: entry
+                    .tools
+                    .into_iter()
+                    .map(|record| {
+                        let usage = record.usage;
+                        ToolCall {
+                            call_id: usage.call_id,
+                            server: usage.server,
+                            tool: usage.tool,
+                            plugin_id: usage.plugin_id,
+                            function_name: usage.function_name,
+                            display_name: usage.display_name,
+                            operation: usage.operation,
+                            outcome: match usage.outcome {
+                                gennie_llm::ToolOutcome::Running => ToolCallOutcome::Running,
+                                gennie_llm::ToolOutcome::Completed => ToolCallOutcome::Completed,
+                                gennie_llm::ToolOutcome::Failed => ToolCallOutcome::Failed,
+                                gennie_llm::ToolOutcome::Unknown => ToolCallOutcome::Unknown,
+                            },
+                            detail: usage.detail,
+                            created_at: record.created_at,
+                            updated_at: record.updated_at,
+                        }
+                    })
+                    .collect(),
+                conversation_id: entry.conversation_id.to_string(),
+                session_started_at: entry.session_started_at,
+                starts_session: entry.starts_session,
+                quote: entry.quote.map(|q| ReplyQuote {
+                    source_message_id: q.source_message_id.map(|id| id.to_string()),
+                    speaker: q.speaker,
+                    text: q.text,
+                    created_at: q.created_at,
+                    truncated: q.truncated,
+                }),
+                message: Message {
+                    speaker: entry.speaker,
+                    text: entry.text,
+                    created_at: entry.created_at,
+                    interruption: entry.interruption.map(message_interruption),
+                },
+            })
+            .collect(),
+        before: page.before.map(|cursor| ChatCursor {
+            message_id: cursor.message_id.to_string(),
+            created_at: cursor.created_at,
+        }),
+    })
+}
+
+pub(crate) fn proposal_request(request: String) -> std::result::Result<String, String> {
+    if request.len() > 16 * 1024 {
+        return Err("Petición de propuestas demasiado grande".into());
+    }
+    let sender = HANDLE
+        .lock()
+        .map_err(|_| "Estado inválido")?
+        .as_ref()
+        .ok_or("El backend no está iniciado")?
+        .sender
+        .clone();
+    let (reply, result) = mpsc::channel();
+    let (unused, _) = mpsc::channel();
+    sender
+        .try_send((Operation::ProposalRequest(request, reply), unused))
+        .map_err(|_| "El backend está ocupado o se está cerrando")?;
+    result
+        .recv()
+        .map_err(|_| "El backend dejó de responder".to_owned())?
+}
+
+pub(crate) fn architect_request(request: String) -> std::result::Result<String, String> {
+    if request.len() > 64 * 1024 {
+        return Err("Petición de arquitectos demasiado grande".into());
+    }
+    let sender = HANDLE
+        .lock()
+        .map_err(|_| "Estado inválido")?
+        .as_ref()
+        .ok_or("El backend no está iniciado")?
+        .sender
+        .clone();
+    let (reply, result) = mpsc::channel();
+    let (unused, _) = mpsc::channel();
+    sender
+        .try_send((Operation::ArchitectRequest(request, reply), unused))
+        .map_err(|_| "El backend está ocupado o se está cerrando")?;
+    result
+        .recv()
+        .map_err(|_| "El backend dejó de responder".to_string())?
+}
+
 pub(crate) fn model_memory(model: LocalModel) -> std::result::Result<Option<u64>, String> {
     let sender = HANDLE
         .lock()
@@ -178,11 +390,30 @@ pub(crate) fn stop() -> std::result::Result<(), String> {
             .join()
             .map_err(|_| "El coordinador terminó inesperadamente")?;
         *PLUGINS.lock().map_err(|_| "Estado de plugins inválido")? = None;
+        *EXECUTIONS
+            .lock()
+            .map_err(|_| "Estado de ejecuciones inválido")? = None;
         SINKS.lock().map_err(|_| "Canal inválido")?.clear();
         *CURRENT.lock().map_err(|_| "Estado inválido")? = None;
         outcome?;
     }
     Ok(())
+}
+
+pub(crate) fn execution_request(request: String) -> std::result::Result<String, String> {
+    if request.len() > 128 * 1024 {
+        return Err("Petición de ejecución demasiado grande".into());
+    }
+    let controller = EXECUTIONS
+        .lock()
+        .map_err(|_| "Estado de ejecuciones inválido")?
+        .clone()
+        .ok_or("El ejecutor necesita activar Encargos y Plugins")?;
+    let value = serde_json::from_str(&request).map_err(|_| "Petición JSON no válida")?;
+    controller
+        .request(value)
+        .and_then(|v| Ok(serde_json::to_string(&v)?))
+        .map_err(|e| e.to_string())
 }
 
 pub(crate) fn plugin_request(request: String) -> std::result::Result<String, String> {
@@ -201,6 +432,53 @@ pub(crate) fn plugin_request(request: String) -> std::result::Result<String, Str
         .map_err(|error| error.to_string())
 }
 /// Enlaza el commit con la preparación técnica sin convertir un fallo posterior en fallo de guardado.
+fn proposal_tools(
+    assignments: gennie_assignments::Store,
+    db: Database,
+    invocation: Arc<std::sync::Mutex<Option<String>>>,
+    guide: gennie_assignments::proposals::GuideEvaluator,
+) -> Vec<gennie_mcp::Tool> {
+    let origin_db = db.clone();
+    let turn_db = db;
+    let turn_invocation = invocation.clone();
+    gennie_assignments::proposals::tools(
+        assignments,
+        Arc::new(move || {
+            let thread = invocation
+                .lock()
+                .map_err(|_| "Contexto emisor inválido")?
+                .clone()
+                .ok_or("No hay un bot emisor")?;
+            let id = history::conversation_for_thread(&origin_db, &thread)?;
+            let origin = gennie_presence::delegation::origin(&origin_db, id)?
+                .ok_or("La sesión ya no está disponible")?;
+            Ok(gennie_assignments::proposals::Origin {
+                conversation_id: id,
+                epoch: origin.epoch,
+            })
+        }),
+        guide,
+        Arc::new(move || {
+            let thread = turn_invocation
+                .lock()
+                .map_err(|_| "Contexto emisor inválido")?
+                .clone()
+                .ok_or("No hay una intervención del bot")?;
+            let turn = history::user_turn_for_thread(&turn_db, &thread)?;
+            Ok(gennie_assignments::proposals::BotTurn {
+                origin: gennie_assignments::proposals::Origin {
+                    conversation_id: turn.conversation_id,
+                    epoch: turn.epoch,
+                },
+                message_id: turn.message_id,
+                text: turn.text,
+                truncated: turn.truncated,
+                created_at: turn.created_at,
+            })
+        }),
+    )
+}
+
 fn assignment_tool_with_preparation(
     tool: &mut gennie_mcp::Tool,
     prepare: impl Fn(&serde_json::Value) -> Result<serde_json::Value> + Send + Sync + 'static,
@@ -225,9 +503,26 @@ fn assignment_tool_with_preparation(
 struct PluginJournal {
     db: Database,
     invocation: Arc<Mutex<Option<String>>>,
-    revision: Arc<std::sync::atomic::AtomicU64>,
+    llm: Arc<gennie_llm::LlmModule>,
 }
 impl gennie_plugins::BuildJournal for PluginJournal {
+    fn messages(
+        &self,
+        origin: &gennie_llm::delegation::Origin,
+        job_id: i64,
+        plugin_id: &str,
+        legacy: bool,
+        through_sequence: i64,
+    ) -> Result<Option<Vec<gennie_llm::delegation::BotMessage>>> {
+        gennie_presence::delegation::build_messages(
+            &self.db,
+            origin,
+            job_id,
+            plugin_id,
+            legacy,
+            through_sequence,
+        )
+    }
     fn origin(&self) -> Result<i64> {
         let thread=self.invocation.lock().map_err(|_|"Contexto emisor inválido")?.clone().ok_or("No hay un turno emisor para este trabajo. Selecciona un chat de origen desde Plugins")?;
         history::conversation_for_thread(&self.db, &thread)
@@ -235,11 +530,15 @@ impl gennie_plugins::BuildJournal for PluginJournal {
     fn exists(&self, id: i64) -> Result<bool> {
         history::conversation_exists(&self.db, id)
     }
-    fn deliver(&self, id: i64, key: &str, text: &str) -> Result<()> {
-        history::deliver_message(&self.db, id, key, text)?;
-        self.revision
-            .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
-        Ok(())
+    fn target(&self, id: i64) -> Result<gennie_llm::delegation::Origin> {
+        self.llm
+            .controller()?
+            .delegations()
+            .origin(id)?
+            .ok_or_else(|| "El chat de origen ya no está disponible".into())
+    }
+    fn deliver(&self, update: &gennie_llm::delegation::Update) -> Result<()> {
+        self.llm.controller()?.delegations().accept(update)
     }
 }
 fn configure_browser_permissions(
@@ -255,6 +554,9 @@ fn configure_browser_permissions(
 }
 
 struct Backend {
+    executions: Option<gennie_assignments::execution::Runner>,
+    execution_control: Option<gennie_assignments::execution::Controller>,
+    guide: gennie_proactivity::Controller,
     plugins: gennie_plugins::Controller,
     plugins_observed: u64,
     state: AppState,
@@ -318,33 +620,41 @@ impl Backend {
         ));
         let tts = Arc::new(gennie_tts::TtsModule::default());
         let reminders = Arc::new(gennie_reminders_plugin::RemindersPluginModule::default());
-        let browser_module = Arc::new(gennie_browser::BrowserModule::default());
+        let browser_module =
+            Arc::new(gennie_browser::BrowserModule::default().with_database(state.db.clone()));
         let browser = browser_module.controller();
-        let catalogue_browser = browser.clone();
-        let assignments =
-            gennie_assignments::Store::new(state.db.clone()).with_catalogue(Arc::new(move || {
-                let result = catalogue_browser
-                    .call(serde_json::json!({"method":"plugins","action":"list"}))?;
-                Ok(result["plugins"]
-                    .as_array()
-                    .ok_or("Catálogo de plugins inválido")?
-                    .clone())
-            }));
-        let provider_llm = llm.clone();
+        let assignments = gennie_assignments::Store::new(state.db.clone());
+        let permissions_db = state.db.clone();
         let provider_browser = browser.clone();
+        let helper_db = state.db.clone();
+        let helper_llm = llm.clone();
         let plugins_module = Arc::new(gennie_plugins::PluginsModule::new(
             state.db.clone(),
             browser.clone(),
             Arc::new(PluginJournal {
                 db: state.db.clone(),
                 invocation: llm.invocation_context(),
-                revision: revision.clone(),
+                llm: llm.clone(),
             }),
-            Arc::new(move || {
-                let settings = provider_llm.controller()?.settings();
-                configure_browser_permissions(&provider_browser, Some(&settings));
-                Ok(settings)
-            }),
+            gennie_plugins::AgentSettings {
+                user: Arc::new(move || {
+                    // El transporte MCP manual no necesita conversación ni inferencia.
+                    let settings = gennie_llm::architects::runtime_settings(
+                        &permissions_db,
+                        gennie_llm::architects::Role::Bot,
+                    )?;
+                    configure_browser_permissions(&provider_browser, Some(&settings));
+                    Ok(settings)
+                }),
+                helper: Arc::new(move || {
+                    // Un módulo LLM apagado tampoco puede iniciar constructores técnicos.
+                    helper_llm.controller()?;
+                    gennie_llm::architects::runtime_settings(
+                        &helper_db,
+                        gennie_llm::architects::Role::Helper,
+                    )
+                }),
+            },
             Path::new(helper).to_path_buf(),
             std::env::var_os("HOME")
                 .map(std::path::PathBuf::from)
@@ -352,6 +662,24 @@ impl Backend {
                 .join("Library/Application Support/Gennie/plugins/builds"),
         ));
         let plugins = plugins_module.controller();
+        let catalogue_browser = browser.clone();
+        let catalogue_plugins = plugins.clone();
+        let assignments=assignments.with_catalogue(Arc::new(move |ids| {
+            let mut records=if ids.iter().any(|id|!id.starts_with("mcp:")) {
+                match catalogue_browser.call(serde_json::json!({"method":"plugins","action":"list"})) {
+                    Ok(result)=>result["plugins"].as_array().ok_or("Catálogo web inválido")?.clone(),
+                    Err(_)=>vec![serde_json::json!({"kind":"web_unavailable"})],
+                }
+            }else{Vec::new()};
+            for id in ids.iter().filter_map(|id|id.strip_prefix("mcp:")) {
+                match catalogue_plugins.request(serde_json::json!({"action":"mcp_get","server_id":id})) {
+                    Ok(result)=>records.push(serde_json::json!({"kind":"mcp","id":format!("mcp:{id}"),"server":result["server"]})),
+                    Err(_)=>records.push(serde_json::json!({"kind":"mcp_unavailable"})),
+                }
+            }
+            Ok(records)
+        }));
+
         let mut modules = registry::build(
             presence,
             transcription.clone(),
@@ -362,9 +690,32 @@ impl Backend {
             browser_module,
         );
         modules.push(plugins_module);
-        modules.push(Arc::new(gennie_proactivity::ProactivityModule::new(
+        let guide_db = state.db.clone();
+        let proactivity = Arc::new(gennie_proactivity::ProactivityModule::with_guide(
             secrets.openrouter_api_key,
-        )));
+            Arc::new(move || {
+                let profile =
+                    gennie_llm::architects::load(&guide_db, gennie_llm::architects::Role::Guide)?;
+                let model = match profile.model.as_str() {
+                    "typesafe/jev-1.14" => gennie_proactivity::Model::Jev,
+                    "openai/gpt-6-luna-decisions" => gennie_proactivity::Model::OpenaiDecisions,
+                    _ => return Err("Modelo de guía no admitido".into()),
+                };
+                Ok(gennie_proactivity::GuideSettings {
+                    revision: profile.revision,
+                    enabled: profile.enabled,
+                    model,
+                    personality: profile.personality,
+                    instructions: profile.instructions,
+                })
+            }),
+        ));
+        let guide = proactivity.controller();
+        llm.configure_notice_guide(Arc::new(crate::executions::NoticeGuide {
+            store: assignments.clone(),
+            guide: guide.clone(),
+        }))?;
+        modules.push(proactivity);
         let setup = (|| {
             let order = registry::order(&modules)?;
             let active = startup::register(&state.db, &modules)?;
@@ -376,7 +727,27 @@ impl Backend {
             }
             let mut tools = gennie_mcp::Registry::default();
             if active.contains("assignments") {
-                let mut assignment_tools = gennie_assignments::tools(assignments.clone());
+                let scope_db = state.db.clone();
+                let scope_invocation = llm.invocation_context();
+                let mut assignment_tools = gennie_assignments::tools_with_origin(
+                    assignments.clone(),
+                    Arc::new(move || {
+                        let thread = scope_invocation
+                            .lock()
+                            .map_err(|_| "Contexto emisor inválido")?
+                            .clone();
+                        let Some(thread) = thread else {
+                            return Ok(None);
+                        };
+                        let id = history::conversation_for_thread(&scope_db, &thread)?;
+                        let origin = gennie_presence::delegation::origin(&scope_db, id)?
+                            .ok_or("La sesión ya no está disponible")?;
+                        Ok(Some(gennie_assignments::proposals::Origin {
+                            conversation_id: id,
+                            epoch: origin.epoch,
+                        }))
+                    }),
+                );
                 for tool in &mut assignment_tools {
                     if matches!(
                         tool.definition["name"].as_str(),
@@ -398,24 +769,33 @@ impl Backend {
                     }
                 }
                 tools.register(assignment_tools)?;
+                if active.contains("llm") {
+                    let evaluator = guide.clone();
+                    tools.register(proposal_tools(
+                        assignments.clone(),
+                        state.db.clone(),
+                        llm.invocation_context(),
+                        Arc::new(move |state, questions| evaluator.evaluate(state, questions)),
+                    ))?;
+                }
             }
             if active.contains("browser") {
-                let mut browser_tools = gennie_browser::tools(browser.clone());
+                let mut browser_tools = gennie_browser::contextual_tools(browser.clone());
                 if active.contains("plugins") {
                     for tool in &mut browser_tools {
                         if tool.definition["name"] == "browser_plugins" {
                             let previous = std::mem::replace(
                                 &mut tool.call,
-                                Box::new(|_| Err("Herramienta en preparación".into())),
+                                Box::new(|_, _| Err("Herramienta en preparación".into())),
                             );
                             let plugins = plugins.clone();
                             let schema = tool.definition["inputSchema"].clone();
-                            tool.call = Box::new(move |args| {
+                            tool.call = Box::new(move |args, context| {
                                 if args["action"] == "delete" {
                                     gennie_browser::validate_arguments(&schema, &args)?;
-                                    return plugins.request(args);
+                                    return plugins.request_with_context(args, context);
                                 }
-                                let response = previous(args.clone())?;
+                                let response = previous(args.clone(), context)?;
                                 plugins.catalogue_changed(&args, &response)?;
                                 Ok(response)
                             });
@@ -424,8 +804,18 @@ impl Backend {
                 }
                 tools.register(browser_tools)?;
             }
-            if active.contains("plugins") && active.contains("browser") && active.contains("llm") {
-                tools.register(gennie_plugins::tools(plugins.clone()))?;
+            if active.contains("plugins") && active.contains("llm") {
+                let mut plugin_tools = gennie_plugins::contextual_tools(plugins.clone());
+                if !active.contains("browser") {
+                    // Las fuentes MCP no necesitan el navegador del constructor web.
+                    plugin_tools.retain(|tool| {
+                        matches!(
+                            tool.definition["name"].as_str(),
+                            Some("plugin_mcp_catalog" | "plugin_mcp_run")
+                        )
+                    });
+                }
+                tools.register(plugin_tools)?;
             }
             let server = gennie_mcp::Server::start(tools, Path::new(helper))?;
             llm.configure_tools(server.launch())?;
@@ -443,9 +833,12 @@ impl Backend {
             }
         };
         let mut backend = Self {
+            executions: None,
+            execution_control: None,
             plugins,
             plugins_observed: 0,
             state,
+            guide,
             assignments,
             assignments_observed: 0,
             assignments_enabled: active.contains("assignments"),
@@ -505,21 +898,62 @@ impl Backend {
                     }
                     offset += 100;
                 }
-                let chat = history::load(&db, None)?.active_id;
+                let chat = history::load_recent(&db, None)?.active_id;
                 Ok((records, chat))
             }))?;
+        }
+        if active.contains("assignments") && (active.contains("plugins") || active.contains("llm"))
+        {
+            let lock = backend
+                .state
+                .config
+                .database_path
+                .with_extension("executions.lock");
+            backend.executions = Some(gennie_assignments::execution::Runner::start(
+                backend.assignments.clone(),
+                Arc::new(crate::executions::Host {
+                    guide: Some(backend.guide.clone()),
+                    plugins: backend.plugins.clone(),
+                    execution_available: active.contains("plugins"),
+                    bot: backend.llm.as_ref().map(|c| c.delegations()),
+                    db: backend.state.db.clone(),
+                }),
+                &lock,
+            )?);
+            backend.execution_control = backend
+                .executions
+                .as_ref()
+                .map(|runner| runner.controller());
+        } else if active.contains("assignments") {
+            backend.execution_control = Some(gennie_assignments::execution::Controller::view(
+                backend.assignments.clone(),
+                Arc::new(crate::executions::Host {
+                    guide: Some(backend.guide.clone()),
+                    plugins: backend.plugins.clone(),
+                    execution_available: active.contains("plugins"),
+                    bot: backend.llm.as_ref().map(|c| c.delegations()),
+                    db: backend.state.db.clone(),
+                }),
+            ));
         }
         Ok(backend)
     }
     fn refresh(&mut self) -> Result<()> {
         let revision = self.revision.load(std::sync::atomic::Ordering::Acquire);
+        let profile = assistants::load(&self.state.db, assistants::DEFAULT_ASSISTANT_ID)?;
+        self.snapshot.assistant_profile = Some(AssistantProfile {
+            id: profile.id,
+            name: profile.name,
+            avatar_revision: profile.avatar_revision.map(|v| v.to_string()),
+        });
+        self.snapshot.history_revision = revision.to_string();
         let selected = self
             .snapshot
             .selected_id
             .as_deref()
             .map(str::parse::<i64>)
             .transpose()?;
-        let history = history::load(&self.state.db, selected)?;
+        let history = history::load_recent(&self.state.db, selected)?;
         self.snapshot.conversations = history
             .conversations
             .into_iter()
@@ -537,15 +971,24 @@ impl Backend {
                 speaker: m.speaker,
                 text: m.text,
                 created_at: m.created_at,
+                interruption: m.interruption.map(message_interruption),
             })
             .collect();
+        self.snapshot.active_session_started_at =
+            history::session_started_at(&self.state.db, history.active_id)?;
         self.snapshot.active_id = history.active_id.map(|id| id.to_string());
         self.snapshot.selected_id = history.selected_id.map(|id| id.to_string());
         self.snapshot.assignments_enabled = self.assignments_enabled;
         let assignments_revision = self.assignments.revision();
-        self.snapshot.assignments = self
-            .assignments
-            .list(0, 100)?
+        self.snapshot.execution_revision = Some(assignments_revision.to_string());
+        let assignments = self.assignments.list(0, 100)?;
+        let upcoming = self.assignments.upcoming_execution_times(
+            &assignments
+                .iter()
+                .map(|record| record.id)
+                .collect::<Vec<_>>(),
+        )?;
+        self.snapshot.assignments = assignments
             .into_iter()
             .map(|r| {
                 let mut resolution = r
@@ -557,7 +1000,9 @@ impl Backend {
                         .assignment_sources(&serde_json::to_value(&r)?)?,
                 )?;
                 Ok(AssignmentRecord {
+                    next_execution_at: upcoming.get(&r.id).cloned(),
                     id: r.id.to_string(),
+                    instance_id: Some(r.instance_id.clone()),
                     revision: r.revision,
                     document: serde_json::to_string(&r.document)?,
                     method_resolution: if resolution.as_object().is_some_and(|v| !v.is_empty()) {
@@ -631,12 +1076,58 @@ impl Backend {
             },
         ]
     }
+    fn architect_request(&mut self, request: &str) -> Result<String> {
+        use gennie_llm::architects::{self, Profile};
+        #[derive(serde::Deserialize)]
+        #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
+        enum Request {
+            List,
+            Get { id: String },
+            Create { profile: Box<Profile> },
+            Remove { id: String, revision: i64 },
+            Save { profile: Box<Profile> },
+        }
+        let request: Request =
+            serde_json::from_str(request).map_err(|_| "Petición de arquitectos no válida")?;
+        let response = match request {
+            Request::List => serde_json::json!({"profiles":architects::list(&self.state.db)?}),
+            Request::Get { id } => {
+                serde_json::json!({"profile":architects::load_by_id(&self.state.db, &id)?})
+            }
+            Request::Create { profile } => {
+                serde_json::json!({"profile":architects::create(&self.state.db, &profile)?})
+            }
+            Request::Remove { id, revision } => {
+                architects::remove(&self.state.db, &id, revision)?;
+                serde_json::json!({"removed":id})
+            }
+            Request::Save { profile } if !profile.is_base() => {
+                serde_json::json!({"profile":architects::save(&self.state.db, &profile)?})
+            }
+            Request::Save { profile } => {
+                let llm = self.llm.as_ref().ok_or("Conversación desactivada")?;
+                let saved = self
+                    .plugins
+                    .while_builder_idle(|| llm.save_architect(*profile))?;
+                self.refresh_controls();
+                serde_json::json!({"profile":saved})
+            }
+        };
+        Ok(serde_json::to_string(&response)?)
+    }
     fn refresh_controls(&mut self) {
         self.plugins.cancel_if_disallowed();
         let settings = self.llm.as_ref().map(|c| c.settings());
         configure_browser_permissions(&self.browser, settings.as_ref());
         self.snapshot.models = self.model_info();
-        self.snapshot.busy = self.llm.as_ref().is_some_and(|c| c.is_pending());
+        if let Some(progress) = self.llm.as_ref().and_then(|c| c.turn_progress()) {
+            self.snapshot.turn = Some(TurnProgress {
+                id: progress.id,
+                stopping: progress.stopping,
+            });
+        }
+        self.snapshot.busy =
+            self.snapshot.turn.is_some() || self.llm.as_ref().is_some_and(|c| c.is_pending());
         self.snapshot.assistant = self.llm.as_ref().map(|c| {
             let s = c.settings();
             AssistantSettings {
@@ -685,8 +1176,166 @@ impl Backend {
             }
         }
     }
+    fn proposal_request(&mut self, request: &str) -> Result<String> {
+        #[derive(serde::Deserialize)]
+        #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
+        enum Request {
+            Availability,
+            Get {
+                review_id: String,
+            },
+            List {
+                assignment_id: i64,
+                #[serde(default)]
+                archived: bool,
+                before: Option<gennie_assignments::proposals::history::Cursor>,
+            },
+            Begin {
+                request_key: String,
+                assignments: Vec<gennie_assignments::proposals::Reference>,
+                instructions: String,
+                use_guide: bool,
+            },
+            Resolve {
+                proposal_id: i64,
+                apply: bool,
+            },
+            Cancel {
+                review_id: String,
+            },
+            Archive {
+                review_id: String,
+            },
+        }
+        if !self.assignments_enabled {
+            return Err("Encargos está desactivado".into());
+        }
+        let mut result = match serde_json::from_str::<Request>(request)? {
+            Request::Availability => {
+                serde_json::json!({"guide_available":self.guide.available()?,"bot_available":self.llm.is_some()})
+            }
+            Request::List {
+                assignment_id,
+                archived,
+                before,
+            } => self
+                .assignments
+                .reviews_page(assignment_id, archived, before.as_ref())?,
+            Request::Archive { review_id } => self.assignments.archive_review(&review_id)?,
+            Request::Get { review_id } => self.assignments.review(&review_id)?,
+            Request::Begin {
+                request_key,
+                assignments,
+                instructions,
+                use_guide,
+            } => {
+                let bot = self.llm.as_ref().ok_or("Conversación desactivada")?;
+                if bot.is_pending() {
+                    return Err("Espera a que termine la respuesta de Gennie".into());
+                }
+                if use_guide && !self.guide.available()? {
+                    return Err(
+                        "Configura y habilita la guía remota antes de solicitar su valoración"
+                            .into(),
+                    );
+                }
+                let id = history::load_recent(&self.state.db, None)?
+                    .active_id
+                    .ok_or("Inicia una conversación con Gennie antes de solicitar propuestas")?;
+                let origin = gennie_presence::delegation::origin(&self.state.db, id)?
+                    .ok_or("La conversación ya no está disponible")?;
+                self.assignments
+                    .begin_review(gennie_assignments::proposals::Begin {
+                        request_key,
+                        assignments,
+                        origin: gennie_assignments::proposals::Origin {
+                            conversation_id: id,
+                            epoch: origin.epoch,
+                        },
+                        instructions,
+                        use_guide,
+                    })?
+            }
+            Request::Cancel { review_id } => self.assignments.cancel_review(&review_id)?,
+            Request::Resolve { proposal_id, apply } => {
+                let result = self.assignments.resolve_proposal(proposal_id, apply)?;
+                self.refresh()?;
+                self.publish();
+                result
+            }
+        };
+        if result.get("scope").is_some() || result.get("reviews").is_some() {
+            let active = history::active_conversation(&self.state.db)?;
+            let current = active
+                .map(|id| gennie_presence::delegation::origin(&self.state.db, id))
+                .transpose()?
+                .flatten();
+            let decorate = |review: &mut serde_json::Value| {
+                if review.get("scope").is_some() {
+                    let same = current.as_ref().is_some_and(|origin| {
+                        review["scope"]["origin"]["conversation_id"] == origin.conversation_id
+                            && review["scope"]["origin"]["epoch"] == origin.epoch
+                    });
+                    review["origin_current"] = serde_json::json!(same);
+                    review["bot_available"] = serde_json::json!(self.llm.is_some());
+                }
+            };
+            if let Some(reviews) = result["reviews"].as_array_mut() {
+                for review in reviews {
+                    decorate(review);
+                }
+            } else {
+                decorate(&mut result);
+            }
+        }
+        Ok(serde_json::to_string(&result)?)
+    }
+    fn submit_message(&mut self, text: String, reply_to: Option<i64>) -> Result<()> {
+        if text.trim().is_empty() {
+            return Err("Escribe un mensaje".into());
+        }
+        if text.len() > 64 * 1024 {
+            return Err("El mensaje es demasiado largo".into());
+        }
+        let controller = self.llm.as_ref().ok_or("Conversación desactivada")?;
+        if self.snapshot.turn.is_some() {
+            return Err("Gennie aún está terminando la respuesta".into());
+        }
+        let id = controller.speak_turn(&text, reply_to)?;
+        self.snapshot.turn = Some(TurnProgress {
+            id,
+            stopping: false,
+        });
+        self.snapshot.reply_interruption = None;
+        self.snapshot.acknowledged_text = None;
+        self.snapshot.reply.clear();
+        self.last_completed = None;
+        self.failed_turn = false;
+        Ok(())
+    }
     fn apply(&mut self, operation: Operation) -> Result<()> {
         match operation {
+            Operation::StopResponse(id) => {
+                if self
+                    .llm
+                    .as_ref()
+                    .map(|c| c.cancel_turn(&id))
+                    .transpose()?
+                    .unwrap_or(false)
+                {
+                    self.snapshot.error = None;
+                    self.snapshot.error_recorded = false;
+                    self.snapshot.confirmation = None;
+                    if let Some(progress) = self.snapshot.turn.as_mut().filter(|t| t.id == id) {
+                        progress.stopping = true;
+                    }
+                    self.speech_queue.clear();
+                    self.narration.clear();
+                    if let Some(voice) = &self.voice {
+                        voice.interrupt()?;
+                    }
+                }
+            }
             Operation::SaveAssignment(id, revision, key, document) => {
                 if !self.assignments_enabled {
                     return Err("El módulo de encargos está desactivado".into());
@@ -735,26 +1384,12 @@ impl Backend {
                 }
                 self.snapshot.selected_id = id;
             }
-            Operation::Send(text) => {
-                if text.trim().is_empty() {
-                    return Err("Escribe un mensaje".into());
-                }
-                if text.len() > 64 * 1024 {
-                    return Err("El mensaje es demasiado largo".into());
-                }
-                if self.snapshot.selected_id != self.snapshot.active_id {
-                    return Err("Este chat es de consulta. Abre el chat activo para enviar".into());
-                }
-                self.llm
-                    .as_ref()
-                    .ok_or("Conversación desactivada")?
-                    .speak(&text)?;
-                self.snapshot.acknowledged_text = None;
-                self.snapshot.reply.clear();
-                self.last_completed = None;
-                self.failed_turn = false;
-            }
+            Operation::Send(text) => self.submit_message(text, None)?,
+            Operation::SendReply(text, id) => self.submit_message(text, Some(id.parse()?))?,
             Operation::NewChat => {
+                if self.snapshot.turn.is_some() {
+                    return Err("Gennie aún está terminando la respuesta".into());
+                }
                 self.llm
                     .as_ref()
                     .ok_or("Conversación desactivada")?
@@ -769,26 +1404,45 @@ impl Backend {
                 .ok_or("Conversación desactivada")?
                 .connect()?,
             Operation::OpenBrowser => self.browser.open()?,
+            Operation::RenameAssistant(name) => {
+                assistants::rename(&self.state.db, assistants::DEFAULT_ASSISTANT_ID, &name)?;
+                self.snapshot.confirmation = Some("Nombre del asistente guardado".into());
+            }
+            Operation::SaveAssistantProfile(name, avatar) => {
+                gennie_presence::avatar::save_profile(
+                    &self.state.db,
+                    assistants::DEFAULT_ASSISTANT_ID,
+                    &name,
+                    avatar.as_deref(),
+                )?;
+                self.snapshot.confirmation = Some("Perfil del asistente guardado".into());
+            }
             Operation::Rename(id, title) => {
                 history::rename(&self.state.db, id.parse()?, &title)?;
                 self.snapshot.confirmation = Some("Nombre guardado".into());
             }
             Operation::Delete(id) => {
                 history::delete(&self.state.db, id.parse()?)?;
+                self.revision
+                    .fetch_add(1, std::sync::atomic::Ordering::Release);
                 self.snapshot.confirmation = Some("Chat eliminado de Gennie".into());
             }
-            Operation::Assistant(s) => self
-                .llm
-                .as_ref()
-                .ok_or("Conversación desactivada")?
-                .save_settings(gennie_llm::Settings {
-                    model: s.model,
-                    effort: s.effort,
-                    read_files: s.read_files,
-                    write_files: s.write_files,
-                    run_commands: s.run_commands,
-                    local_actions: s.local_actions,
-                })?,
+            Operation::Assistant(s) => {
+                let llm = self.llm.as_ref().ok_or("Conversación desactivada")?;
+                self.plugins.while_builder_idle(|| {
+                    let mut bot = gennie_llm::architects::load(
+                        &self.state.db,
+                        gennie_llm::architects::Role::Bot,
+                    )?;
+                    bot.model = s.model;
+                    bot.effort = Some(s.effort);
+                    bot.read_files = s.read_files;
+                    bot.write_files = s.write_files;
+                    bot.run_commands = s.run_commands;
+                    bot.local_actions = s.local_actions;
+                    llm.save_architect(bot).map(|_| ())
+                })?;
+            }
             Operation::Voice(s) => self
                 .voice
                 .as_ref()
@@ -867,7 +1521,12 @@ impl Backend {
                 .as_mut()
                 .ok_or("Dictado desactivado")?
                 .retry_keys(),
-            Operation::Stop | Operation::Memory(..) => unreachable!(),
+            Operation::Stop
+            | Operation::Memory(..)
+            | Operation::ReadChatPage(..)
+            | Operation::ProposalRequest(..)
+            | Operation::ArchitectRequest(..)
+            | Operation::ReadAssistantAvatar(..) => unreachable!(),
         }
         Ok(())
     }
@@ -875,7 +1534,7 @@ impl Backend {
         self.snapshot.error = Some(text.clone());
         self.snapshot.error_recorded = false;
         let target = if active {
-            history::load(&self.state.db, None)
+            history::load_recent(&self.state.db, None)
                 .ok()
                 .and_then(|h| h.active_id)
                 .or_else(|| self.snapshot.selected_id.as_deref()?.parse().ok())
@@ -909,10 +1568,90 @@ impl Backend {
             }
         }
     }
+    fn observe_speech(
+        &mut self,
+        id: &str,
+        event: gennie_llm::SpeechEvent,
+        errors: &mut Vec<(String, bool)>,
+    ) -> bool {
+        if self.snapshot.turn.as_ref().is_none_or(|t| t.id != id) {
+            return false;
+        }
+        let mut refresh = false;
+        use gennie_llm::SpeechEvent;
+        match event {
+            SpeechEvent::Connecting => self.snapshot.connection = "Conectando…".into(),
+            SpeechEvent::Connected => self.snapshot.connection = "Conectado".into(),
+            SpeechEvent::Delta(text) => {
+                self.snapshot.reply.push_str(&text);
+                self.speech_queue.extend(self.narration.push(&text));
+            }
+            SpeechEvent::Complete(text) => {
+                self.last_completed = Some(text.clone());
+                if self.snapshot.reply.is_empty() {
+                    self.speech_queue.push_back(text);
+                } else if let Some(last) = self.narration.finish() {
+                    self.speech_queue.push_back(last);
+                }
+                self.snapshot.reply.clear();
+                self.snapshot.reply_interruption = None;
+            }
+            SpeechEvent::UserSaved(text) => {
+                self.snapshot.acknowledged_text = Some(text);
+                self.snapshot.acknowledgement = self.snapshot.acknowledgement.wrapping_add(1);
+            }
+            SpeechEvent::Interrupted {
+                text,
+                saved,
+                reason,
+            } => {
+                self.speech_queue.clear();
+                self.narration.clear();
+                if let Some(voice) = &self.voice {
+                    let _ = voice.interrupt();
+                }
+                self.last_completed = None;
+                self.failed_turn = false;
+                if saved {
+                    self.snapshot.reply.clear();
+                    self.snapshot.reply_interruption = None;
+                } else {
+                    self.snapshot.reply = text;
+                    self.snapshot.reply_interruption = Some(message_interruption(reason));
+                    errors.push((
+                        "No se pudo guardar la respuesta interrumpida; el texto sigue visible"
+                            .into(),
+                        false,
+                    ));
+                }
+                refresh = true;
+            }
+            SpeechEvent::HistoryWarning(text) => errors.push((text, false)),
+            SpeechEvent::Finished { cancelled, error } => {
+                self.snapshot.turn = None;
+                refresh = true;
+                if cancelled {
+                    self.snapshot.connection = "Sin conectar".into();
+                    self.snapshot.confirmation = Some("Respuesta detenida".into());
+                    self.speech_queue.clear();
+                    self.narration.clear();
+                    if let Some(voice) = &self.voice {
+                        let _ = voice.interrupt();
+                    }
+                } else if let Some(error) = error {
+                    self.snapshot.connection = "Sin conectar".into();
+                    self.failed_turn = true;
+                    errors.push((error, true));
+                }
+            }
+        }
+        refresh
+    }
     fn tick(&mut self) {
         let mut dirty = self.snapshot.models != self.model_info();
         let mut refresh_history = false;
         let mut errors = Vec::new();
+        let mut dictated = Vec::new();
         if let Some(c) = &mut self.dictation {
             for event in c.tick() {
                 use gennie_transcription::Event::*;
@@ -921,11 +1660,7 @@ impl Backend {
                         text,
                         finalized: true,
                     } => {
-                        if let Some(llm) = &self.llm
-                            && let Err(e) = llm.speak(&text)
-                        {
-                            errors.push((e.to_string(), false));
-                        }
+                        dictated.push(text);
                     }
                     DictationRequested => {
                         self.speech_queue.clear();
@@ -947,8 +1682,15 @@ impl Backend {
                 dirty = true;
             }
         }
+        for text in dictated {
+            if let Err(error) = self.submit_message(text, None) {
+                errors.push((error.to_string(), false));
+            }
+        }
         if let Some(c) = &self.llm {
-            for event in c.poll() {
+            let events = c.poll();
+            let pending = c.is_pending();
+            for event in events {
                 use gennie_llm::Event::*;
                 match event {
                     Connected => self.snapshot.connection = "Conectado".into(),
@@ -956,23 +1698,8 @@ impl Backend {
                     Disconnected(_) => {
                         self.snapshot.connection = "Sin conectar".into();
                     }
-                    ReplyDelta(text) => {
-                        self.snapshot.reply.push_str(&text);
-                        self.speech_queue.extend(self.narration.push(&text));
-                    }
-                    Reply(text) => {
-                        self.last_completed = Some(text.clone());
-                        if self.snapshot.reply.is_empty() {
-                            self.speech_queue.push_back(text);
-                        } else if let Some(last) = self.narration.finish() {
-                            self.speech_queue.push_back(last);
-                        }
-                        self.snapshot.reply.clear();
-                    }
-                    UserMessageSaved(text) => {
-                        self.snapshot.acknowledged_text = Some(text);
-                        self.snapshot.acknowledgement =
-                            self.snapshot.acknowledgement.wrapping_add(1);
+                    Speech { id, event } => {
+                        refresh_history |= self.observe_speech(&id, event, &mut errors);
                     }
                     NewChatReady => {
                         self.snapshot.selected_id = None;
@@ -992,7 +1719,7 @@ impl Backend {
                 }
                 dirty = true;
             }
-            if c.is_pending() != self.snapshot.busy {
+            if (pending || self.snapshot.turn.is_some()) != self.snapshot.busy {
                 dirty = true;
             }
         }
@@ -1061,6 +1788,9 @@ impl Backend {
             return Ok(());
         }
         self.closed = true;
+        if let Some(control) = &self.execution_control {
+            control.request_stop();
+        }
         if let Some(mut c) = self.dictation.take() {
             c.cancel();
         }
@@ -1069,7 +1799,21 @@ impl Backend {
         self.decisions.take();
         let result = startup::stop_all(&self.modules, &self.started, &self.state);
         let mcp_result = self.mcp.take().map(|mut mcp| mcp.stop()).unwrap_or(Ok(()));
-        result.and(mcp_result).and(self.state.db.close())
+        let ingress = self
+            .execution_control
+            .take()
+            .map(|c| c.close_ingress())
+            .unwrap_or(Ok(()));
+        let executions = self
+            .executions
+            .take()
+            .map(|mut r| r.join())
+            .unwrap_or(Ok(()));
+        ingress
+            .and(result)
+            .and(executions)
+            .and(mcp_result)
+            .and(self.state.db.close())
     }
 }
 impl Drop for Backend {

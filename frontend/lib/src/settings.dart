@@ -141,321 +141,346 @@ class _SettingsDialogState extends State<SettingsDialog> {
       2 => s.voice != null,
       _ => true,
     };
-    return Dialog(
-      backgroundColor: Colors.transparent,
-      insetPadding: const EdgeInsets.all(24),
-      child: Glass(
-        padding: const EdgeInsets.all(24),
-        child: SizedBox(
-          width: 640,
-          height: 530,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  const Expanded(
-                    child: Text(
-                      'Configuración',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                  AppTooltip(
-                    label: 'Cerrar configuración',
-                    child: IconButton(
-                      onPressed: saving ? null : () => Navigator.pop(context),
-                      icon: const Icon(Icons.close, size: 19),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              Wrap(
-                spacing: 6,
-                children: ['Asistente', 'Dictado', 'Voz de salida', 'General']
-                    .indexed
-                    .map(
-                      (entry) => ChoiceChip(
-                        label: Text(entry.$2),
-                        selected: tab == entry.$1,
-                        onSelected: saving
-                            ? null
-                            : (_) => setState(() {
-                                tab = entry.$1;
-                                error = null;
-                                confirmation = null;
-                              }),
-                      ),
-                    )
-                    .toList(),
-              ),
-              const SizedBox(height: 20),
-              Expanded(
-                child: !available
-                    ? const Center(child: Text('Este módulo está desactivado'))
-                    : SingleChildScrollView(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: switch (tab) {
-                            0 => [
-                              Row(
-                                children: [
-                                  Expanded(child: Text(s.connection)),
-                                  TextButton(
-                                    onPressed: () =>
-                                        state.perform(state.backend.connect),
-                                    child: const Text('Conectar'),
-                                  ),
-                                ],
-                              ),
-                              TextField(
-                                controller: _model,
-                                decoration: const InputDecoration(
-                                  labelText: 'Modelo',
-                                ),
-                              ),
-                              const SizedBox(height: 12),
-                              DropdownButtonFormField<String>(
-                                initialValue: effort,
-                                decoration: const InputDecoration(
-                                  labelText: 'Esfuerzo de razonamiento',
-                                ),
-                                items:
-                                    [
-                                          'low',
-                                          'medium',
-                                          'high',
-                                          'xhigh',
-                                          'max',
-                                          'ultra',
-                                        ]
-                                        .map(
-                                          (v) => DropdownMenuItem(
-                                            value: v,
-                                            child: Text(v),
-                                          ),
-                                        )
-                                        .toList(),
-                                onChanged: (v) => setState(() => effort = v!),
-                              ),
-                              _toggle('Leer archivos', read, (v) {
-                                read = v;
-                                if (!v) write = false;
-                              }),
-                              _toggle('Escribir archivos', write, (v) {
-                                write = v;
-                                if (v) read = true;
-                              }),
-                              _toggle('Ejecutar comandos', commands, (v) {
-                                commands = v;
-                                if (!v) actions = false;
-                              }),
-                              _toggle(
-                                'Controlar aplicaciones locales',
-                                actions,
-                                (v) {
-                                  actions = v;
-                                  if (v) commands = true;
-                                },
-                              ),
-                              const Text(
-                                'La búsqueda web está activa. La sesión pertenece a Codex CLI.',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Color(0xff858585),
-                                ),
-                              ),
-                            ],
-                            1 => [
-                              _toggle(
-                                'Activar dictado',
-                                enabledDictation,
-                                (v) => enabledDictation = v,
-                              ),
-                              TextField(
-                                controller: _shortcut,
-                                decoration: const InputDecoration(
-                                  labelText: 'Atajo',
-                                  helperText: 'Por ejemplo: Ctrl+Option+Space',
-                                ),
-                              ),
-                              const SizedBox(height: 12),
-                              _toggle(
-                                'Mantener pulsado para hablar',
-                                hold,
-                                (v) => hold = v,
-                              ),
-                              DropdownButtonFormField<String>(
-                                initialValue: microphone ?? '',
-                                decoration: const InputDecoration(
-                                  labelText: 'Micrófono',
-                                ),
-                                items: <String>{'', ...devices, ?microphone}
-                                    .map(
-                                      (v) => DropdownMenuItem(
-                                        value: v,
-                                        child: Text(
-                                          v.isEmpty
-                                              ? 'Predeterminado del sistema'
-                                              : v,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                    )
-                                    .toList(),
-                                onChanged: (v) => setState(
-                                  () => microphone = v == '' ? null : v,
-                                ),
-                              ),
-                              const SizedBox(height: 16),
-                              Text(
-                                'Liberar modelo tras ${dictationMinutes.round()} min',
-                              ),
-                              Slider(
-                                value: dictationMinutes,
-                                min: 0,
-                                max: 10,
-                                divisions: 10,
-                                onChanged: (v) =>
-                                    setState(() => dictationMinutes = v),
-                              ),
-                              Text(
-                                s.dictationStatus,
-                                style: const TextStyle(fontSize: 12),
-                              ),
-                              Wrap(
-                                spacing: 8,
-                                children: [
-                                  TextButton(
-                                    onPressed: () =>
-                                        state.perform(state.backend.authorize),
-                                    child: const Text('Activar atajo'),
-                                  ),
-                                  TextButton(
-                                    onPressed: () =>
-                                        state.perform(state.backend.prepare),
-                                    child: const Text('Preparar modelo'),
-                                  ),
-                                  TextButton(
-                                    onPressed: () =>
-                                        state.perform(state.backend.release),
-                                    child: const Text('Liberar modelo'),
-                                  ),
-                                ],
-                              ),
-                            ],
-                            2 => [
-                              _toggle(
-                                'Leer respuestas en voz alta',
-                                enabledVoice,
-                                (v) => enabledVoice = v,
-                              ),
-                              DropdownButtonFormField<String>(
-                                initialValue: voice,
-                                decoration: const InputDecoration(
-                                  labelText: 'Voz',
-                                ),
-                                items: const [
-                                  DropdownMenuItem(
-                                    value: 'ef_dora',
-                                    child: Text('Dora'),
-                                  ),
-                                  DropdownMenuItem(
-                                    value: 'em_alex',
-                                    child: Text('Alex'),
-                                  ),
-                                  DropdownMenuItem(
-                                    value: 'em_santa',
-                                    child: Text('Santa'),
-                                  ),
-                                ],
-                                onChanged: (v) => setState(() => voice = v!),
-                              ),
-                              const SizedBox(height: 16),
-                              Text('Velocidad: ${speed.round()} %'),
-                              Slider(
-                                value: speed,
-                                min: 70,
-                                max: 130,
-                                divisions: 60,
-                                onChanged: (v) => setState(() => speed = v),
-                              ),
-                              _toggle(
-                                'Mantener el modelo cargado',
-                                keepVoice,
-                                (v) => keepVoice = v,
-                              ),
-                              if (!keepVoice) ...[
-                                Text(
-                                  'Liberar tras ${voiceMinutes.round()} min',
-                                ),
-                                Slider(
-                                  value: voiceMinutes,
-                                  min: 1,
-                                  max: 120,
-                                  divisions: 119,
-                                  onChanged: (v) =>
-                                      setState(() => voiceMinutes = v),
-                                ),
-                              ],
-                              TextButton(
-                                onPressed: () => state.perform(
-                                  () => state.backend.previewVoice(_voice()),
-                                ),
-                                child: const Text('Probar voz sin guardar'),
-                              ),
-                            ],
-                            _ => [
-                              _toggle(
-                                'Reducir movimiento',
-                                reduced,
-                                (v) => reduced = v,
-                              ),
-                              const SizedBox(height: 16),
-                              const Text(
-                                'Gennie',
-                                style: TextStyle(fontSize: 18),
-                              ),
-                              const Text(
-                                'Asistente personal · 0.1.0',
-                                style: TextStyle(fontSize: 12),
-                              ),
-                            ],
-                          },
+    final busy = saving;
+    final compact = MediaQuery.sizeOf(context).height < 500;
+    return PopScope(
+      canPop: !busy,
+      child: Dialog(
+        backgroundColor:
+            (Theme.of(context).brightness == Brightness.dark
+                    ? const Color(0xff26282c)
+                    : const Color(0xfff5f5f4))
+                .withValues(
+                  alpha: MediaQuery.highContrastOf(context) ? 1 : .94,
+                ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        insetPadding: const EdgeInsets.all(24),
+        child: Glass(
+          padding: EdgeInsets.all(compact ? 16 : 24),
+          child: SizedBox(
+            width: 640,
+            height: 530,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        'Configuración',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w500,
                         ),
                       ),
-              ),
-              if (error != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 12),
-                  child: Text(
-                    error!,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Theme.of(context).colorScheme.error,
+                    ),
+                    AppTooltip(
+                      label: 'Cerrar configuración',
+                      child: IconButton(
+                        onPressed: busy ? null : () => Navigator.pop(context),
+                        icon: const Icon(
+                          Icons.close,
+                          size: 19,
+                          semanticLabel: 'Cerrar configuración',
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                SizedBox(height: compact ? 8 : 16),
+                Wrap(
+                  spacing: 6,
+                  children:
+                      [
+                            'Asistente',
+                            'Dictado',
+                            compact ? 'Voz' : 'Voz de salida',
+                            'General',
+                          ].indexed
+                          .map(
+                            (entry) => ChoiceChip(
+                              label: Text(entry.$2),
+                              selected: tab == entry.$1,
+                              onSelected: busy
+                                  ? null
+                                  : (_) => setState(() {
+                                      tab = entry.$1;
+                                      error = null;
+                                      confirmation = null;
+                                    }),
+                            ),
+                          )
+                          .toList(),
+                ),
+                SizedBox(height: compact ? 8 : 20),
+                Expanded(
+                  child: !available
+                      ? const Center(
+                          child: Text('Este módulo está desactivado'),
+                        )
+                      : SingleChildScrollView(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: switch (tab) {
+                              0 => [
+                                Row(
+                                  children: [
+                                    Expanded(child: Text(s.connection)),
+                                    TextButton(
+                                      onPressed: () =>
+                                          state.perform(state.backend.connect),
+                                      child: const Text('Conectar'),
+                                    ),
+                                  ],
+                                ),
+                                TextField(
+                                  controller: _model,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Modelo',
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                DropdownButtonFormField<String>(
+                                  initialValue: effort,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Esfuerzo de razonamiento',
+                                  ),
+                                  items:
+                                      [
+                                            'low',
+                                            'medium',
+                                            'high',
+                                            'xhigh',
+                                            'max',
+                                            'ultra',
+                                          ]
+                                          .map(
+                                            (v) => DropdownMenuItem(
+                                              value: v,
+                                              child: Text(v),
+                                            ),
+                                          )
+                                          .toList(),
+                                  onChanged: (v) => setState(() => effort = v!),
+                                ),
+                                _toggle('Leer archivos', read, (v) {
+                                  read = v;
+                                  if (!v) write = false;
+                                }),
+                                _toggle('Escribir archivos', write, (v) {
+                                  write = v;
+                                  if (v) read = true;
+                                }),
+                                _toggle('Ejecutar comandos', commands, (v) {
+                                  commands = v;
+                                  if (!v) actions = false;
+                                }),
+                                _toggle(
+                                  'Controlar aplicaciones locales',
+                                  actions,
+                                  (v) {
+                                    actions = v;
+                                    if (v) commands = true;
+                                  },
+                                ),
+                                const Text(
+                                  'La búsqueda web está activa. La sesión pertenece a Codex CLI.',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Color(0xff858585),
+                                  ),
+                                ),
+                              ],
+                              1 => [
+                                _toggle(
+                                  'Activar dictado',
+                                  enabledDictation,
+                                  (v) => enabledDictation = v,
+                                ),
+                                TextField(
+                                  controller: _shortcut,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Atajo',
+                                    helperText:
+                                        'Por ejemplo: Ctrl+Option+Space',
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                _toggle(
+                                  'Mantener pulsado para hablar',
+                                  hold,
+                                  (v) => hold = v,
+                                ),
+                                DropdownButtonFormField<String>(
+                                  initialValue: microphone ?? '',
+                                  decoration: const InputDecoration(
+                                    labelText: 'Micrófono',
+                                  ),
+                                  items: <String>{'', ...devices, ?microphone}
+                                      .map(
+                                        (v) => DropdownMenuItem(
+                                          value: v,
+                                          child: Text(
+                                            v.isEmpty
+                                                ? 'Predeterminado del sistema'
+                                                : v,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                      )
+                                      .toList(),
+                                  onChanged: (v) => setState(
+                                    () => microphone = v == '' ? null : v,
+                                  ),
+                                ),
+                                const SizedBox(height: 16),
+                                Text(
+                                  'Liberar modelo tras ${dictationMinutes.round()} min',
+                                ),
+                                Slider(
+                                  value: dictationMinutes,
+                                  min: 0,
+                                  max: 10,
+                                  divisions: 10,
+                                  onChanged: (v) =>
+                                      setState(() => dictationMinutes = v),
+                                ),
+                                Text(
+                                  s.dictationStatus,
+                                  style: const TextStyle(fontSize: 12),
+                                ),
+                                Wrap(
+                                  spacing: 8,
+                                  children: [
+                                    TextButton(
+                                      onPressed: () => state.perform(
+                                        state.backend.authorize,
+                                      ),
+                                      child: const Text('Activar atajo'),
+                                    ),
+                                    TextButton(
+                                      onPressed: () =>
+                                          state.perform(state.backend.prepare),
+                                      child: const Text('Preparar modelo'),
+                                    ),
+                                    TextButton(
+                                      onPressed: () =>
+                                          state.perform(state.backend.release),
+                                      child: const Text('Liberar modelo'),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                              2 => [
+                                _toggle(
+                                  'Leer respuestas en voz alta',
+                                  enabledVoice,
+                                  (v) => enabledVoice = v,
+                                ),
+                                DropdownButtonFormField<String>(
+                                  initialValue: voice,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Voz',
+                                  ),
+                                  items: const [
+                                    DropdownMenuItem(
+                                      value: 'ef_dora',
+                                      child: Text('Dora'),
+                                    ),
+                                    DropdownMenuItem(
+                                      value: 'em_alex',
+                                      child: Text('Alex'),
+                                    ),
+                                    DropdownMenuItem(
+                                      value: 'em_santa',
+                                      child: Text('Santa'),
+                                    ),
+                                  ],
+                                  onChanged: (v) => setState(() => voice = v!),
+                                ),
+                                const SizedBox(height: 16),
+                                Text('Velocidad: ${speed.round()} %'),
+                                Slider(
+                                  value: speed,
+                                  min: 70,
+                                  max: 130,
+                                  divisions: 60,
+                                  onChanged: (v) => setState(() => speed = v),
+                                ),
+                                _toggle(
+                                  'Mantener el modelo cargado',
+                                  keepVoice,
+                                  (v) => keepVoice = v,
+                                ),
+                                if (!keepVoice) ...[
+                                  Text(
+                                    'Liberar tras ${voiceMinutes.round()} min',
+                                  ),
+                                  Slider(
+                                    value: voiceMinutes,
+                                    min: 1,
+                                    max: 120,
+                                    divisions: 119,
+                                    onChanged: (v) =>
+                                        setState(() => voiceMinutes = v),
+                                  ),
+                                ],
+                                TextButton(
+                                  onPressed: () => state.perform(
+                                    () => state.backend.previewVoice(_voice()),
+                                  ),
+                                  child: const Text('Probar voz sin guardar'),
+                                ),
+                              ],
+                              _ => [
+                                _toggle(
+                                  'Reducir movimiento',
+                                  reduced,
+                                  (v) => reduced = v,
+                                ),
+                                const SizedBox(height: 16),
+                                const Text(
+                                  'Gennie',
+                                  style: TextStyle(fontSize: 18),
+                                ),
+                                const Text(
+                                  'Asistente personal · 0.1.0',
+                                  style: TextStyle(fontSize: 12),
+                                ),
+                              ],
+                            },
+                          ),
+                        ),
+                ),
+                if (error != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: Text(
+                      error!,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Theme.of(context).colorScheme.error,
+                      ),
                     ),
                   ),
-                ),
-              if (confirmation != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 12),
-                  child: Text(
-                    confirmation!,
-                    style: const TextStyle(fontSize: 12),
+                if (confirmation != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: Text(
+                      confirmation!,
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  ),
+                const SizedBox(height: 16),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: FilledButton(
+                    onPressed: saving || !available ? null : _save,
+                    child: Text(saving ? 'Guardando…' : 'Guardar cambios'),
                   ),
                 ),
-              const SizedBox(height: 16),
-              Align(
-                alignment: Alignment.centerRight,
-                child: FilledButton(
-                  onPressed: saving || !available ? null : _save,
-                  child: Text(saving ? 'Guardando…' : 'Guardar cambios'),
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

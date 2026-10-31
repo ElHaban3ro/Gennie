@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show setEquals;
 import 'package:flutter/services.dart';
 import 'package:flutter/semantics.dart';
 import 'assignment_logo.dart';
@@ -9,6 +10,10 @@ import 'glass.dart';
 import 'notice.dart';
 import 'sidebar.dart';
 import 'detail_view.dart';
+import 'plugin_parameter.dart';
+part 'mcp_plugins.dart';
+part 'plugin_messages.dart';
+part 'web_attempts.dart';
 
 const _pretty = JsonEncoder.withIndent('  ');
 const pluginJobStates = {
@@ -156,8 +161,12 @@ class PluginsView extends StatefulWidget {
 }
 
 class _PluginsViewState extends State<PluginsView> {
+  String get botName =>
+      widget.state.snapshot?.assistantProfile?.name ?? 'Gennie';
   final search = TextEditingController();
-  List<Map<String, dynamic>> records = [], jobs = [];
+  List<Map<String, dynamic>> records = [], jobs = [], mcpSources = [];
+  String? mcpError;
+  bool creatingMcp = false;
   String? selected, error, deliveryError, catalogueError;
   String catalogueStatus = 'ready';
   bool loading = true,
@@ -179,7 +188,7 @@ class _PluginsViewState extends State<PluginsView> {
   }
 
   void _changed() {
-    if (!fetching) unawaited(refresh(quiet: true));
+    unawaited(refresh(quiet: true));
   }
 
   @override
@@ -230,9 +239,17 @@ class _PluginsViewState extends State<PluginsView> {
         deliveryError = value['delivery_error'] as String?;
         catalogueError = value['catalogue_error'] as String?;
         catalogueStatus = value['catalogue_status'] as String? ?? 'ready';
+        if (value['mcp_sources'] case final List sources) {
+          mcpSources = sources
+              .map((e) => Map<String, dynamic>.from(e as Map))
+              .toList();
+        }
+        mcpError = value['mcp_catalogue_error'] as String?;
         error = null;
       });
+      if (value['plugins'] is! List) await refreshWebJournal();
     } catch (e) {
+      await refreshWebJournal();
       if (mounted && !quiet) setState(() => error = '$e');
     } finally {
       fetching = false;
@@ -248,6 +265,35 @@ class _PluginsViewState extends State<PluginsView> {
         }
       }
     }
+  }
+
+  Future<void> refreshWebJournal() async {
+    final id = selected;
+    if (id == null ||
+        id.startsWith('mcp:') ||
+        !records.any((r) => (r['manifest'] as Map)['id'] == id)) {
+      return;
+    }
+    Map<String, dynamic> page;
+    try {
+      page = await call({'action': 'web_attempts', 'plugin_id': id});
+      if (page['status'] != 'ready' || page['attempts'] is! List) {
+        throw StateError('Diario web no disponible');
+      }
+    } catch (_) {
+      page = {'status': 'unavailable'};
+    }
+    if (!mounted) return;
+    setState(() {
+      for (final record in records) {
+        if ((record['manifest'] as Map)['id'] == id) {
+          record['web_pending'] = page;
+          if (page['recent_reviews'] is List) {
+            record['web_recent_reviews'] = page['recent_reviews'];
+          }
+        }
+      }
+    });
   }
 
   Future<void> jobAction(String action, Map<String, dynamic> job) async {
@@ -402,6 +448,10 @@ class _PluginsViewState extends State<PluginsView> {
         if (latestJobs[id] != null) 'job': latestJobs[id],
       };
     }
+    for (final source in mcpSources) {
+      final id = 'mcp:${source['id']}';
+      entries[id] = {'id': id, 'name': source['name'], 'mcp': source};
+    }
     final filtered = entries.values
         .where(
           (entry) =>
@@ -422,14 +472,16 @@ class _PluginsViewState extends State<PluginsView> {
     final notice =
         error ??
         deliveryError ??
+        mcpError ??
         (catalogueError == null
             ? null
             : catalogueStatus == 'busy'
             ? 'El navegador está trabajando. El catálogo se actualizará automáticamente.'
-            : 'No se pudo actualizar el catálogo: $catalogueError');
+            : 'No se pudo actualizar el catálogo web: $catalogueError');
     final noticeIsError =
         error != null ||
         deliveryError != null ||
+        mcpError != null ||
         (catalogueError != null && catalogueStatus != 'busy');
     return Row(
       children: [
@@ -439,6 +491,7 @@ class _PluginsViewState extends State<PluginsView> {
           actionLabel: 'Nuevo plugin',
           onAction: () => setState(() {
             creating = true;
+            creatingMcp = false;
             editing = false;
             updating = false;
             selected = null;
@@ -514,20 +567,24 @@ class _PluginsViewState extends State<PluginsView> {
                                             'running'
                                         ? const _BuildSpinner()
                                         : null,
-                                    leading: AssignmentLogo(
-                                      size: 38,
-                                      document: {
-                                        'applications': [
-                                          {
-                                            'name': entry['name'],
-                                            'kind': 'web',
-                                            'url': origin,
-                                          },
-                                        ],
-                                      },
-                                    ),
+                                    leading: entry['mcp'] != null
+                                        ? const McpPluginIcon(size: 38)
+                                        : AssignmentLogo(
+                                            size: 38,
+                                            document: {
+                                              'applications': [
+                                                {
+                                                  'name': entry['name'],
+                                                  'kind': 'web',
+                                                  'url': origin,
+                                                },
+                                              ],
+                                            },
+                                          ),
                                     title: entry['name'] as String,
-                                    subtitle: entry['job'] != null
+                                    subtitle: entry['mcp'] != null
+                                        ? 'MCP · ${entry['mcp']['enabled'] == true ? '${entry['mcp']['allowed_count']} con permiso' : 'Deshabilitado'}'
+                                        : entry['job'] != null
                                         ? pluginJobStates[(entry['job']
                                                   as Map)['state']] ??
                                               'En preparación'
@@ -558,7 +615,11 @@ class _PluginsViewState extends State<PluginsView> {
                 label: 'Recargar plugins',
                 child: IconButton(
                   onPressed: () => refresh(),
-                  icon: const Icon(Icons.refresh, size: 18),
+                  icon: const Icon(
+                    Icons.refresh,
+                    size: 18,
+                    semanticLabel: 'Recargar plugins',
+                  ),
                 ),
               ),
             ],
@@ -576,25 +637,73 @@ class _PluginsViewState extends State<PluginsView> {
                     ),
                   )
                 : null,
-            child: creating || updating
-                ? PluginBuildForm(
-                    key: ValueKey(
-                      'build-${record?['revision']}-${selected ?? 'new'}',
-                    ),
-                    record: updating ? record : null,
-                    conversation: widget.state.snapshot?.selectedId,
+            child: creating && creatingMcp
+                ? McpSourceEditor(
                     call: call,
-                    onCancel: () => setState(() {
-                      creating = false;
-                      updating = false;
-                    }),
-                    onCreated: () async {
+                    onCancel: () => setState(() => creatingMcp = false),
+                    onSaved: (source) async {
                       setState(() {
                         creating = false;
-                        updating = false;
+                        selected = 'mcp:${source['specification']['id']}';
                       });
+                      widget.onSelectionChanged?.call(selected);
                       await refresh();
                     },
+                  )
+                : !creating && selected?.startsWith('mcp:') == true
+                ? McpSourceView(
+                    key: ValueKey(selected),
+                    serverId: selected!.substring(4),
+                    observedActivity:
+                        entries[selected]?['mcp']?['activity_revision']
+                            as String?,
+                    call: call,
+                    onChanged: () => refresh(quiet: true),
+                    onDeleted: () async {
+                      setState(() => selected = null);
+                      widget.onSelectionChanged?.call(null);
+                      await refresh();
+                    },
+                  )
+                : creating || updating
+                ? Column(
+                    children: [
+                      if (creating)
+                        AppViewContent(
+                          footer: true,
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: TextButton(
+                              onPressed: () =>
+                                  setState(() => creatingMcp = true),
+                              child: const Text(
+                                'Conectar un servidor MCP existente',
+                              ),
+                            ),
+                          ),
+                        ),
+                      Expanded(
+                        child: PluginBuildForm(
+                          key: ValueKey(
+                            'build-${record?['revision']}-${selected ?? 'new'}',
+                          ),
+                          record: updating ? record : null,
+                          conversation: widget.state.snapshot?.selectedId,
+                          call: call,
+                          onCancel: () => setState(() {
+                            creating = false;
+                            updating = false;
+                          }),
+                          onCreated: () async {
+                            setState(() {
+                              creating = false;
+                              updating = false;
+                            });
+                            await refresh();
+                          },
+                        ),
+                      ),
+                    ],
                   )
                 : editing && record != null
                 ? PluginEditor(
@@ -626,6 +735,7 @@ class _PluginsViewState extends State<PluginsView> {
                                 ? associated.first
                                 : null,
                             call: call,
+                            onActivity: () => refresh(quiet: true),
                             onEdit: () => setState(() => editing = true),
                             onDelete: () => remove(record),
                             onUpdate: () => setState(() => updating = true),
@@ -633,6 +743,13 @@ class _PluginsViewState extends State<PluginsView> {
                         if (record == null &&
                             selected != null &&
                             associated.isNotEmpty) ...[
+                          WebAttemptPanel(
+                            key: ValueKey('web-pending-$selected'),
+                            pluginId: selected!,
+                            initial: associated.first['web_pending'] as Map?,
+                            call: call,
+                            onActivity: () => refresh(quiet: true),
+                          ),
                           Builder(
                             builder: (context) {
                               final job = associated.first;
@@ -687,12 +804,11 @@ class _PluginsViewState extends State<PluginsView> {
                                   ],
                                   const SizedBox(height: 24),
                                   Text(
-                                    (job['events'] as List? ?? []).isNotEmpty &&
-                                            ((job['events'] as List).last
-                                                    as Map)['message'] ==
-                                                job['summary']
-                                        ? 'Resultado del último paso'
-                                        : 'Resultado de la construcción',
+                                    _JobPresentation.read(
+                                          job,
+                                        ).messages.isNotEmpty
+                                        ? 'Última actualización de $botName'
+                                        : 'Estado de la construcción',
                                     style: body.copyWith(
                                       fontSize: 12,
                                       fontWeight: FontWeight.w600,
@@ -700,7 +816,7 @@ class _PluginsViewState extends State<PluginsView> {
                                   ),
                                   const SizedBox(height: 4),
                                   SelectableText(
-                                    job['summary'] as String,
+                                    _JobPresentation.read(job).summary(job),
                                     style: body,
                                   ),
                                   if (job['state'] == 'blocked' &&
@@ -781,7 +897,7 @@ class _PluginsViewState extends State<PluginsView> {
                                       selected != null &&
                                       identical(job, associated.first)))
                                     SelectableText(
-                                      job['summary'] as String,
+                                      _JobPresentation.read(job).summary(job),
                                       style: const TextStyle(
                                         fontFamily: 'Inter',
                                         fontSize: 13,
@@ -797,7 +913,8 @@ class _PluginsViewState extends State<PluginsView> {
                                       ).withValues(alpha: .7),
                                     ),
                                   ),
-                                  if (_jobUpdatedAt(job) case final updated?)
+                                  if (_JobPresentation.read(job).updatedAt(job)
+                                      case final updated?)
                                     Text(
                                       updated,
                                       style: TextStyle(
@@ -807,49 +924,27 @@ class _PluginsViewState extends State<PluginsView> {
                                         ).withValues(alpha: .7),
                                       ),
                                     ),
-                                  if ((job['events'] as List? ?? [])
-                                          .isNotEmpty &&
-                                      (record != null ||
-                                          ((job['events'] as List).last
-                                                  as Map)['message'] !=
-                                              job['summary'])) ...[
-                                    const SizedBox(height: 16),
-                                    const Text(
-                                      'Último paso',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    SelectableText(
-                                      ((job['events'] as List).last
-                                              as Map)['message']
-                                          as String,
-                                      style: const TextStyle(
-                                        fontFamily: 'Inter',
-                                        fontSize: 13,
-                                        height: 1.6,
-                                      ),
-                                    ),
-                                  ],
-                                  if ((job['events'] as List? ?? []).isNotEmpty)
+                                  if (_JobPresentation.read(
+                                    job,
+                                  ).messages.isNotEmpty)
                                     ExpansionTile(
                                       shape: const Border(),
                                       collapsedShape: const Border(),
                                       tilePadding: EdgeInsets.zero,
                                       iconColor: sidebarInk(context),
                                       collapsedIconColor: sidebarInk(context),
-                                      title: const Text(
-                                        'Pasos de investigación',
-                                        style: TextStyle(
+                                      title: Text(
+                                        'Últimas actualizaciones de $botName',
+                                        style: const TextStyle(
                                           fontSize: 13,
                                           fontWeight: FontWeight.w500,
                                         ),
                                       ),
                                       children: [
                                         for (final (index, event)
-                                            in (job['events'] as List).indexed)
+                                            in _JobPresentation.read(
+                                              job,
+                                            ).messages.indexed)
                                           Padding(
                                             padding: const EdgeInsets.only(
                                               bottom: 10,
@@ -857,7 +952,7 @@ class _PluginsViewState extends State<PluginsView> {
                                             child: Align(
                                               alignment: Alignment.centerLeft,
                                               child: SelectableText(
-                                                '${index + 1}. ${event['message']}\n${event['created_at']}',
+                                                '${index + 1}. ${event['text']}\n${_jobUpdatedAt({'updated_at': event['created_at']}) ?? ''}',
                                                 style: const TextStyle(
                                                   fontSize: 12,
                                                 ),
@@ -870,7 +965,7 @@ class _PluginsViewState extends State<PluginsView> {
                                     const Padding(
                                       padding: EdgeInsets.only(bottom: 4),
                                       child: Text(
-                                        'Abre el sitio y completa la acción solicitada. Después, reanuda la construcción.',
+                                        'Revisa el mensaje del asistente en el chat de origen antes de continuar.',
                                         style: TextStyle(fontSize: 12),
                                       ),
                                     ),
@@ -952,11 +1047,13 @@ class PluginProfile extends StatefulWidget {
     required this.onDelete,
     required this.onUpdate,
     this.job,
+    this.onActivity,
   });
   final Map<String, dynamic> record;
   final Map<String, dynamic>? job;
   final PluginCall call;
   final VoidCallback onEdit, onDelete, onUpdate;
+  final Future<void> Function()? onActivity;
   @override
   State<PluginProfile> createState() => _PluginProfileState();
 }
@@ -1024,6 +1121,12 @@ class _PluginProfileState extends State<PluginProfile> {
           _JobStatus(job: widget.job!),
         ],
         const SizedBox(height: 20),
+        WebAttemptPanel(
+          pluginId: m['id'] as String,
+          initial: widget.record['web_pending'] as Map?,
+          call: widget.call,
+          onActivity: widget.onActivity,
+        ),
         SelectableText(
           m['description'] as String? ?? 'Sin descripción de cobertura.',
           style: body,
@@ -1085,6 +1188,14 @@ class _PluginProfileState extends State<PluginProfile> {
           record: widget.record,
           function: Map<String, dynamic>.from(fn),
           call: widget.call,
+          onActivity: widget.onActivity,
+          enabled:
+              (widget.record['web_pending'] as Map?)?['status'] !=
+                  'unavailable' &&
+              (widget.record['web_pending'] as Map?)?['next_cursor'] == null &&
+              !((widget.record['web_pending'] as Map?)?['attempts'] as List? ??
+                      [])
+                  .any((a) => a is Map && a['tool'] == fn['name']),
         ),
       ],
     );
@@ -1097,15 +1208,34 @@ class FunctionProbe extends StatefulWidget {
     required this.record,
     required this.function,
     required this.call,
+    this.enabled = true,
+    this.onActivity,
   });
   final Map<String, dynamic> record, function;
   final PluginCall call;
+  final bool enabled;
+  final Future<void> Function()? onActivity;
   @override
   State<FunctionProbe> createState() => _FunctionProbeState();
 }
 
 class _FunctionProbeState extends State<FunctionProbe> {
+  int? pendingWebAttempt;
+  bool webReviewRequired = false;
+  bool get blocked =>
+      !widget.enabled ||
+      (webReviewRequired &&
+          (pendingWebAttempt == null ||
+              !(widget.record['web_recent_reviews'] as List? ?? []).any(
+                (r) => r is Map && r['id'] == pendingWebAttempt,
+              )));
+  final form = GlobalKey<FormState>();
   final fields = <String, TextEditingController>{};
+  final choices = <String, Object?>{};
+  final parameters = <PluginParameter>[];
+  final focus = <String, FocusNode>{};
+  final anchors = <String, GlobalKey>{};
+  final serverErrors = <String, String>{};
   Map<String, dynamic>? result;
   String? error;
   bool running = false;
@@ -1113,8 +1243,14 @@ class _FunctionProbeState extends State<FunctionProbe> {
   @override
   void initState() {
     super.initState();
-    for (final key in (widget.function['parameters'] as Map).keys) {
-      fields[key as String] = TextEditingController();
+    for (final entry in (widget.function['parameters'] as Map).entries) {
+      final parameter = PluginParameter(entry.key as String, entry.value);
+      parameters.add(parameter);
+      if (parameter.options.isEmpty) {
+        fields[parameter.name] = TextEditingController();
+      }
+      focus[parameter.name] = FocusNode();
+      anchors[parameter.name] = GlobalKey();
     }
   }
 
@@ -1123,29 +1259,46 @@ class _FunctionProbeState extends State<FunctionProbe> {
     for (final c in fields.values) {
       c.dispose();
     }
+    for (final node in focus.values) {
+      node.dispose();
+    }
     super.dispose();
   }
 
-  Future<void> run() async {
-    final arguments = <String, dynamic>{};
-    final parameters = widget.function['parameters'] as Map;
-    for (final entry in fields.entries) {
-      final value = entry.value.text;
-      if (value.isEmpty) {
-        setState(() => error = 'Completa ${entry.key}.');
+  Object? value(PluginParameter p) => fields.containsKey(p.name)
+      ? p.parse(fields[p.name]!.text)
+      : choices[p.name];
+
+  void changed(String name) {
+    setState(() {
+      serverErrors.remove(name);
+      result = null;
+      error = null;
+    });
+  }
+
+  Future<void> revealInvalid() async {
+    for (final p in parameters) {
+      if (p.validate(value(p)) != null || serverErrors.containsKey(p.name)) {
+        focus[p.name]!.requestFocus();
+        final target = anchors[p.name]!.currentContext;
+        if (target != null) await Scrollable.ensureVisible(target);
         return;
       }
-      if (parameters[entry.key] == 'integer') {
-        final number = int.tryParse(value);
-        if (number == null) {
-          setState(() => error = '${entry.key} debe ser un entero.');
-          return;
-        }
-        arguments[entry.key] = number;
-      } else {
-        arguments[entry.key] = value;
-      }
     }
+  }
+
+  Future<void> run() async {
+    if (running || blocked) return;
+    serverErrors.clear();
+    if (!form.currentState!.validate()) {
+      await revealInvalid();
+      return;
+    }
+    final arguments = <String, dynamic>{
+      for (final p in parameters)
+        if (value(p) != null) p.name: value(p),
+    };
     setState(() {
       running = true;
       error = null;
@@ -1163,7 +1316,27 @@ class _FunctionProbeState extends State<FunctionProbe> {
         'expected_revision': widget.record['revision'],
         'arguments': arguments,
       });
-      if (mounted) setState(() => result = response);
+      if (mounted) {
+        setState(() {
+          result = response;
+          if (widget.function['transport'] != 'mcp' &&
+              response['review_required'] == true) {
+            webReviewRequired = true;
+            pendingWebAttempt = (response['attempt'] as Map?)?['id'] as int?;
+          }
+          if (response['executed'] == false && response['fields'] is List) {
+            for (final issue in response['fields'] as List) {
+              for (final p in parameters) {
+                if (issue is Map && issue['name'] == p.name) {
+                  serverErrors[p.name] = p.reason(
+                    issue['reason'] as String? ?? 'type',
+                  );
+                }
+              }
+            }
+          }
+        });
+      }
     } catch (e) {
       if (mounted) setState(() => error = '$e');
     } finally {
@@ -1174,88 +1347,152 @@ class _FunctionProbeState extends State<FunctionProbe> {
         });
       }
     }
+    if (mounted && serverErrors.isNotEmpty) {
+      form.currentState!.validate();
+      await revealInvalid();
+    }
+    if (mounted) await widget.onActivity?.call();
   }
 
   @override
   Widget build(BuildContext context) {
     final fn = widget.function;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Text(fn['description'] as String, style: const TextStyle(fontSize: 13)),
-        const SizedBox(height: 6),
-        SelectableText(
-          '${fn['transport'] == 'http' ? 'GET' : 'Página'} ${fn['path']}',
-          style: const TextStyle(fontSize: 12),
-        ),
-        for (final entry in fields.entries)
-          Padding(
-            padding: const EdgeInsets.only(top: 12),
-            child: TextField(
-              key: ValueKey('plugin-param-${entry.key}'),
-              controller: entry.value,
-              enabled: !running,
-              decoration: InputDecoration(
-                labelText:
-                    '${entry.key} (${(fn['parameters'] as Map)[entry.key]})',
-              ),
-            ),
-          ),
-        const SizedBox(height: 16),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: FilledButton(
-            onPressed: running ? null : run,
-            child: Text(running ? 'Ejecutando…' : 'Ejecutar función'),
-          ),
-        ),
-        if (running)
-          const Padding(
-            padding: EdgeInsets.only(top: 12),
-            child: LinearProgressIndicator(),
-          ),
-        if (error != null)
-          Padding(
-            padding: const EdgeInsets.only(top: 12),
-            child: SelectableText(
-              error!,
-              style: TextStyle(
-                color: Theme.of(context).colorScheme.error,
-                fontSize: 12,
-              ),
-            ),
-          ),
-        if (result != null) ...[
-          const SizedBox(height: 16),
+    return Form(
+      key: form,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
           Text(
-            'Resultado · ${result!['status']} · ${milliseconds ?? 0} ms',
-            key: const ValueKey('plugin-result-status'),
-            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+            fn['description'] as String,
+            style: const TextStyle(fontSize: 13),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           SelectableText(
-            _pretty.convert(result),
-            key: const ValueKey('plugin-result'),
-            style: const TextStyle(fontSize: 12, height: 1.5),
+            '${switch (fn['transport']) {
+              'http' => 'GET',
+              'program' => 'Programa',
+              'mcp' => 'MCP',
+              _ => 'Página',
+            }} ${fn['path']}',
+            style: const TextStyle(fontSize: 12),
           ),
-          if (result!['status'] == 'authentication_required')
-            TextButton(
-              onPressed: () async {
-                try {
-                  await widget.call({
-                    'action': 'connect',
-                    'plugin_id': (widget.record['manifest'] as Map)['id'],
-                  });
-                } catch (e) {
-                  if (mounted) setState(() => error = '$e');
-                }
-              },
-              child: const Text('Iniciar sesión en Gennie Web'),
+          for (final p in parameters)
+            Padding(
+              key: anchors[p.name],
+              padding: const EdgeInsets.only(top: 12),
+              child: p.options.isNotEmpty
+                  ? DropdownButtonFormField<Object>(
+                      key: ValueKey('plugin-param-${p.name}'),
+                      focusNode: focus[p.name],
+                      isExpanded: true,
+                      decoration: decoration(p),
+                      autovalidateMode: AutovalidateMode.onUserInteraction,
+                      validator: (v) => p.validate(v) ?? serverErrors[p.name],
+                      items: [
+                        if (!p.isRequired)
+                          const DropdownMenuItem(
+                            value: null,
+                            child: Text('Sin especificar'),
+                          ),
+                        for (final option in p.options)
+                          DropdownMenuItem(
+                            value: option,
+                            child: Text(
+                              p.display(option),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                      ],
+                      onChanged: running || blocked
+                          ? null
+                          : (v) {
+                              choices[p.name] = v;
+                              changed(p.name);
+                            },
+                    )
+                  : TextFormField(
+                      key: ValueKey('plugin-param-${p.name}'),
+                      focusNode: focus[p.name],
+                      controller: fields[p.name],
+                      enabled: !running && !blocked,
+                      minLines: 1,
+                      maxLines: p.type == 'string' ? 3 : 1,
+                      keyboardType: p.type == 'string'
+                          ? TextInputType.multiline
+                          : TextInputType.numberWithOptions(
+                              signed: true,
+                              decimal: p.type == 'number',
+                            ),
+                      decoration: decoration(p),
+                      autovalidateMode: AutovalidateMode.onUserInteraction,
+                      validator: (_) =>
+                          p.validate(value(p)) ?? serverErrors[p.name],
+                      onChanged: (_) => changed(p.name),
+                    ),
             ),
+          const SizedBox(height: 16),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: FilledButton(
+              onPressed: running || blocked ? null : run,
+              child: Text(running ? 'Ejecutando…' : 'Ejecutar función'),
+            ),
+          ),
+          if (running)
+            const Padding(
+              padding: EdgeInsets.only(top: 12),
+              child: LinearProgressIndicator(),
+            ),
+          if (error != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: SelectableText(
+                error!,
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.error,
+                  fontSize: 12,
+                ),
+              ),
+            ),
+          if (result != null) ...[
+            const SizedBox(height: 16),
+            Text(
+              'Resultado · ${result!['status']} · ${milliseconds ?? 0} ms',
+              key: const ValueKey('plugin-result-status'),
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 8),
+            SelectableText(
+              _pretty.convert(result),
+              key: const ValueKey('plugin-result'),
+              style: const TextStyle(fontSize: 12, height: 1.5),
+            ),
+            if (result!['status'] == 'authentication_required')
+              TextButton(
+                onPressed: () async {
+                  try {
+                    await widget.call({
+                      'action': 'connect',
+                      'plugin_id': (widget.record['manifest'] as Map)['id'],
+                    });
+                  } catch (e) {
+                    if (mounted) setState(() => error = '$e');
+                  }
+                },
+                child: const Text('Iniciar sesión en Gennie Web'),
+              ),
+          ],
         ],
-      ],
+      ),
     );
   }
+
+  InputDecoration decoration(PluginParameter p) => InputDecoration(
+    labelText: '${p.label}${p.isRequired ? '' : ' (opcional)'}',
+    helperText: p.description,
+    helperMaxLines: 4,
+    errorMaxLines: 4,
+  );
 }
 
 class PluginEditor extends StatefulWidget {

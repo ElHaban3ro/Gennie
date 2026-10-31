@@ -8,6 +8,11 @@ Color sidebarInk(BuildContext context) =>
     ? const Color(0xffe3e3e1)
     : const Color(0xff333333);
 
+Color _informativeInk(BuildContext context) =>
+    Theme.of(context).brightness == Brightness.dark
+    ? const Color(0xffa3a3a3)
+    : const Color(0xff555555);
+
 /// Estructura única de Historial, Encargos y Plugins. El escritorio posee el ancho.
 class AppSidebar extends StatelessWidget {
   const AppSidebar({
@@ -66,11 +71,11 @@ class AppSidebar extends StatelessWidget {
                           title,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontFamily: 'Inter',
                             fontSize: 12,
                             fontWeight: FontWeight.w400,
-                            color: Color(0xff737373),
+                            color: _informativeInk(context),
                           ),
                         ),
                       ),
@@ -82,7 +87,11 @@ class AppSidebar extends StatelessWidget {
                       child: IconButton(
                         visualDensity: VisualDensity.compact,
                         onPressed: onAction,
-                        icon: const Icon(Icons.add, size: 17),
+                        icon: Icon(
+                          Icons.add,
+                          size: 17,
+                          semanticLabel: actionLabel,
+                        ),
                       ),
                     ),
                 ],
@@ -118,73 +127,87 @@ class SidebarSearch extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ink = sidebarInk(context);
+    final dark = Theme.of(context).brightness == Brightness.dark;
     return Padding(
       padding: const EdgeInsets.fromLTRB(8, 12, 8, 10),
       child: SizedBox(
         height: 40,
-        child: TextField(
-          key: fieldKey,
-          controller: controller,
-          onChanged: onChanged,
-          textAlignVertical: TextAlignVertical.center,
-          style: TextStyle(
-            fontFamily: 'Inter',
-            fontSize: 12,
-            fontWeight: FontWeight.w400,
-            color: ink,
-          ),
-          decoration: InputDecoration(
-            hintText: hint,
-            hintStyle: TextStyle(
+        child: Semantics(
+          label: hint,
+          child: TextField(
+            key: fieldKey,
+            controller: controller,
+            onChanged: onChanged,
+            textAlignVertical: TextAlignVertical.center,
+            style: TextStyle(
               fontFamily: 'Inter',
               fontSize: 12,
               fontWeight: FontWeight.w400,
-              color: ink.withValues(alpha: .5),
+              color: ink,
             ),
-            filled: false,
-            isDense: true,
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 12,
-              vertical: 10,
-            ),
-            prefixIcon: Icon(
-              Icons.search_rounded,
-              size: 17,
-              color: ink.withValues(alpha: .55),
-            ),
-            prefixIconConstraints: const BoxConstraints(minWidth: 36),
-            suffixIconConstraints: const BoxConstraints(
-              minWidth: 36,
-              maxHeight: 40,
-            ),
-            suffixIcon: controller.text.isEmpty
-                ? null
-                : AppTooltip(
-                    label: 'Limpiar búsqueda',
-                    child: IconButton(
-                      onPressed: () {
-                        controller.clear();
-                        onChanged('');
-                      },
-                      icon: Icon(
-                        Icons.backspace_outlined,
-                        size: 16,
-                        color: ink.withValues(alpha: .55),
-                      ),
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints.tightFor(
-                        width: 36,
-                        height: 36,
+            decoration: InputDecoration(
+              hint: ExcludeSemantics(
+                child: Text(
+                  hint,
+                  maxLines: 1,
+                  softWrap: false,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodyLarge!.copyWith(
+                    fontFamily: 'Inter',
+                    fontSize: 12,
+                    fontWeight: FontWeight.w400,
+                    color: _informativeInk(context),
+                  ),
+                ),
+              ),
+              filled: false,
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 10,
+              ),
+              prefixIcon: Icon(
+                Icons.search_rounded,
+                size: 17,
+                color: ink.withValues(alpha: .55),
+              ),
+              prefixIconConstraints: const BoxConstraints(minWidth: 36),
+              suffixIconConstraints: const BoxConstraints(
+                minWidth: 36,
+                maxHeight: 40,
+              ),
+              suffixIcon: controller.text.isEmpty
+                  ? null
+                  : AppTooltip(
+                      label: 'Limpiar búsqueda',
+                      child: IconButton(
+                        onPressed: () {
+                          controller.clear();
+                          onChanged('');
+                        },
+                        icon: Icon(
+                          Icons.backspace_outlined,
+                          size: 16,
+                          color: ink.withValues(alpha: dark ? .55 : .65),
+                          semanticLabel: 'Limpiar búsqueda',
+                        ),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints.tightFor(
+                          width: 36,
+                          height: 36,
+                        ),
                       ),
                     ),
-                  ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-              borderSide: BorderSide(color: ink.withValues(alpha: .16)),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-              borderSide: BorderSide(color: ink.withValues(alpha: .5)),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: BorderSide(color: ink.withValues(alpha: .16)),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: BorderSide(
+                  color: ink.withValues(alpha: dark ? .5 : .65),
+                ),
+              ),
             ),
           ),
         ),
@@ -203,11 +226,11 @@ class SidebarEmpty extends StatelessWidget {
       child: Text(
         message,
         textAlign: TextAlign.center,
-        style: const TextStyle(
+        style: TextStyle(
           fontFamily: 'Inter',
           fontSize: 12,
           fontWeight: FontWeight.w400,
-          color: Color(0xff737373),
+          color: _informativeInk(context),
         ),
       ),
     ),
@@ -222,16 +245,21 @@ class SidebarTile extends StatelessWidget {
     required this.subtitle,
     required this.selected,
     required this.onSelect,
+    this.subtitleMaxLines = 1,
+    this.subtitleColor,
     this.trailing,
     this.leading,
   });
   final String title, subtitle;
+  final int subtitleMaxLines;
+  final Color? subtitleColor;
   final bool selected;
   final VoidCallback onSelect;
   final Widget? trailing, leading;
   @override
   Widget build(BuildContext context) {
     final ink = sidebarInk(context);
+    final dark = Theme.of(context).brightness == Brightness.dark;
     return Material(
       color: selected ? const Color(0x24808080) : Colors.transparent,
       borderRadius: BorderRadius.circular(8),
@@ -239,8 +267,8 @@ class SidebarTile extends StatelessWidget {
         onTap: onSelect,
         borderRadius: BorderRadius.circular(8),
         hoverColor: const Color(0x14808080),
-        child: SizedBox(
-          height: 64,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 64),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
             child: Row(
@@ -248,6 +276,7 @@ class SidebarTile extends StatelessWidget {
                 if (leading != null) ...[leading!, const SizedBox(width: 10)],
                 Expanded(
                   child: Column(
+                    mainAxisSize: MainAxisSize.min,
                     mainAxisAlignment: MainAxisAlignment.center,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -276,14 +305,16 @@ class SidebarTile extends StatelessWidget {
                       const SizedBox(height: 5),
                       Text(
                         subtitle,
-                        maxLines: 1,
-                        softWrap: false,
+                        maxLines: subtitleMaxLines,
+                        softWrap: subtitleMaxLines > 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontFamily: 'Inter',
                           fontSize: 11,
                           fontWeight: FontWeight.w400,
-                          color: ink.withValues(alpha: .62),
+                          color:
+                              subtitleColor ??
+                              ink.withValues(alpha: dark ? .62 : .8),
                         ),
                       ),
                     ],
@@ -329,11 +360,11 @@ class ContentEmpty extends StatelessWidget {
           Text(
             message,
             textAlign: TextAlign.center,
-            style: const TextStyle(
+            style: TextStyle(
               fontFamily: 'Inter',
               fontSize: 13,
               fontWeight: FontWeight.w400,
-              color: Color(0xff737373),
+              color: _informativeInk(context),
             ),
           ),
           ?action,

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'capture_output.dart';
 import 'dart:ui' show ImageByteFormat, PointerDeviceKind;
 import 'package:flutter/services.dart';
 import 'package:flutter/gestures.dart';
@@ -11,6 +12,7 @@ import 'package:gennie/src/backend.dart';
 import 'package:gennie/src/assignments.dart';
 import 'package:gennie/src/assignment_logo.dart';
 import 'package:gennie/src/sidebar.dart';
+import 'tool_evidence_test.dart' show measureContrast;
 import 'widget_test.dart' show FakeBackend, snapshot, mount, rail;
 
 class AssignmentBackend extends FakeBackend {
@@ -48,6 +50,7 @@ Future<void> show(
   DesktopState state, {
   Size size = const Size(1100, 720),
   Brightness brightness = Brightness.light,
+  double sidebarWidth = 260,
 }) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
@@ -55,12 +58,13 @@ Future<void> show(
   await tester.pumpWidget(
     MaterialApp(
       theme: ThemeData(brightness: brightness),
-      home: Scaffold(
-        body: ListenableBuilder(
-          listenable: state,
-          builder: (context, _) => RepaintBoundary(
-            key: const ValueKey('editor-capture'),
-            child: AssignmentsView(state: state),
+      home: RepaintBoundary(
+        key: const ValueKey('editor-capture'),
+        child: Scaffold(
+          body: ListenableBuilder(
+            listenable: state,
+            builder: (context, _) =>
+                AssignmentsView(state: state, sidebarWidth: sidebarWidth),
           ),
         ),
       ),
@@ -90,6 +94,138 @@ Future<void> openEditorSection(WidgetTester tester, String id) async {
 }
 
 void main() {
+  for (final brightness in Brightness.values) {
+    for (final (size, scale, width) in [
+      (const Size(1100, 720), 1.0, 260.0),
+      (const Size(640, 420), 1.0, 216.0),
+      (const Size(640, 420), 1.5, 216.0),
+    ]) {
+      testWidgets(
+        'próxima ejecución legible ${brightness.name} ${size.width} $scale',
+        (tester) async {
+          tester.platformDispatcher.textScaleFactorTestValue = scale;
+          addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+          addTearDown(tester.view.resetPhysicalSize);
+          addTearDown(tester.view.resetDevicePixelRatio);
+          final backend = AssignmentBackend()
+            ..value = snapshot(
+              plans: [
+                AssignmentRecord(
+                  id: '1',
+                  revision: 1,
+                  createdAt: '',
+                  updatedAt: '',
+                  nextExecutionAt: DateTime(
+                    2099,
+                    12,
+                    31,
+                    23,
+                    45,
+                  ).toUtc().toIso8601String(),
+                  document: jsonEncode({
+                    'title':
+                        'Encargo con nombre muy largo para conservar el detalle',
+                    'kind': 'recurring',
+                    'status': 'active',
+                  }),
+                ),
+              ],
+            );
+          await show(
+            tester,
+            DesktopState(backend),
+            size: size,
+            brightness: brightness,
+            sidebarWidth: width,
+          );
+          final subtitle = find.textContaining('Prevista:');
+          final paragraph = tester.renderObject<RenderParagraph>(subtitle);
+          if (const bool.fromEnvironment('CAPTURE_UI')) {
+            final boundary = tester.renderObject<RenderRepaintBoundary>(
+              find.byKey(const ValueKey('editor-capture')),
+            );
+            await tester.runAsync(() async {
+              final image = await boundary.toImage();
+              final bytes = await image.toByteData(format: ImageByteFormat.png);
+              final directory = Directory(
+                const String.fromEnvironment(
+                  'UI_CAPTURE_DIR',
+                  defaultValue: '../.verification/assignment-next-execution',
+                ),
+              )..createSync(recursive: true);
+              File(
+                '${directory.path}/next-${brightness.name}-${size.width.toInt()}-$scale.png',
+              ).writeAsBytesSync(bytes!.buffer.asUint8List());
+              image.dispose();
+            });
+          }
+          expect(
+            paragraph.didExceedMaxLines,
+            isFalse,
+            reason: 'Fecha, hora y estado deben poder leerse completos.',
+          );
+          final ratios = await measureContrast(
+            tester,
+            {'fecha': subtitle},
+            captureBoundary: find.byKey(const ValueKey('editor-capture')),
+            backgroundMaterials: {
+              'fecha': find
+                  .ancestor(of: subtitle, matching: find.byType(Material))
+                  .first,
+            },
+          );
+          if (const bool.fromEnvironment('CAPTURE_UI')) {
+            final directory = const String.fromEnvironment(
+              'UI_CAPTURE_DIR',
+              defaultValue: '../.verification/assignment-next-execution',
+            );
+            File(
+              '$directory/next-${brightness.name}-${size.width.toInt()}-$scale.json',
+            ).writeAsStringSync(jsonEncode(ratios));
+          }
+          expect(backend.saved, isEmpty);
+          expect(tester.takeException(), isNull);
+        },
+        variant: TargetPlatformVariant.only(TargetPlatform.macOS),
+      );
+    }
+  }
+  testWidgets(
+    'la lista usa la próxima ejecución persistida y retira fechas obsoletas',
+    (tester) async {
+      final planned = DateTime(2099, 12, 31, 23, 45).toUtc().toIso8601String();
+      AssignmentRecord record(String? next) => AssignmentRecord(
+        id: '1',
+        revision: 1,
+        createdAt: '',
+        updatedAt: '',
+        nextExecutionAt: next,
+        document: jsonEncode({
+          'title': 'Encargo de prueba',
+          'kind': 'recurring',
+          'status': 'active',
+          'recurrence': {'frequency': 'daily', 'local_time': '08:00'},
+        }),
+      );
+      final backend = AssignmentBackend()
+        ..value = snapshot(plans: [record(planned)]);
+      final state = DesktopState(backend);
+      await show(tester, state);
+      String subtitle() =>
+          tester.widget<SidebarTile>(find.byType(SidebarTile)).subtitle;
+      expect(subtitle(), contains('Prevista:'));
+      expect(subtitle(), contains('23:45'));
+      expect(subtitle(), contains('Activo'));
+      expect(subtitle(), isNot(contains('08:00')));
+      state.accept(backend.value = snapshot(plans: [record(null)]));
+      await tester.pumpAndSettle();
+      expect(subtitle(), 'Recurrente · Activo');
+      expect(backend.saved, isEmpty);
+      expect(backend.deleted, isEmpty);
+      expect(tester.takeException(), isNull);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.macOS),
+  );
   setUpAll(() async {
     final inter = FontLoader('Inter');
     for (final weight in ['Regular', 'Medium', 'SemiBold', 'Bold']) {
@@ -343,7 +479,12 @@ void main() {
         await tester.runAsync(() async {
           final image = await boundary.toImage(pixelRatio: 1);
           final bytes = await image.toByteData(format: ImageByteFormat.png);
-          final output = Directory('../.verification/flutter-ui');
+          final output = Directory(
+            const String.fromEnvironment(
+              'UI_CAPTURE_DIR',
+              defaultValue: '../.verification/flutter-ui',
+            ),
+          );
           await output.create(recursive: true);
           await File(
             '${output.path}/events-${brightness.name}.png',
@@ -381,8 +522,9 @@ void main() {
         await tester.runAsync(() async {
           final image = await boundary.toImage(pixelRatio: 1);
           final bytes = await image.toByteData(format: ImageByteFormat.png);
-          await File(
-            '../.verification/flutter-ui/events-details-${brightness.name}.png',
+          await captureOutput(
+            '../.verification/flutter-ui',
+            'events-details-${brightness.name}.png',
           ).writeAsBytes(bytes!.buffer.asUint8List());
           image.dispose();
         });
@@ -409,8 +551,9 @@ void main() {
         await tester.runAsync(() async {
           final image = await boundary.toImage(pixelRatio: 1);
           final bytes = await image.toByteData(format: ImageByteFormat.png);
-          await File(
-            '../.verification/flutter-ui/events-editor-${brightness.name}.png',
+          await captureOutput(
+            '../.verification/flutter-ui',
+            'events-editor-${brightness.name}.png',
           ).writeAsBytes(bytes!.buffer.asUint8List());
           image.dispose();
         });
@@ -424,8 +567,9 @@ void main() {
         await tester.runAsync(() async {
           final image = await boundary.toImage(pixelRatio: 1);
           final bytes = await image.toByteData(format: ImageByteFormat.png);
-          await File(
-            '../.verification/flutter-ui/events-editor-options-${brightness.name}.png',
+          await captureOutput(
+            '../.verification/flutter-ui',
+            'events-editor-options-${brightness.name}.png',
           ).writeAsBytes(bytes!.buffer.asUint8List());
           image.dispose();
         });
@@ -439,8 +583,9 @@ void main() {
         await tester.runAsync(() async {
           final image = await boundary.toImage(pixelRatio: 1);
           final bytes = await image.toByteData(format: ImageByteFormat.png);
-          await File(
-            '../.verification/flutter-ui/events-follow-up-${brightness.name}.png',
+          await captureOutput(
+            '../.verification/flutter-ui',
+            'events-follow-up-${brightness.name}.png',
           ).writeAsBytes(bytes!.buffer.asUint8List());
           image.dispose();
         });
@@ -529,7 +674,7 @@ void main() {
       await tester.tap(find.byIcon(Icons.add).first);
       await tester.pumpAndSettle();
       expect(field('Contexto (opcional)'), findsNothing);
-      expect(field('Revisar cada cuántos minutos (opcional)'), findsNothing);
+      expect(field('Intervalo de revisión'), findsNothing);
       await openEditorSection(tester, 'settings');
       final statusChoice = tester.widget<DropdownButtonFormField<String>>(
         find.byWidgetPredicate(
@@ -560,7 +705,7 @@ void main() {
       );
       await openEditorSection(tester, 'preparation');
       await tester.scrollUntilVisible(
-        field('Revisar cada cuántos minutos (opcional)'),
+        field('Intervalo de revisión'),
         400,
         scrollable: find
             .descendant(
@@ -569,16 +714,13 @@ void main() {
             )
             .first,
       );
-      await tester.enterText(
-        field('Revisar cada cuántos minutos (opcional)'),
-        '10',
-      );
+      await tester.enterText(field('Intervalo de revisión'), '10');
       await tester.enterText(
         field('Por qué usar esa cadencia'),
         'Reunir novedades antes de las ocho',
       );
       await openEditorSection(tester, 'preparation');
-      expect(field('Revisar cada cuántos minutos (opcional)'), findsNothing);
+      expect(field('Intervalo de revisión'), findsNothing);
       await tester.scrollUntilVisible(
         find.text('Guardar encargo'),
         400,
@@ -753,20 +895,14 @@ void main() {
       'Conservar este contexto',
     );
     await openEditorSection(tester, 'preparation');
-    await tester.enterText(
-      field('Revisar cada cuántos minutos (opcional)'),
-      'abc',
-    );
+    await tester.enterText(field('Intervalo de revisión'), 'abc');
     await openEditorSection(tester, 'preparation');
-    expect(field('Revisar cada cuántos minutos (opcional)'), findsNothing);
+    expect(field('Intervalo de revisión'), findsNothing);
     await tester.tap(find.text('Guardar encargo'));
     await tester.pumpAndSettle();
     expect(backend.saved, isEmpty);
     expect(find.textContaining('número entero de minutos'), findsOneWidget);
-    expect(
-      field('Revisar cada cuántos minutos (opcional)').hitTestable(),
-      findsOneWidget,
-    );
+    expect(field('Intervalo de revisión').hitTestable(), findsOneWidget);
     expect(
       tester.widget<TextField>(field('Título')).controller!.text,
       'Mi borrador',
@@ -1124,14 +1260,16 @@ void main() {
         expect(actions.bottom, lessThanOrEqualTo(420));
         expect(find.text('Guardar encargo').hitTestable(), findsOneWidget);
         if (const bool.fromEnvironment('CAPTURE_UI')) {
+          await tester.pumpAndSettle();
           final boundary = tester.renderObject<RenderRepaintBoundary>(
             find.byKey(const ValueKey('editor-capture')),
           );
           await tester.runAsync(() async {
             final image = await boundary.toImage(pixelRatio: 1);
             final bytes = await image.toByteData(format: ImageByteFormat.png);
-            await File(
-              '../.verification/flutter-ui/events-editor-min-${brightness.name}.png',
+            await captureOutput(
+              '../.verification/flutter-ui',
+              'events-editor-min-${brightness.name}.png',
             ).writeAsBytes(bytes!.buffer.asUint8List());
             image.dispose();
           });

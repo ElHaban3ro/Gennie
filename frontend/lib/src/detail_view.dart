@@ -125,6 +125,9 @@ class AppDetailHeading extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ink = sidebarInk(context);
+    final secondaryInk = ink.withValues(
+      alpha: Theme.of(context).brightness == Brightness.dark ? .7 : .8,
+    );
     final body = TextStyle(
       fontFamily: 'Inter',
       fontSize: 13,
@@ -149,7 +152,7 @@ class AppDetailHeading extends StatelessWidget {
                       style: body.copyWith(
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
-                        color: ink.withValues(alpha: .7),
+                        color: secondaryInk,
                       ),
                     ),
                     const SizedBox(height: 4),
@@ -167,10 +170,7 @@ class AppDetailHeading extends StatelessWidget {
                     if (subtitle != null) ...[
                       const SizedBox(height: 6),
                       DefaultTextStyle(
-                        style: body.copyWith(
-                          fontSize: 12,
-                          color: ink.withValues(alpha: .7),
-                        ),
+                        style: body.copyWith(fontSize: 12, color: secondaryInk),
                         child: subtitle!,
                       ),
                     ],
@@ -186,18 +186,20 @@ class AppDetailHeading extends StatelessWidget {
             right: 0,
             child: AppTooltip(
               label: editLabel!,
-              child: Semantics(
-                label: editLabel,
-                child: IconButton(
-                  key: editKey,
-                  onPressed: onEdit,
-                  constraints: const BoxConstraints.tightFor(
-                    width: 32,
-                    height: 32,
+              child: MergeSemantics(
+                child: Semantics(
+                  label: editLabel,
+                  child: IconButton(
+                    key: editKey,
+                    onPressed: onEdit,
+                    constraints: const BoxConstraints.tightFor(
+                      width: 32,
+                      height: 32,
+                    ),
+                    padding: EdgeInsets.zero,
+                    color: ink,
+                    icon: const Icon(Icons.edit_outlined, size: 16),
                   ),
-                  padding: EdgeInsets.zero,
-                  color: ink,
-                  icon: const Icon(Icons.edit_outlined, size: 16),
                 ),
               ),
             ),

@@ -7,12 +7,23 @@ import 'rust/frb_generated.dart';
 export 'rust/api.dart'
     show
         Snapshot,
+        AssistantProfile,
+        ChatCursor,
+        ChatEntry,
+        DelegationCall,
+        ExecutionCall,
+        ChatPage,
+        ReplyQuote,
+        ToolCall,
+        ToolCallOutcome,
         AssignmentRecord,
         LocalModel,
         ModelState,
         ModelInfo,
         Conversation,
         Message,
+        MessageInterruption,
+        TurnProgress,
         AssistantSettings,
         DictationSettings,
         VoiceSettings;
@@ -48,11 +59,77 @@ abstract class DesktopBackend {
   Future<void> shutdown();
 }
 
+abstract interface class TurnCancellationBackend {
+  Future<void> stopResponse(String turnId);
+}
+
+abstract interface class ArchitectBackend {
+  Future<String> architectRequest(String request);
+}
+
+abstract interface class AssignmentProposalBackend {
+  Future<String> proposalRequest(String request);
+}
+
+abstract interface class ExecutionBackend {
+  Future<String> executionRequest(String request);
+}
+
 abstract interface class PluginBackend {
   Future<String> pluginRequest(String request);
 }
 
-class RustBackend implements DesktopBackend, PluginBackend {
+abstract interface class AssistantChatBackend {
+  Future<api.ChatPage> loadChatPage(api.ChatCursor? before);
+  Future<api.Snapshot> sendReply(String text, String sourceMessageId);
+  Future<api.Snapshot> renameAssistant(String name);
+}
+
+abstract interface class AssistantProfileBackend {
+  Future<Uint8List> loadAvatar(String revision);
+  Future<Uint8List> prepareAvatar(Uint8List image);
+  Future<api.Snapshot> saveProfile(String name, Uint8List? avatar);
+}
+
+class RustBackend
+    implements
+        DesktopBackend,
+        TurnCancellationBackend,
+        PluginBackend,
+        AssignmentProposalBackend,
+        ExecutionBackend,
+        ArchitectBackend,
+        AssistantChatBackend,
+        AssistantProfileBackend {
+  @override
+  Future<void> stopResponse(String turnId) => api.stopResponse(turnId: turnId);
+  @override
+  Future<String> executionRequest(String request) =>
+      api.executionRequest(request: request);
+  @override
+  Future<String> proposalRequest(String request) =>
+      api.assignmentProposalRequest(request: request);
+  @override
+  Future<String> architectRequest(String request) =>
+      api.architectRequest(request: request);
+  @override
+  Future<Uint8List> loadAvatar(String revision) =>
+      api.loadAssistantAvatar(revision: revision);
+  @override
+  Future<Uint8List> prepareAvatar(Uint8List image) =>
+      api.prepareAssistantAvatar(image: image);
+  @override
+  Future<api.Snapshot> saveProfile(String name, Uint8List? avatar) =>
+      api.saveAssistantProfile(name: name, avatar: avatar);
+  @override
+  Future<api.Snapshot> sendReply(String text, String sourceMessageId) =>
+      api.replyToMessage(text: text, sourceMessageId: sourceMessageId);
+  @override
+  Future<api.ChatPage> loadChatPage(api.ChatCursor? before) =>
+      api.loadChatPage(before: before);
+  @override
+  Future<api.Snapshot> renameAssistant(String name) =>
+      api.renameAssistant(name: name);
   @override
   Future<String> pluginRequest(String request) =>
       api.pluginRequest(request: request);
@@ -148,6 +225,28 @@ class RustBackend implements DesktopBackend, PluginBackend {
 class DesktopState extends ChangeNotifier {
   DesktopState(this.backend);
   final DesktopBackend backend;
+  String? _avatarRevision;
+  Future<Uint8List>? _avatar;
+  Future<Uint8List> avatar(String revision) {
+    final source = backend;
+    if (_avatar == null || _avatarRevision != revision) {
+      _avatarRevision = revision;
+      _avatar = source is AssistantProfileBackend
+          ? (source as AssistantProfileBackend).loadAvatar(revision)
+          : Future.error(
+              StateError('No se puede leer la imagen del asistente'),
+            );
+    }
+    return _avatar!;
+  }
+
+  void retryAvatar() {
+    // La siguiente construcción crea y observa el Future en el mismo frame.
+    _avatar = null;
+    _avatarRevision = null;
+    notifyListeners();
+  }
+
   // Estado transitorio de la secuencia de acceso de cada aviso.
   final Set<String> pluginAccessOpened = {};
   final Map<int, String> pluginRebuildKeys = {};
@@ -185,6 +284,21 @@ class DesktopState extends ChangeNotifier {
     } catch (error) {
       failure = '$error';
       notifyListeners();
+      return false;
+    }
+  }
+
+  Future<bool> stopResponse(String turnId) async {
+    final target = backend;
+    if (target is! TurnCancellationBackend) return false;
+    try {
+      await (target as TurnCancellationBackend).stopResponse(turnId);
+      return true;
+    } catch (error) {
+      if (snapshot?.turn?.id == turnId) {
+        failure = '$error';
+        notifyListeners();
+      }
       return false;
     }
   }

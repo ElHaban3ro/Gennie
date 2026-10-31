@@ -45,7 +45,8 @@ async function call(method, args = {}) {
 }
 const http = (name, path) => ({ name, description: 'Consulta fixture', parameters: {}, transport: 'http', path, result_type: 'array', result_pointer: '/messages', fields: { id: '/id', subject: '/subject' } });
 const manifest = { id: 'fixture', name: 'Web de prueba', origin, login_url: origin + '/login', login_urls: [origin + '/login'], functions: [
-  { name:'write_action', description:'Acción local', parameters:{}, transport:'program', path:'/', result_type:'object', code:"const r = await context.request.post(origin + '/api/action'); return await r.json();" },
+  { name:'write_action', description:'Acción local', parameters:{note:{type:'string',label:'Mensaje',description:'Dato ficticio',required:false,maxLength:50}}, transport:'program', path:'/', result_type:'object', code:"const r = await context.request.post(origin + '/api/action'); return await r.json();" },
+  { ...http('typed_messages','/api/public'), parameters:{after:{type:'string',label:'Desde',required:false},limit:{type:'integer',label:'Cantidad',minimum:1,maximum:10}},query:{after:'{after}',limit:'{limit}'} },
   http('public_messages', '/api/public'), http('private_messages', '/api/private'), http('redirect', '/api/redirect'), http('denied', '/api/denied'), http('changed', '/api/changed'),
   { name: 'page_messages', description: 'Respaldo DOM', parameters: {}, transport: 'page', path: '/page', selector: '.message', ready_selector: '#ready', fields: { id: 'b', subject: 'p' }, result_type: 'array' },
   { name: 'many_page', description: 'Truncado explícito', parameters: {}, transport: 'page', path: '/many', selector: 'article', ready_selector: '#ready', result_type: 'array' },
@@ -57,6 +58,13 @@ try {
   assert.equal((await call('snapshot')).open, false);
   assert.equal((await call('plugins', { action: 'save', manifest, expected_revision: 0 })).status, 'saved');
   assert.equal((await call('snapshot')).open, false); // Guardar no abre navegador.
+  const missing = await call('plugin_run',{action:'verify',plugin_id:'fixture',function_name:'typed_messages',expected_revision:1,arguments:{}});
+  assert.equal(missing.status,'input_required'); assert.equal(missing.executed,false); assert.equal(missing.fields[0].name,'limit');
+  assert.equal((await call('snapshot')).open,false); assert.equal(publicCalls,0); assert.equal(writes,0);
+  const corrected = await call('plugin_run',{action:'verify',plugin_id:'fixture',function_name:'typed_messages',expected_revision:1,arguments:{limit:2}});
+  assert.equal(corrected.status,'ok'); assert.equal(corrected.data[0].id,'public');
+  await session.close(); session = makeSession();
+  assert.equal((await call('snapshot')).open,false);
   assert.equal((await run('public_messages', 'run')).status, 'verification_required');
   assert.equal((await call('snapshot')).open, false);
   assert.equal((await run('public_messages')).status, 'ok'); // Abre headless sin pedir cuenta.

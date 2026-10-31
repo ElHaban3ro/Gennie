@@ -31,16 +31,40 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   AssignmentRecord dco_decode_assignment_record(dynamic raw);
 
   @protected
+  AssistantProfile dco_decode_assistant_profile(dynamic raw);
+
+  @protected
   AssistantSettings dco_decode_assistant_settings(dynamic raw);
 
   @protected
   bool dco_decode_bool(dynamic raw);
 
   @protected
+  AssistantProfile dco_decode_box_autoadd_assistant_profile(dynamic raw);
+
+  @protected
   AssistantSettings dco_decode_box_autoadd_assistant_settings(dynamic raw);
 
   @protected
+  ChatCursor dco_decode_box_autoadd_chat_cursor(dynamic raw);
+
+  @protected
+  DelegationCall dco_decode_box_autoadd_delegation_call(dynamic raw);
+
+  @protected
   DictationSettings dco_decode_box_autoadd_dictation_settings(dynamic raw);
+
+  @protected
+  ExecutionCall dco_decode_box_autoadd_execution_call(dynamic raw);
+
+  @protected
+  MessageInterruption dco_decode_box_autoadd_message_interruption(dynamic raw);
+
+  @protected
+  ReplyQuote dco_decode_box_autoadd_reply_quote(dynamic raw);
+
+  @protected
+  TurnProgress dco_decode_box_autoadd_turn_progress(dynamic raw);
 
   @protected
   int dco_decode_box_autoadd_u_32(dynamic raw);
@@ -52,10 +76,25 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   VoiceSettings dco_decode_box_autoadd_voice_settings(dynamic raw);
 
   @protected
+  ChatCursor dco_decode_chat_cursor(dynamic raw);
+
+  @protected
+  ChatEntry dco_decode_chat_entry(dynamic raw);
+
+  @protected
+  ChatPage dco_decode_chat_page(dynamic raw);
+
+  @protected
   Conversation dco_decode_conversation(dynamic raw);
 
   @protected
+  DelegationCall dco_decode_delegation_call(dynamic raw);
+
+  @protected
   DictationSettings dco_decode_dictation_settings(dynamic raw);
+
+  @protected
+  ExecutionCall dco_decode_execution_call(dynamic raw);
 
   @protected
   int dco_decode_i_32(dynamic raw);
@@ -67,6 +106,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<AssignmentRecord> dco_decode_list_assignment_record(dynamic raw);
 
   @protected
+  List<ChatEntry> dco_decode_list_chat_entry(dynamic raw);
+
+  @protected
   List<Conversation> dco_decode_list_conversation(dynamic raw);
 
   @protected
@@ -76,13 +118,22 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<ModelInfo> dco_decode_list_model_info(dynamic raw);
 
   @protected
+  List<int> dco_decode_list_prim_u_8_loose(dynamic raw);
+
+  @protected
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
+
+  @protected
+  List<ToolCall> dco_decode_list_tool_call(dynamic raw);
 
   @protected
   LocalModel dco_decode_local_model(dynamic raw);
 
   @protected
   Message dco_decode_message(dynamic raw);
+
+  @protected
+  MessageInterruption dco_decode_message_interruption(dynamic raw);
 
   @protected
   ModelInfo dco_decode_model_info(dynamic raw);
@@ -94,10 +145,33 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   String? dco_decode_opt_String(dynamic raw);
 
   @protected
+  AssistantProfile? dco_decode_opt_box_autoadd_assistant_profile(dynamic raw);
+
+  @protected
   AssistantSettings? dco_decode_opt_box_autoadd_assistant_settings(dynamic raw);
 
   @protected
+  ChatCursor? dco_decode_opt_box_autoadd_chat_cursor(dynamic raw);
+
+  @protected
+  DelegationCall? dco_decode_opt_box_autoadd_delegation_call(dynamic raw);
+
+  @protected
   DictationSettings? dco_decode_opt_box_autoadd_dictation_settings(dynamic raw);
+
+  @protected
+  ExecutionCall? dco_decode_opt_box_autoadd_execution_call(dynamic raw);
+
+  @protected
+  MessageInterruption? dco_decode_opt_box_autoadd_message_interruption(
+    dynamic raw,
+  );
+
+  @protected
+  ReplyQuote? dco_decode_opt_box_autoadd_reply_quote(dynamic raw);
+
+  @protected
+  TurnProgress? dco_decode_opt_box_autoadd_turn_progress(dynamic raw);
 
   @protected
   int? dco_decode_opt_box_autoadd_u_32(dynamic raw);
@@ -109,7 +183,22 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   VoiceSettings? dco_decode_opt_box_autoadd_voice_settings(dynamic raw);
 
   @protected
+  Uint8List? dco_decode_opt_list_prim_u_8_strict(dynamic raw);
+
+  @protected
+  ReplyQuote dco_decode_reply_quote(dynamic raw);
+
+  @protected
   Snapshot dco_decode_snapshot(dynamic raw);
+
+  @protected
+  ToolCall dco_decode_tool_call(dynamic raw);
+
+  @protected
+  ToolCallOutcome dco_decode_tool_call_outcome(dynamic raw);
+
+  @protected
+  TurnProgress dco_decode_turn_progress(dynamic raw);
 
   @protected
   int dco_decode_u_32(dynamic raw);
@@ -141,10 +230,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   AssignmentRecord sse_decode_assignment_record(SseDeserializer deserializer);
 
   @protected
+  AssistantProfile sse_decode_assistant_profile(SseDeserializer deserializer);
+
+  @protected
   AssistantSettings sse_decode_assistant_settings(SseDeserializer deserializer);
 
   @protected
   bool sse_decode_bool(SseDeserializer deserializer);
+
+  @protected
+  AssistantProfile sse_decode_box_autoadd_assistant_profile(
+    SseDeserializer deserializer,
+  );
 
   @protected
   AssistantSettings sse_decode_box_autoadd_assistant_settings(
@@ -152,7 +249,33 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  ChatCursor sse_decode_box_autoadd_chat_cursor(SseDeserializer deserializer);
+
+  @protected
+  DelegationCall sse_decode_box_autoadd_delegation_call(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   DictationSettings sse_decode_box_autoadd_dictation_settings(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  ExecutionCall sse_decode_box_autoadd_execution_call(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  MessageInterruption sse_decode_box_autoadd_message_interruption(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  ReplyQuote sse_decode_box_autoadd_reply_quote(SseDeserializer deserializer);
+
+  @protected
+  TurnProgress sse_decode_box_autoadd_turn_progress(
     SseDeserializer deserializer,
   );
 
@@ -168,10 +291,25 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  ChatCursor sse_decode_chat_cursor(SseDeserializer deserializer);
+
+  @protected
+  ChatEntry sse_decode_chat_entry(SseDeserializer deserializer);
+
+  @protected
+  ChatPage sse_decode_chat_page(SseDeserializer deserializer);
+
+  @protected
   Conversation sse_decode_conversation(SseDeserializer deserializer);
 
   @protected
+  DelegationCall sse_decode_delegation_call(SseDeserializer deserializer);
+
+  @protected
   DictationSettings sse_decode_dictation_settings(SseDeserializer deserializer);
+
+  @protected
+  ExecutionCall sse_decode_execution_call(SseDeserializer deserializer);
 
   @protected
   int sse_decode_i_32(SseDeserializer deserializer);
@@ -185,6 +323,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  List<ChatEntry> sse_decode_list_chat_entry(SseDeserializer deserializer);
+
+  @protected
   List<Conversation> sse_decode_list_conversation(SseDeserializer deserializer);
 
   @protected
@@ -194,13 +335,24 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<ModelInfo> sse_decode_list_model_info(SseDeserializer deserializer);
 
   @protected
+  List<int> sse_decode_list_prim_u_8_loose(SseDeserializer deserializer);
+
+  @protected
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
+
+  @protected
+  List<ToolCall> sse_decode_list_tool_call(SseDeserializer deserializer);
 
   @protected
   LocalModel sse_decode_local_model(SseDeserializer deserializer);
 
   @protected
   Message sse_decode_message(SseDeserializer deserializer);
+
+  @protected
+  MessageInterruption sse_decode_message_interruption(
+    SseDeserializer deserializer,
+  );
 
   @protected
   ModelInfo sse_decode_model_info(SseDeserializer deserializer);
@@ -212,12 +364,47 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   String? sse_decode_opt_String(SseDeserializer deserializer);
 
   @protected
+  AssistantProfile? sse_decode_opt_box_autoadd_assistant_profile(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   AssistantSettings? sse_decode_opt_box_autoadd_assistant_settings(
     SseDeserializer deserializer,
   );
 
   @protected
+  ChatCursor? sse_decode_opt_box_autoadd_chat_cursor(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  DelegationCall? sse_decode_opt_box_autoadd_delegation_call(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   DictationSettings? sse_decode_opt_box_autoadd_dictation_settings(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  ExecutionCall? sse_decode_opt_box_autoadd_execution_call(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  MessageInterruption? sse_decode_opt_box_autoadd_message_interruption(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  ReplyQuote? sse_decode_opt_box_autoadd_reply_quote(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  TurnProgress? sse_decode_opt_box_autoadd_turn_progress(
     SseDeserializer deserializer,
   );
 
@@ -233,7 +420,22 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  Uint8List? sse_decode_opt_list_prim_u_8_strict(SseDeserializer deserializer);
+
+  @protected
+  ReplyQuote sse_decode_reply_quote(SseDeserializer deserializer);
+
+  @protected
   Snapshot sse_decode_snapshot(SseDeserializer deserializer);
+
+  @protected
+  ToolCall sse_decode_tool_call(SseDeserializer deserializer);
+
+  @protected
+  ToolCallOutcome sse_decode_tool_call_outcome(SseDeserializer deserializer);
+
+  @protected
+  TurnProgress sse_decode_turn_progress(SseDeserializer deserializer);
 
   @protected
   int sse_decode_u_32(SseDeserializer deserializer);
@@ -272,6 +474,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_assistant_profile(
+    AssistantProfile self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_assistant_settings(
     AssistantSettings self,
     SseSerializer serializer,
@@ -281,14 +489,56 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_bool(bool self, SseSerializer serializer);
 
   @protected
+  void sse_encode_box_autoadd_assistant_profile(
+    AssistantProfile self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_box_autoadd_assistant_settings(
     AssistantSettings self,
     SseSerializer serializer,
   );
 
   @protected
+  void sse_encode_box_autoadd_chat_cursor(
+    ChatCursor self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_delegation_call(
+    DelegationCall self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_box_autoadd_dictation_settings(
     DictationSettings self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_execution_call(
+    ExecutionCall self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_message_interruption(
+    MessageInterruption self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_reply_quote(
+    ReplyQuote self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_turn_progress(
+    TurnProgress self,
     SseSerializer serializer,
   );
 
@@ -305,13 +555,31 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_chat_cursor(ChatCursor self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_chat_entry(ChatEntry self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_chat_page(ChatPage self, SseSerializer serializer);
+
+  @protected
   void sse_encode_conversation(Conversation self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_delegation_call(
+    DelegationCall self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_dictation_settings(
     DictationSettings self,
     SseSerializer serializer,
   );
+
+  @protected
+  void sse_encode_execution_call(ExecutionCall self, SseSerializer serializer);
 
   @protected
   void sse_encode_i_32(int self, SseSerializer serializer);
@@ -322,6 +590,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_assignment_record(
     List<AssignmentRecord> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_chat_entry(
+    List<ChatEntry> self,
     SseSerializer serializer,
   );
 
@@ -341,16 +615,28 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_list_prim_u_8_loose(List<int> self, SseSerializer serializer);
+
+  @protected
   void sse_encode_list_prim_u_8_strict(
     Uint8List self,
     SseSerializer serializer,
   );
 
   @protected
+  void sse_encode_list_tool_call(List<ToolCall> self, SseSerializer serializer);
+
+  @protected
   void sse_encode_local_model(LocalModel self, SseSerializer serializer);
 
   @protected
   void sse_encode_message(Message self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_message_interruption(
+    MessageInterruption self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_model_info(ModelInfo self, SseSerializer serializer);
@@ -362,14 +648,56 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_opt_String(String? self, SseSerializer serializer);
 
   @protected
+  void sse_encode_opt_box_autoadd_assistant_profile(
+    AssistantProfile? self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_opt_box_autoadd_assistant_settings(
     AssistantSettings? self,
     SseSerializer serializer,
   );
 
   @protected
+  void sse_encode_opt_box_autoadd_chat_cursor(
+    ChatCursor? self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_opt_box_autoadd_delegation_call(
+    DelegationCall? self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_opt_box_autoadd_dictation_settings(
     DictationSettings? self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_opt_box_autoadd_execution_call(
+    ExecutionCall? self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_opt_box_autoadd_message_interruption(
+    MessageInterruption? self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_opt_box_autoadd_reply_quote(
+    ReplyQuote? self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_opt_box_autoadd_turn_progress(
+    TurnProgress? self,
     SseSerializer serializer,
   );
 
@@ -386,7 +714,28 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_opt_list_prim_u_8_strict(
+    Uint8List? self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_reply_quote(ReplyQuote self, SseSerializer serializer);
+
+  @protected
   void sse_encode_snapshot(Snapshot self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_tool_call(ToolCall self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_tool_call_outcome(
+    ToolCallOutcome self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_turn_progress(TurnProgress self, SseSerializer serializer);
 
   @protected
   void sse_encode_u_32(int self, SseSerializer serializer);

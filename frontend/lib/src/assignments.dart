@@ -1,3 +1,5 @@
+import 'assignment_execution.dart';
+import 'assignment_proposals.dart';
 import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/material.dart';
@@ -11,11 +13,13 @@ import 'sidebar.dart';
 import 'detail_view.dart';
 
 const assignmentRoutes = {
+  'mcp': 'Servidor MCP',
   'http': 'Peticiones HTTP',
   'web': 'Navegación web',
   'computer_use': 'Computer Use',
 };
 const assignmentMethodStates = {
+  'available': 'Disponible y permitido',
   'ready': 'Verificado y permitido',
   'unresolved': 'Pendiente de una vía verificada y permitida',
   'plugin_missing': 'Plugin pendiente o eliminado',
@@ -56,14 +60,35 @@ const assignmentStatuses = {
   'cancelled': 'Cancelado',
 };
 
+String _assignmentSubtitle(
+  BuildContext context,
+  Map<String, dynamic> document,
+  String? nextExecutionAt,
+) {
+  final status = assignmentStatuses[document['status']];
+  if (nextExecutionAt == null) {
+    return '${assignmentKinds[document['kind']]} · $status';
+  }
+  final at = DateTime.tryParse(nextExecutionAt)?.toLocal();
+  if (at == null) return 'Fecha prevista no disponible · $status';
+  final date = MaterialLocalizations.of(context).formatCompactDate(at);
+  final time =
+      '${at.hour.toString().padLeft(2, '0')}:${at.minute.toString().padLeft(2, '0')}';
+  return 'Prevista: $date $time · $status';
+}
+
 class AssignmentsView extends StatefulWidget {
   const AssignmentsView({
     super.key,
     required this.state,
     this.sidebarWidth = 260,
+    this.onOpenChat,
+    this.onOpenPlugin,
   });
   final DesktopState state;
   final double sidebarWidth;
+  final VoidCallback? onOpenChat;
+  final ValueChanged<String>? onOpenPlugin;
   @override
   State<AssignmentsView> createState() => _AssignmentsViewState();
 }
@@ -79,7 +104,9 @@ class _AssignmentsViewState extends State<AssignmentsView> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Eliminar encargo'),
-        content: const Text('Se eliminará este encargo de Gennie.'),
+        content: const Text(
+          'Se eliminará este encargo de Gennie. Su actividad anterior se conservará para revisar los resultados. Las ejecuciones ya iniciadas pueden informar después de eliminarlo.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -222,8 +249,18 @@ class _AssignmentsViewState extends State<AssignmentsView> {
                                     child: SidebarTile(
                                       leading: AssignmentIcon(document: d),
                                       title: d['title'] as String,
-                                      subtitle:
-                                          '${assignmentKinds[d['kind']]} · ${assignmentStatuses[d['status']]}',
+                                      subtitle: _assignmentSubtitle(
+                                        context,
+                                        d,
+                                        r.nextExecutionAt,
+                                      ),
+                                      subtitleMaxLines:
+                                          r.nextExecutionAt == null ? 1 : 3,
+                                      subtitleColor: r.nextExecutionAt == null
+                                          ? null
+                                          : sidebarInk(
+                                              context,
+                                            ).withValues(alpha: .8),
                                       selected: selected == r.id,
                                       onSelect: () => setState(() {
                                         selected = r.id;
@@ -254,6 +291,24 @@ class _AssignmentsViewState extends State<AssignmentsView> {
                           ? AssignmentProfile(
                               key: ValueKey(record.id),
                               record: record,
+                              proposals:
+                                  widget.state.backend
+                                          is AssignmentProposalBackend &&
+                                      widget.onOpenChat != null
+                                  ? AssignmentProposals(
+                                      state: widget.state,
+                                      record: record,
+                                      onOpenChat: widget.onOpenChat!,
+                                    )
+                                  : null,
+                              execution:
+                                  widget.state.backend is ExecutionBackend
+                                  ? AssignmentExecution(
+                                      state: widget.state,
+                                      record: record,
+                                      onOpenPlugin: widget.onOpenPlugin,
+                                    )
+                                  : null,
                               onEdit: () => setState(() => editing = true),
                             )
                           : AssignmentEditor(
@@ -292,9 +347,13 @@ class AssignmentProfile extends StatelessWidget {
     super.key,
     required this.record,
     required this.onEdit,
+    this.proposals,
+    this.execution,
   });
   final AssignmentRecord record;
   final VoidCallback onEdit;
+  final Widget? proposals;
+  final Widget? execution;
 
   String schedule(BuildContext context, Map<String, dynamic> d) {
     final recurrence = d['recurrence'] as Map<String, dynamic>?;
@@ -331,6 +390,12 @@ class AssignmentProfile extends StatelessWidget {
         : jsonDecode(record.methodResolution!) as Map<String, dynamic>;
     final sources = resolution?['sources'] as List? ?? const [];
     final ink = sidebarInk(context);
+    final secondaryInk = ink.withValues(
+      alpha: Theme.of(context).brightness == Brightness.dark ? .7 : .8,
+    );
+    final markerInk = ink.withValues(
+      alpha: Theme.of(context).brightness == Brightness.dark ? .65 : .8,
+    );
     final body = TextStyle(
       fontFamily: 'Inter',
       fontSize: 13,
@@ -404,6 +469,8 @@ class AssignmentProfile extends StatelessWidget {
               editLabel: 'Editar encargo',
               editKey: const ValueKey('assignment-edit'),
             ),
+            ?proposals,
+            ?execution,
             const SizedBox(height: 16),
             Wrap(
               spacing: 8,
@@ -454,7 +521,7 @@ class AssignmentProfile extends StatelessWidget {
                           'Cuándo recibir la información',
                           style: body.copyWith(
                             fontSize: 12,
-                            color: ink.withValues(alpha: .7),
+                            color: secondaryInk,
                           ),
                         ),
                         const SizedBox(height: 4),
@@ -467,7 +534,7 @@ class AssignmentProfile extends StatelessWidget {
                             d['timezone'] as String? ?? '',
                             style: body.copyWith(
                               fontSize: 11,
-                              color: ink.withValues(alpha: .7),
+                              color: secondaryInk,
                             ),
                           ),
                         if (guidance.isNotEmpty) ...[
@@ -601,7 +668,7 @@ class AssignmentProfile extends StatelessWidget {
                                         app['url'] as String,
                                         style: body.copyWith(
                                           fontSize: 12,
-                                          color: ink.withValues(alpha: .7),
+                                          color: secondaryInk,
                                         ),
                                       ),
                                   ],
@@ -652,9 +719,7 @@ class AssignmentProfile extends StatelessWidget {
                                     width: 24,
                                     child: Text(
                                       '${index + 1}.',
-                                      style: body.copyWith(
-                                        color: ink.withValues(alpha: .65),
-                                      ),
+                                      style: body.copyWith(color: markerInk),
                                     ),
                                   ),
                                   Expanded(
@@ -700,9 +765,7 @@ class AssignmentProfile extends StatelessWidget {
                                 children: [
                                   Text(
                                     '•',
-                                    style: body.copyWith(
-                                      color: ink.withValues(alpha: .65),
-                                    ),
+                                    style: body.copyWith(color: markerInk),
                                   ),
                                   const SizedBox(width: 10),
                                   Expanded(
@@ -800,7 +863,11 @@ class _AssignmentDetailDisclosureState
               overflow: TextOverflow.ellipsis,
               style: widget.style.copyWith(
                 fontSize: 12,
-                color: widget.style.color?.withValues(alpha: .7),
+                color: widget.style.color?.withValues(
+                  alpha: Theme.of(context).brightness == Brightness.dark
+                      ? .7
+                      : .8,
+                ),
               ),
             ),
           ),
@@ -926,6 +993,7 @@ class _AssignmentEditorState extends State<AssignmentEditor> {
   final form = GlobalKey<FormState>();
   final opened = <String>{};
   final fieldKeys = <String, GlobalKey>{};
+  final fieldFocus = <String, FocusNode>{};
   final applications = <Map<String, dynamic>>[];
   late String kind, priority, status, frequency;
   late String requestKey;
@@ -992,6 +1060,9 @@ class _AssignmentEditorState extends State<AssignmentEditor> {
     for (final c in fields.values) {
       c.dispose();
     }
+    for (final node in fieldFocus.values) {
+      node.dispose();
+    }
     super.dispose();
   }
 
@@ -1011,6 +1082,7 @@ class _AssignmentEditorState extends State<AssignmentEditor> {
     child: TextFormField(
       key: fieldKeys.putIfAbsent(key, () => GlobalKey()),
       controller: fields[key],
+      focusNode: fieldFocus.putIfAbsent(key, () => FocusNode()),
       style: key == 'title'
           ? const TextStyle(fontSize: 18, fontWeight: FontWeight.w600)
           : null,
@@ -1083,6 +1155,7 @@ class _AssignmentEditorState extends State<AssignmentEditor> {
     if (!mounted) return;
     final target = fieldKeys[name]?.currentContext;
     if (target != null && target.mounted) {
+      fieldFocus[name]?.requestFocus();
       await Scrollable.ensureVisible(target, alignment: .15);
     }
   }
@@ -1241,6 +1314,8 @@ class _AssignmentEditorState extends State<AssignmentEditor> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final ink = sidebarInk(context);
+    final dark = theme.brightness == Brightness.dark;
+    final secondaryInk = ink.withValues(alpha: dark ? .7 : .8);
     final body = TextStyle(
       fontFamily: 'Inter',
       fontSize: 13,
@@ -1336,10 +1411,7 @@ class _AssignmentEditorState extends State<AssignmentEditor> {
                 summary,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: body.copyWith(
-                  fontSize: 12,
-                  color: ink.withValues(alpha: .7),
-                ),
+                style: body.copyWith(fontSize: 12, color: secondaryInk),
               ),
             ),
           Visibility(
@@ -1384,15 +1456,17 @@ class _AssignmentEditorState extends State<AssignmentEditor> {
           enabledBorder: border,
           disabledBorder: border,
           focusedBorder: border.copyWith(
-            borderSide: BorderSide(color: ink.withValues(alpha: .5)),
+            borderSide: BorderSide(
+              color: ink.withValues(alpha: dark ? .5 : .65),
+            ),
           ),
           labelStyle: body.copyWith(
             fontSize: 12,
-            color: ink.withValues(alpha: .65),
+            color: ink.withValues(alpha: dark ? .65 : .8),
           ),
           helperStyle: body.copyWith(
             fontSize: 11,
-            color: ink.withValues(alpha: .62),
+            color: ink.withValues(alpha: dark ? .62 : .8),
           ),
         ),
       ),
@@ -1437,7 +1511,7 @@ class _AssignmentEditorState extends State<AssignmentEditor> {
                                   'La tarea, sus fuentes y cuándo recibirla.',
                                   style: body.copyWith(
                                     fontSize: 12,
-                                    color: ink.withValues(alpha: .7),
+                                    color: secondaryInk,
                                   ),
                                 ),
                               ],
@@ -1553,7 +1627,7 @@ class _AssignmentEditorState extends State<AssignmentEditor> {
                           'Ninguna aplicación añadida',
                           style: body.copyWith(
                             fontSize: 12,
-                            color: ink.withValues(alpha: .7),
+                            color: secondaryInk,
                           ),
                         ),
                       for (var i = 0; i < applications.length; i++) ...[
@@ -1722,14 +1796,17 @@ class _AssignmentEditorState extends State<AssignmentEditor> {
                               'Reunir información no cambia la hora del aviso.',
                               style: body.copyWith(
                                 fontSize: 12,
-                                color: ink.withValues(alpha: .7),
+                                color: secondaryInk,
                               ),
                             ),
                           ),
                           field(
                             'interval',
-                            'Revisar cada cuántos minutos (opcional)',
+                            'Intervalo de revisión',
                             required: followUpEnabled,
+                            hint: followUpEnabled
+                                ? 'Minutos entre revisiones.'
+                                : 'Minutos entre revisiones. Opcional.',
                           ),
                           field(
                             'rationale',
@@ -1739,8 +1816,9 @@ class _AssignmentEditorState extends State<AssignmentEditor> {
                           ),
                           field(
                             'steps',
-                            'Pasos de preparación (uno por línea)',
+                            'Pasos de preparación',
                             lines: 4,
+                            hint: 'Un paso por línea.',
                           ),
                         ],
                       ),
@@ -1897,14 +1975,15 @@ class _AssignmentEditorState extends State<AssignmentEditor> {
                           ),
                         const SizedBox(height: 8),
                       ],
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
+                      Wrap(
+                        alignment: WrapAlignment.end,
+                        spacing: 12,
+                        runSpacing: 8,
                         children: [
                           TextButton(
                             onPressed: saving ? null : widget.onBack,
                             child: const Text('Cancelar'),
                           ),
-                          const SizedBox(width: 12),
                           FilledButton(
                             onPressed: saving ? null : save,
                             child: Text(

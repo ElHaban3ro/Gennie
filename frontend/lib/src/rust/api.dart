@@ -6,7 +6,7 @@
 import 'frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
 
 Future<Snapshot> initialize({
   required String envFile,
@@ -21,8 +21,43 @@ Stream<Snapshot> watch() => RustLib.instance.api.crateApiWatch();
 Future<Snapshot> selectConversation({String? id}) =>
     RustLib.instance.api.crateApiSelectConversation(id: id);
 
+/// Lectura acotada independiente de la selección y del contexto del proveedor.
+Future<ChatPage> loadChatPage({ChatCursor? before}) =>
+    RustLib.instance.api.crateApiLoadChatPage(before: before);
+
+Future<Snapshot> renameAssistant({required String name}) =>
+    RustLib.instance.api.crateApiRenameAssistant(name: name);
+
+/// None conserva la imagen; bytes vacíos restauran el pingüino. Guardado atómico.
+Future<Snapshot> saveAssistantProfile({
+  required String name,
+  Uint8List? avatar,
+}) => RustLib.instance.api.crateApiSaveAssistantProfile(
+  name: name,
+  avatar: avatar,
+);
+
+Future<Uint8List> loadAssistantAvatar({required String revision}) =>
+    RustLib.instance.api.crateApiLoadAssistantAvatar(revision: revision);
+
+/// Prepara una previsualización local sin modificar datos ni abrir archivos.
+Future<Uint8List> prepareAssistantAvatar({required List<int> image}) =>
+    RustLib.instance.api.crateApiPrepareAssistantAvatar(image: image);
+
 Future<Snapshot> sendMessage({required String text}) =>
     RustLib.instance.api.crateApiSendMessage(text: text);
+
+Future<Snapshot> replyToMessage({
+  required String text,
+  required String sourceMessageId,
+}) => RustLib.instance.api.crateApiReplyToMessage(
+  text: text,
+  sourceMessageId: sourceMessageId,
+);
+
+/// Solicita detener únicamente esta identidad; el resultado llega por watch.
+Future<void> stopResponse({required String turnId}) =>
+    RustLib.instance.api.crateApiStopResponse(turnId: turnId);
 
 Future<Snapshot> newChat() => RustLib.instance.api.crateApiNewChat();
 
@@ -98,11 +133,27 @@ Future<Snapshot> deleteAssignment({
   expectedRevision: expectedRevision,
 );
 
+/// Selección humana y revisión de borradores; no ejecuta ni activa encargos.
+Future<String> assignmentProposalRequest({required String request}) =>
+    RustLib.instance.api.crateApiAssignmentProposalRequest(request: request);
+
+/// Configuración humana y consulta del diario de ejecuciones explícitas.
+Future<String> executionRequest({required String request}) =>
+    RustLib.instance.api.crateApiExecutionRequest(request: request);
+
 /// Catálogo, constructor aislado y pruebas manuales; sin ejecución periódica.
 Future<String> pluginRequest({required String request}) =>
     RustLib.instance.api.crateApiPluginRequest(request: request);
 
+/// Configuración de instancias por rol; no inicia modelos ni trabajos.
+Future<String> architectRequest({required String request}) =>
+    RustLib.instance.api.crateApiArchitectRequest(request: request);
+
 class AssignmentRecord {
+  /// Fecha persistida más cercana de una política activa y vigente; no garantiza ejecución.
+  final String? nextExecutionAt;
+  final String? instanceId;
+
   /// Resolución técnica actual; no forma parte del documento editable ni prueba ejecución.
   final String? methodResolution;
   final String id;
@@ -114,6 +165,8 @@ class AssignmentRecord {
   final String updatedAt;
 
   const AssignmentRecord({
+    this.nextExecutionAt,
+    this.instanceId,
     this.methodResolution,
     required this.id,
     required this.revision,
@@ -124,6 +177,8 @@ class AssignmentRecord {
 
   @override
   int get hashCode =>
+      nextExecutionAt.hashCode ^
+      instanceId.hashCode ^
       methodResolution.hashCode ^
       id.hashCode ^
       revision.hashCode ^
@@ -136,12 +191,41 @@ class AssignmentRecord {
       identical(this, other) ||
       other is AssignmentRecord &&
           runtimeType == other.runtimeType &&
+          nextExecutionAt == other.nextExecutionAt &&
+          instanceId == other.instanceId &&
           methodResolution == other.methodResolution &&
           id == other.id &&
           revision == other.revision &&
           document == other.document &&
           createdAt == other.createdAt &&
           updatedAt == other.updatedAt;
+}
+
+class AssistantProfile {
+  final String id;
+  final String name;
+  final String? avatarRevision;
+
+  const AssistantProfile({
+    required this.id,
+    required this.name,
+    this.avatarRevision,
+  });
+
+  static Future<AssistantProfile> default_() =>
+      RustLib.instance.api.crateApiAssistantProfileDefault();
+
+  @override
+  int get hashCode => id.hashCode ^ name.hashCode ^ avatarRevision.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is AssistantProfile &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          name == other.name &&
+          avatarRevision == other.avatarRevision;
 }
 
 class AssistantSettings {
@@ -186,6 +270,93 @@ class AssistantSettings {
           localActions == other.localActions;
 }
 
+class ChatCursor {
+  final String messageId;
+  final String createdAt;
+
+  const ChatCursor({required this.messageId, required this.createdAt});
+
+  @override
+  int get hashCode => messageId.hashCode ^ createdAt.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ChatCursor &&
+          runtimeType == other.runtimeType &&
+          messageId == other.messageId &&
+          createdAt == other.createdAt;
+}
+
+class ChatEntry {
+  final String id;
+  final String conversationId;
+  final String sessionStartedAt;
+  final bool startsSession;
+  final ReplyQuote? quote;
+  final List<ToolCall> tools;
+  final DelegationCall? delegation;
+  final ExecutionCall? execution;
+  final Message message;
+
+  const ChatEntry({
+    required this.id,
+    required this.conversationId,
+    required this.sessionStartedAt,
+    required this.startsSession,
+    this.quote,
+    required this.tools,
+    this.delegation,
+    this.execution,
+    required this.message,
+  });
+
+  @override
+  int get hashCode =>
+      id.hashCode ^
+      conversationId.hashCode ^
+      sessionStartedAt.hashCode ^
+      startsSession.hashCode ^
+      quote.hashCode ^
+      tools.hashCode ^
+      delegation.hashCode ^
+      execution.hashCode ^
+      message.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ChatEntry &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          conversationId == other.conversationId &&
+          sessionStartedAt == other.sessionStartedAt &&
+          startsSession == other.startsSession &&
+          quote == other.quote &&
+          tools == other.tools &&
+          delegation == other.delegation &&
+          execution == other.execution &&
+          message == other.message;
+}
+
+class ChatPage {
+  final List<ChatEntry> messages;
+  final ChatCursor? before;
+
+  const ChatPage({required this.messages, this.before});
+
+  @override
+  int get hashCode => messages.hashCode ^ before.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ChatPage &&
+          runtimeType == other.runtimeType &&
+          messages == other.messages &&
+          before == other.before;
+}
+
 class Conversation {
   final String id;
   final String title;
@@ -215,6 +386,31 @@ class Conversation {
           title == other.title &&
           updatedAt == other.updatedAt &&
           lastMessage == other.lastMessage;
+}
+
+class DelegationCall {
+  final String jobId;
+  final String sourceSequence;
+  final String pluginId;
+
+  const DelegationCall({
+    required this.jobId,
+    required this.sourceSequence,
+    required this.pluginId,
+  });
+
+  @override
+  int get hashCode =>
+      jobId.hashCode ^ sourceSequence.hashCode ^ pluginId.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is DelegationCall &&
+          runtimeType == other.runtimeType &&
+          jobId == other.jobId &&
+          sourceSequence == other.sourceSequence &&
+          pluginId == other.pluginId;
 }
 
 class DictationSettings {
@@ -255,14 +451,55 @@ class DictationSettings {
           microphone == other.microphone;
 }
 
+class ExecutionCall {
+  final String state;
+  final String assignmentId;
+  final String instanceId;
+  final String policyId;
+  final int policyRevision;
+  final String runId;
+
+  const ExecutionCall({
+    required this.state,
+    required this.assignmentId,
+    required this.instanceId,
+    required this.policyId,
+    required this.policyRevision,
+    required this.runId,
+  });
+
+  @override
+  int get hashCode =>
+      state.hashCode ^
+      assignmentId.hashCode ^
+      instanceId.hashCode ^
+      policyId.hashCode ^
+      policyRevision.hashCode ^
+      runId.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ExecutionCall &&
+          runtimeType == other.runtimeType &&
+          state == other.state &&
+          assignmentId == other.assignmentId &&
+          instanceId == other.instanceId &&
+          policyId == other.policyId &&
+          policyRevision == other.policyRevision &&
+          runId == other.runId;
+}
+
 enum LocalModel { laya, voice, dictation }
 
 class Message {
+  final MessageInterruption? interruption;
   final String speaker;
   final String text;
   final String createdAt;
 
   const Message({
+    this.interruption,
     required this.speaker,
     required this.text,
     required this.createdAt,
@@ -272,17 +509,24 @@ class Message {
       RustLib.instance.api.crateApiMessageDefault();
 
   @override
-  int get hashCode => speaker.hashCode ^ text.hashCode ^ createdAt.hashCode;
+  int get hashCode =>
+      interruption.hashCode ^
+      speaker.hashCode ^
+      text.hashCode ^
+      createdAt.hashCode;
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is Message &&
           runtimeType == other.runtimeType &&
+          interruption == other.interruption &&
           speaker == other.speaker &&
           text == other.text &&
           createdAt == other.createdAt;
 }
+
+enum MessageInterruption { cancelled, failed }
 
 class ModelInfo {
   final LocalModel model;
@@ -325,15 +569,56 @@ enum ModelState {
   failed,
 }
 
+class ReplyQuote {
+  final String? sourceMessageId;
+  final String speaker;
+  final String text;
+  final String createdAt;
+  final bool truncated;
+
+  const ReplyQuote({
+    this.sourceMessageId,
+    required this.speaker,
+    required this.text,
+    required this.createdAt,
+    required this.truncated,
+  });
+
+  @override
+  int get hashCode =>
+      sourceMessageId.hashCode ^
+      speaker.hashCode ^
+      text.hashCode ^
+      createdAt.hashCode ^
+      truncated.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ReplyQuote &&
+          runtimeType == other.runtimeType &&
+          sourceMessageId == other.sourceMessageId &&
+          speaker == other.speaker &&
+          text == other.text &&
+          createdAt == other.createdAt &&
+          truncated == other.truncated;
+}
+
 class Snapshot {
+  final TurnProgress? turn;
+  final MessageInterruption? replyInterruption;
+  final String? executionRevision;
   final List<AssignmentRecord> assignments;
   final String timezone;
   final bool assignmentsEnabled;
   final List<ModelInfo> models;
+  final AssistantProfile? assistantProfile;
+  final String historyRevision;
   final List<Conversation> conversations;
   final List<Message> messages;
   final String? selectedId;
   final String? activeId;
+  final String? activeSessionStartedAt;
   final bool busy;
   final String connection;
   final String reply;
@@ -350,14 +635,20 @@ class Snapshot {
   final bool reducedMotion;
 
   const Snapshot({
+    this.turn,
+    this.replyInterruption,
+    this.executionRevision,
     required this.assignments,
     required this.timezone,
     required this.assignmentsEnabled,
     required this.models,
+    this.assistantProfile,
+    required this.historyRevision,
     required this.conversations,
     required this.messages,
     this.selectedId,
     this.activeId,
+    this.activeSessionStartedAt,
     required this.busy,
     required this.connection,
     required this.reply,
@@ -379,14 +670,20 @@ class Snapshot {
 
   @override
   int get hashCode =>
+      turn.hashCode ^
+      replyInterruption.hashCode ^
+      executionRevision.hashCode ^
       assignments.hashCode ^
       timezone.hashCode ^
       assignmentsEnabled.hashCode ^
       models.hashCode ^
+      assistantProfile.hashCode ^
+      historyRevision.hashCode ^
       conversations.hashCode ^
       messages.hashCode ^
       selectedId.hashCode ^
       activeId.hashCode ^
+      activeSessionStartedAt.hashCode ^
       busy.hashCode ^
       connection.hashCode ^
       reply.hashCode ^
@@ -407,14 +704,20 @@ class Snapshot {
       identical(this, other) ||
       other is Snapshot &&
           runtimeType == other.runtimeType &&
+          turn == other.turn &&
+          replyInterruption == other.replyInterruption &&
+          executionRevision == other.executionRevision &&
           assignments == other.assignments &&
           timezone == other.timezone &&
           assignmentsEnabled == other.assignmentsEnabled &&
           models == other.models &&
+          assistantProfile == other.assistantProfile &&
+          historyRevision == other.historyRevision &&
           conversations == other.conversations &&
           messages == other.messages &&
           selectedId == other.selectedId &&
           activeId == other.activeId &&
+          activeSessionStartedAt == other.activeSessionStartedAt &&
           busy == other.busy &&
           connection == other.connection &&
           reply == other.reply &&
@@ -429,6 +732,85 @@ class Snapshot {
           dictation == other.dictation &&
           voice == other.voice &&
           reducedMotion == other.reducedMotion;
+}
+
+class ToolCall {
+  final String callId;
+  final String server;
+  final String tool;
+  final String? pluginId;
+  final String? functionName;
+  final String? displayName;
+  final String? operation;
+  final ToolCallOutcome outcome;
+  final String? detail;
+  final String createdAt;
+  final String updatedAt;
+
+  const ToolCall({
+    required this.callId,
+    required this.server,
+    required this.tool,
+    this.pluginId,
+    this.functionName,
+    this.displayName,
+    this.operation,
+    required this.outcome,
+    this.detail,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  @override
+  int get hashCode =>
+      callId.hashCode ^
+      server.hashCode ^
+      tool.hashCode ^
+      pluginId.hashCode ^
+      functionName.hashCode ^
+      displayName.hashCode ^
+      operation.hashCode ^
+      outcome.hashCode ^
+      detail.hashCode ^
+      createdAt.hashCode ^
+      updatedAt.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ToolCall &&
+          runtimeType == other.runtimeType &&
+          callId == other.callId &&
+          server == other.server &&
+          tool == other.tool &&
+          pluginId == other.pluginId &&
+          functionName == other.functionName &&
+          displayName == other.displayName &&
+          operation == other.operation &&
+          outcome == other.outcome &&
+          detail == other.detail &&
+          createdAt == other.createdAt &&
+          updatedAt == other.updatedAt;
+}
+
+enum ToolCallOutcome { running, completed, failed, unknown }
+
+class TurnProgress {
+  final String id;
+  final bool stopping;
+
+  const TurnProgress({required this.id, required this.stopping});
+
+  @override
+  int get hashCode => id.hashCode ^ stopping.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TurnProgress &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          stopping == other.stopping;
 }
 
 class VoiceSettings {

@@ -6,15 +6,19 @@ import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:window_manager/window_manager.dart';
 import 'backend.dart';
+import 'assistant_avatar.dart';
+import 'assistant_profile.dart';
 import 'chat_history.dart';
-import 'chat_message.dart';
 import 'chat_viewport.dart';
+import 'chat_timeline.dart';
+import 'message_quote.dart';
 import 'glass.dart';
 import 'settings.dart';
 import 'model_controls.dart';
 import 'assignments.dart';
 import 'plugins.dart';
 import 'sidebar.dart';
+import 'architects.dart';
 
 class DesktopScreen extends StatefulWidget {
   const DesktopScreen({super.key, required this.state});
@@ -25,6 +29,9 @@ class DesktopScreen extends StatefulWidget {
 
 class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
   final _draft = TextEditingController();
+  final _composerFocus = FocusNode();
+  ChatEntry? _replySource;
+  String? _submittedReplyId;
   final _historySearch = TextEditingController();
   final _scroll = ScrollController();
   double sidebar = 260;
@@ -33,6 +40,7 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
   bool _sending = false;
   bool _closing = false;
   bool _openingBrowser = false;
+  bool _architectSaving = false;
   static const _lifecycle = MethodChannel('gennie/lifecycle');
   String? _lastSelection;
   int _messageCount = 0;
@@ -66,8 +74,11 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
     if (s == null) return;
     if (s.acknowledgement != _acknowledgement) {
       _acknowledgement = s.acknowledgement;
-      if (s.acknowledgedText == _draft.text && _draft.text.isNotEmpty) {
+      if (s.acknowledgedText == _draft.text &&
+          _draft.text.isNotEmpty &&
+          _replySource?.id == _submittedReplyId) {
         _draft.clear();
+        _replySource = null;
       }
     }
     final selected = s.selectedId;
@@ -121,9 +132,39 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
     windowManager.removeListener(this);
     state.removeListener(_changed);
     _draft.dispose();
+    _composerFocus.dispose();
     _historySearch.dispose();
     _scroll.dispose();
     super.dispose();
+  }
+
+  String? _stopRequested;
+  void _insertNewline() {
+    final value = _draft.value;
+    final selection = value.selection;
+    final start = selection.isValid ? selection.start : value.text.length;
+    final end = selection.isValid ? selection.end : value.text.length;
+    _draft.value = TextEditingValue(
+      text: value.text.replaceRange(start, end, '\n'),
+      selection: TextSelection.collapsed(offset: start + 1),
+    );
+  }
+
+  Future<void> _stopResponse() async {
+    final progress = state.snapshot?.turn;
+    if (progress == null ||
+        progress.stopping ||
+        _stopRequested == progress.id) {
+      return;
+    }
+    final id = progress.id;
+    setState(() => _stopRequested = id);
+    final stopped = await state.stopResponse(id);
+    if (!mounted) return;
+    if (!stopped && _stopRequested == id) setState(() => _stopRequested = null);
+    if (state.snapshot?.turn?.id == id || state.snapshot?.turn == null) {
+      _composerFocus.requestFocus();
+    }
   }
 
   Future<void> _send() async {
@@ -132,115 +173,29 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
         _draft.text.trim().isEmpty ||
         s == null ||
         s.busy ||
-        s.assistant == null ||
-        s.selectedId != s.activeId) {
+        s.assistant == null) {
       return;
     }
     setState(() => _sending = true);
-    await state.perform(() => state.backend.send(_draft.text));
+    final source = _replySource;
+    _submittedReplyId = source?.id;
+    await state.perform(
+      () => source == null
+          ? state.backend.send(_draft.text)
+          : (state.backend as AssistantChatBackend).sendReply(
+              _draft.text,
+              source.id,
+            ),
+    );
     if (mounted) setState(() => _sending = false);
   }
 
-  Future<void> _rename(Conversation chat) async {
-    final controller = TextEditingController(text: chat.title);
-    bool saving = false;
-    String? error;
+  Future<void> _renameAssistant(AssistantProfile profile) async {
     await showDialog<void>(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, refresh) => Dialog(
-          backgroundColor: Colors.transparent,
-          child: Glass(
-            padding: const EdgeInsets.all(24),
-            child: SizedBox(
-              width: 372,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Cambiar nombre', style: TextStyle(fontSize: 18)),
-                  const SizedBox(height: 20),
-                  TextField(
-                    controller: controller,
-                    autofocus: true,
-                    maxLength: 200,
-                    enabled: !saving,
-                    decoration: InputDecoration(
-                      labelText: 'Nombre del chat',
-                      errorText: error,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      TextButton(
-                        onPressed: saving ? null : () => Navigator.pop(context),
-                        child: const Text('Cancelar'),
-                      ),
-                      FilledButton(
-                        onPressed: saving
-                            ? null
-                            : () async {
-                                refresh(() {
-                                  saving = true;
-                                  error = null;
-                                });
-                                final ok = await state.perform(
-                                  () => state.backend.rename(
-                                    chat.id,
-                                    controller.text,
-                                  ),
-                                );
-                                if (!context.mounted) return;
-                                if (ok) {
-                                  Navigator.pop(context);
-                                } else {
-                                  refresh(() {
-                                    saving = false;
-                                    error = state.failure;
-                                  });
-                                }
-                              },
-                        child: Text(saving ? 'Guardando…' : 'Guardar'),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
+      barrierDismissible: false,
+      builder: (_) => AssistantProfileDialog(state: state, profile: profile),
     );
-    // El cierre del diálogo termina su animación antes de liberar el controlador.
-    await Future<void>.delayed(const Duration(milliseconds: 220));
-    controller.dispose();
-  }
-
-  Future<void> _delete(Conversation chat) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Eliminar chat'),
-        content: const Text(
-          'Se eliminarán sus mensajes de Gennie. El hilo del proveedor se conserva.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancelar'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Eliminar chat'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed == true) {
-      await state.perform(() => state.backend.delete(chat.id));
-    }
   }
 
   @override
@@ -248,26 +203,14 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
     listenable: state,
     builder: (context, _) {
       final s = state.snapshot;
-      final messages = <Message>[
-        ...?s?.messages,
-        if (s != null && s.reply.isNotEmpty && s.selectedId == s.activeId)
-          Message(speaker: 'assistant', text: s.reply, createdAt: ''),
-        if (state.failure != null &&
-            !(s?.errorRecorded == true && state.failure == s?.error))
-          Message(
-            speaker: 'system',
-            text: 'Error: ${state.failure}',
-            createdAt: '',
-          ),
-      ];
       final query = _historySearch.text.trim().toLowerCase();
-      final conversations = (s?.conversations ?? <Conversation>[]).where((
-        chat,
-      ) {
-        return query.isEmpty ||
-            chat.title.toLowerCase().contains(query) ||
-            (chat.lastMessage?.toLowerCase().contains(query) ?? false);
-      }).toList();
+      final profile = s?.assistantProfile;
+      final lastConversation = s?.conversations
+          .where((c) => c.lastMessage != null)
+          .firstOrNull;
+      final matches =
+          profile != null &&
+          (query.isEmpty || profile.name.toLowerCase().contains(query));
       final dark = Theme.of(context).brightness == Brightness.dark;
       final ink = dark ? const Color(0xffe3e3e1) : const Color(0xff333333);
       final panelDivider = BorderSide(color: ink.withValues(alpha: .1));
@@ -330,12 +273,13 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
                                       RailButton(
-                                        label: 'Historial',
+                                        label: 'Chats',
                                         asset: 'assets/icons/history.svg',
                                         icon: Icons.history_rounded,
                                         selected: tab == 0,
-                                        onPressed: () =>
-                                            setState(() => tab = 0),
+                                        onPressed: _architectSaving
+                                            ? null
+                                            : () => setState(() => tab = 0),
                                       ),
                                       const SizedBox(height: 6),
                                       RailButton(
@@ -343,8 +287,9 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
                                         asset: 'assets/icons/assignments.svg',
                                         icon: Icons.event_outlined,
                                         selected: tab == 2,
-                                        onPressed: () =>
-                                            setState(() => tab = 2),
+                                        onPressed: _architectSaving
+                                            ? null
+                                            : () => setState(() => tab = 2),
                                       ),
                                       const SizedBox(height: 6),
                                       RailButton(
@@ -352,8 +297,19 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
                                         asset: 'assets/icons/plug.svg',
                                         icon: Icons.extension_outlined,
                                         selected: tab == 1,
-                                        onPressed: () =>
-                                            setState(() => tab = 1),
+                                        onPressed: _architectSaving
+                                            ? null
+                                            : () => setState(() => tab = 1),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      RailButton(
+                                        label: 'Arquitectos',
+                                        asset: 'assets/icons/architects.svg',
+                                        icon: Icons.account_tree_outlined,
+                                        selected: tab == 3,
+                                        onPressed: _architectSaving
+                                            ? null
+                                            : () => setState(() => tab = 3),
                                       ),
                                     ],
                                   ),
@@ -365,26 +321,42 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
                                 label: 'Configuración',
                                 asset: 'assets/icons/settings.svg',
                                 icon: Icons.settings_outlined,
-                                onPressed: () {
-                                  if (s != null) {
-                                    showDialog<void>(
-                                      context: context,
-                                      builder: (_) =>
-                                          SettingsDialog(state: state),
-                                    );
-                                  }
-                                },
+                                onPressed: _architectSaving
+                                    ? null
+                                    : () {
+                                        if (s != null) {
+                                          showDialog<void>(
+                                            context: context,
+                                            builder: (_) =>
+                                                SettingsDialog(state: state),
+                                          );
+                                        }
+                                      },
                               ),
                               const SizedBox(height: 12),
                             ],
                           ),
                         ),
                       ),
+                      if (tab == 3)
+                        Expanded(
+                          child: ArchitectsView(
+                            state: state,
+                            sidebarWidth: width,
+                            onSaving: (value) =>
+                                setState(() => _architectSaving = value),
+                          ),
+                        ),
                       if (tab == 2)
                         Expanded(
                           child: AssignmentsView(
                             state: state,
                             sidebarWidth: width,
+                            onOpenChat: () => setState(() => tab = 0),
+                            onOpenPlugin: (id) => setState(() {
+                              _pluginToOpen = id;
+                              tab = 1;
+                            }),
                           ),
                         )
                       else if (tab == 1)
@@ -396,16 +368,16 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
                             onSelectionChanged: (id) => _pluginToOpen = id,
                           ),
                         )
-                      else ...[
+                      else if (tab == 0) ...[
                         AppSidebar(
                           width: width,
-                          title: tab == 0 ? 'Historial de chats' : 'Plugins',
-                          actionLabel: tab == 0 ? 'Nuevo chat' : null,
+                          title: 'Chats',
+                          actionLabel: 'Nueva conversación',
                           onAction: s?.assistant != null && !s!.busy
                               ? () => state.perform(state.backend.newChat)
                               : null,
-                          searchController: tab == 0 ? _historySearch : null,
-                          searchHint: 'Buscar chats…',
+                          searchController: _historySearch,
+                          searchHint: 'Buscar asistentes…',
                           searchKey: const ValueKey('history-search'),
                           onSearch: (_) => setState(() {}),
                           child: state.loading
@@ -414,35 +386,45 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
                                     strokeWidth: 2,
                                   ),
                                 )
-                              : tab == 1 || s == null || conversations.isEmpty
+                              : !matches
                               ? SidebarEmpty(
-                                  message: tab == 0 && query.isNotEmpty
-                                      ? 'No se encontraron chats'
+                                  message: query.isNotEmpty
+                                      ? 'No se encontraron asistentes'
                                       : 'No hay contenido disponible',
                                 )
-                              : ListView.builder(
-                                  padding: const EdgeInsets.fromLTRB(
-                                    8,
-                                    0,
-                                    8,
-                                    0,
+                              : Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
                                   ),
-                                  itemCount: conversations.length,
-                                  itemBuilder: (context, index) {
-                                    final chat = conversations[index];
-                                    return Padding(
-                                      padding: const EdgeInsets.only(bottom: 2),
-                                      child: ChatHistoryTile(
-                                        chat: chat,
-                                        selected: s.selectedId == chat.id,
-                                        onSelect: () => state.perform(
-                                          () => state.backend.select(chat.id),
+                                  child: Column(
+                                    children: [
+                                      SidebarTile(
+                                        title: profile.name,
+                                        subtitle:
+                                            lastConversation?.lastMessage
+                                                ?.replaceAll(
+                                                  RegExp(r'\s+'),
+                                                  ' ',
+                                                )
+                                                .trim() ??
+                                            '',
+                                        selected: true,
+                                        onSelect: () {},
+                                        leading: AssistantAvatar(
+                                          state: state,
+                                          profile: profile,
+                                          size: 38,
                                         ),
-                                        onRename: () => _rename(chat),
-                                        onDelete: () => _delete(chat),
+                                        trailing: Text(
+                                          conversationDateLabel(
+                                            lastConversation?.updatedAt ?? '',
+                                            now: DateTime.now(),
+                                          ),
+                                          style: const TextStyle(fontSize: 10),
+                                        ),
                                       ),
-                                    );
-                                  },
+                                    ],
+                                  ),
                                 ),
                         ),
                         Expanded(
@@ -468,18 +450,18 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
                                           child: Row(
                                             children: [
                                               if (tab == 0 &&
-                                                  (s?.conversations.any(
-                                                        (chat) =>
-                                                            chat.id ==
-                                                            s.selectedId,
-                                                      ) ??
-                                                      false)) ...[
-                                                SvgPicture.asset(
-                                                  'assets/pets/penguin.svg',
-                                                  width: 48,
-                                                  height: 48,
-                                                  semanticsLabel:
-                                                      'Gennie, avatar de pingüino',
+                                                  (s?.assistantProfile !=
+                                                          null ||
+                                                      (s?.conversations.any(
+                                                            (chat) =>
+                                                                chat.id ==
+                                                                s.selectedId,
+                                                          ) ??
+                                                          false))) ...[
+                                                AssistantAvatar(
+                                                  state: state,
+                                                  profile: s?.assistantProfile,
+                                                  size: 48,
                                                 ),
                                                 const SizedBox(width: 10),
                                               ],
@@ -510,50 +492,57 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
                                     if (tab == 0)
                                       AppTooltip(
                                         label: 'Abrir Gennie Web',
-                                        child: Semantics(
-                                          label: 'Abrir Gennie Web',
-                                          button: true,
-                                          child: IconButton(
-                                            key: const ValueKey('open-browser'),
-                                            onPressed:
-                                                s == null || _openingBrowser
-                                                ? null
-                                                : () async {
-                                                    setState(
-                                                      () => _openingBrowser =
-                                                          true,
-                                                    );
-                                                    await state.perform(
-                                                      state.backend.openBrowser,
-                                                    );
-                                                    if (mounted) {
+                                        child: MergeSemantics(
+                                          child: Semantics(
+                                            label: 'Abrir Gennie Web',
+                                            button: true,
+                                            child: IconButton(
+                                              key: const ValueKey(
+                                                'open-browser',
+                                              ),
+                                              onPressed:
+                                                  s == null || _openingBrowser
+                                                  ? null
+                                                  : () async {
                                                       setState(
                                                         () => _openingBrowser =
-                                                            false,
+                                                            true,
                                                       );
-                                                    }
-                                                  },
-                                            icon: _openingBrowser
-                                                ? const SizedBox(
-                                                    width: 18,
-                                                    height: 18,
-                                                    child:
-                                                        CircularProgressIndicator(
-                                                          strokeWidth: 1.5,
-                                                        ),
-                                                  )
-                                                : SvgPicture.asset(
-                                                    'assets/icons/browser.svg',
-                                                    width: 20,
-                                                    height: 20,
-                                                    colorFilter:
-                                                        ColorFilter.mode(
-                                                          Theme.of(context)
-                                                              .colorScheme
-                                                              .onSurface,
-                                                          BlendMode.srcIn,
-                                                        ),
-                                                  ),
+                                                      await state.perform(
+                                                        state
+                                                            .backend
+                                                            .openBrowser,
+                                                      );
+                                                      if (mounted) {
+                                                        setState(
+                                                          () =>
+                                                              _openingBrowser =
+                                                                  false,
+                                                        );
+                                                      }
+                                                    },
+                                              icon: _openingBrowser
+                                                  ? const SizedBox(
+                                                      width: 18,
+                                                      height: 18,
+                                                      child:
+                                                          CircularProgressIndicator(
+                                                            strokeWidth: 1.5,
+                                                          ),
+                                                    )
+                                                  : SvgPicture.asset(
+                                                      'assets/icons/browser.svg',
+                                                      width: 20,
+                                                      height: 20,
+                                                      colorFilter:
+                                                          ColorFilter.mode(
+                                                            Theme.of(context)
+                                                                .colorScheme
+                                                                .onSurface,
+                                                            BlendMode.srcIn,
+                                                          ),
+                                                    ),
+                                            ),
                                           ),
                                         ),
                                       ),
@@ -564,8 +553,15 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
                                         icon: const Icon(
                                           Icons.more_horiz,
                                           size: 20,
+                                          semanticLabel: 'Opciones del sistema',
                                         ),
                                         onSelected: (action) {
+                                          if (action == 'profile' &&
+                                              s?.assistantProfile != null) {
+                                            final profile =
+                                                s!.assistantProfile!;
+                                            _renameAssistant(profile);
+                                          }
                                           if (action == 'settings') {
                                             showDialog<void>(
                                               context: context,
@@ -575,6 +571,16 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
                                           }
                                         },
                                         itemBuilder: (_) => [
+                                          if (s?.assistantProfile != null)
+                                            PopupMenuItem(
+                                              value: 'profile',
+                                              enabled:
+                                                  state.backend
+                                                      is AssistantChatBackend,
+                                              child: const Text(
+                                                'Personalizar asistente',
+                                              ),
+                                            ),
                                           if (s != null)
                                             PopupMenuItem<String>(
                                               enabled: false,
@@ -598,83 +604,22 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
                                     Expanded(
                                       child: ChatViewport(
                                         enabled: tab == 0,
-                                        child: tab == 1 || messages.isEmpty
+                                        child: s == null
                                             ? _empty(s)
-                                            : Align(
-                                                alignment: Alignment.topCenter,
-                                                child: ConstrainedBox(
-                                                  constraints:
-                                                      const BoxConstraints(
-                                                        maxWidth: 840,
-                                                      ),
-                                                  child: SelectionArea(
-                                                    child: ListView.builder(
-                                                      controller: _scroll,
-                                                      reverse: true,
-                                                      padding:
-                                                          const EdgeInsets.fromLTRB(
-                                                            32,
-                                                            24,
-                                                            32,
-                                                            24,
-                                                          ),
-                                                      itemCount:
-                                                          messages.length,
-                                                      itemBuilder: (context, index) {
-                                                        final chronologicalIndex =
-                                                            messages.length -
-                                                            1 -
-                                                            index;
-                                                        final message =
-                                                            messages[chronologicalIndex];
-                                                        final day =
-                                                            messageLocalDay(
-                                                              message.createdAt,
-                                                            );
-                                                        final previousDay =
-                                                            chronologicalIndex >
-                                                                0
-                                                            ? messageLocalDay(
-                                                                messages[chronologicalIndex -
-                                                                        1]
-                                                                    .createdAt,
-                                                              )
-                                                            : null;
-                                                        return Column(
-                                                          children: [
-                                                            if (day != null &&
-                                                                day !=
-                                                                    previousDay)
-                                                              ChatDayBadge(
-                                                                label: chatDayLabel(
-                                                                  message
-                                                                      .createdAt,
-                                                                  now:
-                                                                      DateTime.now(),
-                                                                ),
-                                                              ),
-                                                            ChatMessage(
-                                                              message: message,
-                                                              state: state,
-                                                              conversationId:
-                                                                  s?.selectedId,
-                                                              onOpenPlugin:
-                                                                  (
-                                                                    id,
-                                                                  ) => setState(
-                                                                    () {
-                                                                      _pluginToOpen =
-                                                                          id;
-                                                                      tab = 1;
-                                                                    },
-                                                                  ),
-                                                            ),
-                                                          ],
-                                                        );
-                                                      },
-                                                    ),
-                                                  ),
-                                                ),
+                                            : ChatTimeline(
+                                                state: state,
+                                                controller: _scroll,
+                                                onReply: (entry) {
+                                                  setState(
+                                                    () => _replySource = entry,
+                                                  );
+                                                  _composerFocus.requestFocus();
+                                                },
+                                                onOpenPlugin: (id) =>
+                                                    setState(() {
+                                                      _pluginToOpen = id;
+                                                      tab = 1;
+                                                    }),
                                               ),
                                       ),
                                     ),
@@ -744,9 +689,7 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
   );
   String _title(Snapshot? s) {
     if (tab == 1) return 'Plugins';
-    for (final chat in s?.conversations ?? <Conversation>[]) {
-      if (chat.id == s?.selectedId) return chat.title;
-    }
+    if (s?.assistantProfile != null) return s!.assistantProfile!.name;
     return 'Gennie';
   }
 
@@ -763,18 +706,9 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
         : null,
   );
   Widget _composer(Snapshot s) {
-    final readonly = s.selectedId != s.activeId;
-    if (readonly) {
-      return Padding(
-        padding: const EdgeInsets.all(20),
-        child: TextButton.icon(
-          onPressed: () =>
-              state.perform(() => state.backend.select(s.activeId)),
-          icon: const Icon(Icons.arrow_forward, size: 16),
-          label: const Text('Volver al chat activo'),
-        ),
-      );
-    }
+    final canStop = s.turn != null && state.backend is TurnCancellationBackend;
+    final stopping =
+        canStop && (s.turn!.stopping || _stopRequested == s.turn!.id);
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 8, 24, 22),
       child: ConstrainedBox(
@@ -782,6 +716,43 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (_replySource != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: MessageQuote(
+                        quote: ReplyQuote(
+                          sourceMessageId: _replySource!.id,
+                          speaker: _replySource!.message.speaker,
+                          text: String.fromCharCodes(
+                            _replySource!.message.text.runes.take(4096),
+                          ),
+                          createdAt: _replySource!.message.createdAt,
+                          truncated:
+                              _replySource!.message.text.runes.length > 4096,
+                        ),
+                        assistantName: s.assistantProfile?.name ?? 'Gennie',
+                      ),
+                    ),
+                    AppTooltip(
+                      label: 'Cancelar respuesta',
+                      child: IconButton(
+                        onPressed: () {
+                          setState(() => _replySource = null);
+                          _composerFocus.requestFocus();
+                        },
+                        icon: const Icon(
+                          Icons.close,
+                          size: 18,
+                          semanticLabel: 'Cancelar respuesta',
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             DecoratedBox(
               decoration: BoxDecoration(
                 color: Colors.grey.withValues(alpha: .14),
@@ -797,37 +768,85 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
                         bindings: {
                           const SingleActivator(LogicalKeyboardKey.enter):
                               _send,
+                          const SingleActivator(LogicalKeyboardKey.numpadEnter):
+                              _send,
+                          const SingleActivator(
+                            LogicalKeyboardKey.enter,
+                            shift: true,
+                          ): _insertNewline,
+                          const SingleActivator(
+                            LogicalKeyboardKey.numpadEnter,
+                            shift: true,
+                          ): _insertNewline,
                         },
-                        child: TextField(
-                          controller: _draft,
-                          minLines: 1,
-                          maxLines: 6,
-                          style: const TextStyle(fontSize: 14),
-                          decoration: const InputDecoration(
-                            hintText: 'Escribe a Gennie…',
-                            filled: false,
-                            border: InputBorder.none,
-                            enabledBorder: InputBorder.none,
-                            focusedBorder: InputBorder.none,
+                        child: Semantics(
+                          label:
+                              'Mensaje para ${s.assistantProfile?.name ?? 'Gennie'}',
+                          child: TextField(
+                            controller: _draft,
+                            focusNode: _composerFocus,
+                            minLines: 1,
+                            maxLines: 6,
+                            style: const TextStyle(fontSize: 14),
+                            decoration: InputDecoration(
+                              hint: ExcludeSemantics(
+                                child: Text(
+                                  'Escribe a Gennie…',
+                                  style: Theme.of(context).textTheme.bodyLarge!
+                                      .copyWith(
+                                        fontSize: 14,
+                                        color: Theme.of(
+                                          context,
+                                        ).colorScheme.onSurfaceVariant,
+                                      ),
+                                ),
+                              ),
+                              filled: false,
+                              border: InputBorder.none,
+                              enabledBorder: InputBorder.none,
+                              focusedBorder: InputBorder.none,
+                            ),
                           ),
                         ),
                       ),
                     ),
                     AppTooltip(
-                      label: 'Enviar mensaje',
+                      label: canStop
+                          ? (stopping
+                                ? 'Deteniendo respuesta'
+                                : 'Detener respuesta')
+                          : 'Enviar mensaje',
                       child: IconButton(
-                        onPressed: s.busy || _sending || s.assistant == null
-                            ? null
-                            : _send,
-                        icon: s.busy
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
+                        key: ValueKey(
+                          canStop ? 'stop-response' : 'send-message',
+                        ),
+                        onPressed: canStop
+                            ? (stopping ? null : _stopResponse)
+                            : (s.busy || _sending || s.assistant == null
+                                  ? null
+                                  : _send),
+                        icon: Semantics(
+                          label: canStop
+                              ? (stopping
+                                    ? 'Deteniendo respuesta'
+                                    : 'Detener respuesta')
+                              : 'Enviar mensaje',
+                          excludeSemantics: true,
+                          child: canStop && !stopping
+                              ? const Icon(Icons.stop_rounded, size: 21)
+                              : s.busy
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(
+                                  Icons.arrow_upward_rounded,
+                                  size: 21,
                                 ),
-                              )
-                            : const Icon(Icons.arrow_upward_rounded, size: 21),
+                        ),
                       ),
                     ),
                   ],
@@ -836,10 +855,17 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
             ),
             const SizedBox(height: 9),
             Text(
-              s.busy
+              stopping
+                  ? 'Deteniendo respuesta…'
+                  : s.busy
                   ? 'Gennie está respondiendo…'
+                  : s.confirmation == 'Respuesta detenida'
+                  ? 'Respuesta detenida · Intro para enviar'
                   : 'Intro para enviar · Mayús + Intro para otra línea',
-              style: const TextStyle(fontSize: 10, color: Color(0xff858585)),
+              style: TextStyle(
+                fontSize: 10,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
             ),
           ],
         ),

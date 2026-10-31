@@ -108,6 +108,15 @@ pub fn validate_active(modules: &[Arc<dyn AppModule>], active: &BTreeSet<String>
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn contextual_guide_starts_before_the_bot_without_becoming_required() {
+        let modules: Vec<Arc<dyn AppModule>> = vec![
+            Arc::new(gennie_llm::LlmModule::default()),
+            Arc::new(gennie_proactivity::ProactivityModule::new(None)),
+        ];
+        assert_eq!(order(&modules).unwrap(), vec![1, 0]);
+        assert!(validate_active(&modules, &BTreeSet::from(["llm".into()])).is_ok());
+    }
     use gennie_core::AppState;
     struct Module(
         &'static str,

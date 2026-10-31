@@ -388,31 +388,35 @@ class RailButton extends StatelessWidget {
       details: details,
       onHover: onTooltipRequested,
       preferRight: true,
-      child: Semantics(
-        button: true,
-        label: label,
-        selected: toggled == null ? selected : null,
-        toggled: toggled,
-        enabled: onPressed != null,
-        child: SizedBox(
-          width: navigation ? 36 : 40,
-          height: navigation ? 36 : 40,
-          child: IconButton(
-            onPressed: onPressed,
-            padding: EdgeInsets.zero,
-            style: ButtonStyle(
-              animationDuration: duration,
-              shape: WidgetStatePropertyAll(
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      child: MergeSemantics(
+        child: Semantics(
+          button: true,
+          label: label,
+          selected: toggled == null ? selected : null,
+          toggled: toggled,
+          enabled: onPressed != null,
+          child: SizedBox(
+            width: navigation ? 36 : 40,
+            height: navigation ? 36 : 40,
+            child: IconButton(
+              onPressed: onPressed,
+              padding: EdgeInsets.zero,
+              style: ButtonStyle(
+                animationDuration: duration,
+                shape: WidgetStatePropertyAll(
+                  RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                backgroundColor: WidgetStateProperty.resolveWith((states) {
+                  if (navigation && selected) return const Color(0x24808080);
+                  return states.contains(WidgetState.hovered)
+                      ? const Color(0x14808080)
+                      : Colors.transparent;
+                }),
               ),
-              backgroundColor: WidgetStateProperty.resolveWith((states) {
-                if (navigation && selected) return const Color(0x24808080);
-                return states.contains(WidgetState.hovered)
-                    ? const Color(0x14808080)
-                    : Colors.transparent;
-              }),
+              icon: glyph,
             ),
-            icon: glyph,
           ),
         ),
       ),

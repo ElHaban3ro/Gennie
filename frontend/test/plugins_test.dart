@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
+import 'capture_output.dart';
 import 'dart:ui' show ImageByteFormat, PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
@@ -521,7 +521,7 @@ void main() {
       ];
       await mount(tester, backend);
       expect(find.text('example.com'), findsNothing);
-      await tester.tap(rail('Historial'));
+      await tester.tap(rail('Chats'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Plugin · example.com'));
       await tester.pumpAndSettle();
@@ -592,7 +592,7 @@ void main() {
       },
     ];
     await mount(tester, backend);
-    await tester.tap(rail('Historial'));
+    await tester.tap(rail('Chats'));
     await tester.pumpAndSettle();
     expect(find.text('Plugin · example.com'), findsOneWidget);
     await tester.tap(find.text('Plugin · example.com'));
@@ -750,7 +750,7 @@ void main() {
     expect(find.text('Abrir sitio en Gennie Web'), findsOneWidget);
     expect(
       find.text(
-        'Abre el sitio y completa la acción solicitada. Después, reanuda la construcción.',
+        'Revisa el mensaje del asistente en el chat de origen antes de continuar.',
       ),
       findsOneWidget,
     );
@@ -816,7 +816,8 @@ void main() {
       expect(find.text('example.com'), findsOneWidget);
       await tester.tap(find.text('example.com'));
       await tester.pumpAndSettle();
-      expect(find.text('Preparación en cola'), findsOneWidget);
+      expect(find.textContaining('Construcción en cola.'), findsOneWidget);
+      expect(find.text('Preparación en cola'), findsNothing);
       expect(find.text('No hay contenido disponible'), findsNothing);
       backend.catalogueStatus = 'ready';
       backend.catalogueError = null;
@@ -875,7 +876,11 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Plugin'), findsOneWidget);
       expect(find.text('https://mail.google.com'), findsOneWidget);
-      expect(find.text('Necesita acceso a la cuenta'), findsOneWidget);
+      expect(
+        find.textContaining('Construcción a la espera de intervención.'),
+        findsOneWidget,
+      );
+      expect(find.text('Necesita acceso a la cuenta'), findsNothing);
       expect(find.text('Reanudar construcción'), findsOneWidget);
       expect(find.text('No hay contenido disponible'), findsNothing);
       await tester.pumpWidget(const SizedBox());
@@ -961,65 +966,70 @@ void main() {
     await mount(tester, backend);
     await tester.tap(find.text('mail.google.com'));
     await tester.pumpAndSettle();
-    expect(find.text('Resultado más reciente'), findsOneWidget);
+    expect(find.textContaining('Construcción detenida.'), findsOneWidget);
+    expect(find.text('Resultado más reciente'), findsNothing);
     expect(find.text('Resumen antiguo'), findsNothing);
     expect(find.text('Actualizado 26/10/2026 · 17:19'), findsOneWidget);
     expect(find.text('Bloqueado'), findsWidgets);
     expect(find.text('Construyendo'), findsNothing);
     await tester.pumpWidget(const SizedBox());
   });
-  testWidgets('el último bloqueo muestra su paso y permite volver a generar', (
-    tester,
-  ) async {
-    final backend = PluginsBackend()..records = [];
-    backend.jobs = [
-      {
-        'id': 4,
-        'plugin_id': 'mail',
-        'origin': 'https://mail.google.com',
-        'objective': 'Revisar correo',
-        'state': 'blocked',
-        'summary': 'Bloqueo anterior',
-        'trigger_conversation_id': 7,
-        'attempts': 1,
-        'max_attempts': 4,
-        'max_seconds': 600,
-      },
-      {
-        'id': 5,
-        'plugin_id': 'mail',
-        'origin': 'https://mail.google.com',
-        'objective': 'Revisar correo',
-        'state': 'blocked',
-        'summary': 'No se puede archivar',
-        'spent_seconds': 29,
-        'trigger_conversation_id': 7,
-        'attempts': 2,
-        'max_attempts': 4,
-        'max_seconds': 600,
-        'events': [
-          {
-            'message': 'Última comprobación: lectura parcial',
-            'created_at': '2026-10-26T22:19:20Z',
-          },
-        ],
-      },
-    ];
-    await mount(tester, backend);
-    await tester.tap(find.text('mail.google.com'));
-    await tester.pumpAndSettle();
-    expect(find.text('No se puede archivar'), findsOneWidget);
-    expect(find.text('Tiempo de construcción: 29 s'), findsOneWidget);
-    expect(find.text('Última comprobación: lectura parcial'), findsOneWidget);
-    expect(find.text('Bloqueo anterior'), findsNothing);
-    await tester.tap(find.text('Volver a generar'));
-    await tester.pumpAndSettle();
-    final request = backend.requests.singleWhere((r) => r['action'] == 'build');
-    expect(request['request']['objective'], 'Revisar correo');
-    expect(request['request']['retry_of'], 5);
-    expect(request['trigger_conversation_id'], 7);
-    await tester.pumpWidget(const SizedBox());
-  });
+  testWidgets(
+    'el último bloqueo conserva estado sin narración técnica y permite volver a generar',
+    (tester) async {
+      final backend = PluginsBackend()..records = [];
+      backend.jobs = [
+        {
+          'id': 4,
+          'plugin_id': 'mail',
+          'origin': 'https://mail.google.com',
+          'objective': 'Revisar correo',
+          'state': 'blocked',
+          'summary': 'Bloqueo anterior',
+          'trigger_conversation_id': 7,
+          'attempts': 1,
+          'max_attempts': 4,
+          'max_seconds': 600,
+        },
+        {
+          'id': 5,
+          'plugin_id': 'mail',
+          'origin': 'https://mail.google.com',
+          'objective': 'Revisar correo',
+          'state': 'blocked',
+          'summary': 'No se puede archivar',
+          'spent_seconds': 29,
+          'trigger_conversation_id': 7,
+          'attempts': 2,
+          'max_attempts': 4,
+          'max_seconds': 600,
+          'events': [
+            {
+              'message': 'Última comprobación: lectura parcial',
+              'created_at': '2026-10-26T22:19:20Z',
+            },
+          ],
+        },
+      ];
+      await mount(tester, backend);
+      await tester.tap(find.text('mail.google.com'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Construcción detenida.'), findsOneWidget);
+      expect(find.text('No se puede archivar'), findsNothing);
+      expect(find.text('Tiempo de construcción: 29 s'), findsOneWidget);
+      expect(find.text('Última comprobación: lectura parcial'), findsNothing);
+      expect(find.text('Bloqueo anterior'), findsNothing);
+      await tester.tap(find.text('Volver a generar'));
+      await tester.pumpAndSettle();
+      final request = backend.requests.singleWhere(
+        (r) => r['action'] == 'build',
+      );
+      expect(request['request']['objective'], 'Revisar correo');
+      expect(request['request']['retry_of'], 5);
+      expect(request['trigger_conversation_id'], 7);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
   testWidgets(
     'la construcción activa muestra actividad y edad de la solicitud',
     (tester) async {
@@ -1050,7 +1060,8 @@ void main() {
       expect(find.byType(CircularProgressIndicator), findsNWidgets(2));
       expect(find.text('Construyendo'), findsNWidgets(2));
       expect(find.text('Solicitud: hace 3 min'), findsOneWidget);
-      expect(find.text('Revisando acceso'), findsOneWidget);
+      expect(find.textContaining('Preparación en curso.'), findsOneWidget);
+      expect(find.text('Revisando acceso'), findsNothing);
       backend.jobs.first['state'] = 'blocked';
       await tester.tap(find.byIcon(Icons.refresh));
       await tester.pump();
@@ -1102,8 +1113,9 @@ void main() {
             final bytes = (await image.toByteData(
               format: ImageByteFormat.png,
             ))!.buffer.asUint8List();
-            await File(
-              '../.verification/plugins-job-${brightness.name}-${size.width.toInt()}.png',
+            await captureOutput(
+              '../.verification',
+              'plugins-job-${brightness.name}-${size.width.toInt()}.png',
             ).writeAsBytes(bytes);
             image.dispose();
           });
@@ -1112,69 +1124,100 @@ void main() {
       });
     }
   }
-  testWidgets('Un trabajo terminado conserva sus pasos de investigación', (
-    tester,
-  ) async {
-    final published = record();
-    final manifest = published['manifest'] as Map;
-    manifest['id'] = 'mail';
-    manifest['name'] = 'mail.example.com';
-    manifest['origin'] = 'https://mail.example.com';
-    final backend = PluginsBackend()..records = [published];
-    backend.jobs = [
-      {
-        'id': 11,
-        'plugin_id': 'mail',
-        'origin': 'https://mail.example.com',
-        'state': 'completed',
-        'summary': 'Funciones verificadas',
-        'trigger_conversation_id': 7,
-        'attempts': 2,
-        'max_attempts': 4,
-        'events': [
-          {
-            'id': 1,
-            'message': 'Investigando la petición de mensajes',
-            'created_at': '2026-10-26T12:00:00Z',
+  testWidgets(
+    'un trabajo terminado presenta su actividad confirmada por el bot',
+    (tester) async {
+      final published = record();
+      final manifest = published['manifest'] as Map;
+      manifest['id'] = 'mail';
+      manifest['name'] = 'mail.example.com';
+      manifest['origin'] = 'https://mail.example.com';
+      final backend = PluginsBackend()..records = [published];
+      backend.jobs = [
+        {
+          'id': 11,
+          'plugin_id': 'mail',
+          'origin': 'https://mail.example.com',
+          'state': 'completed',
+          'summary': 'Funciones verificadas',
+          'bot_presentation': {
+            'status': 'ready',
+            'messages': [
+              {
+                'message_id': 101,
+                'sequence': 1,
+                'text': 'Estoy comprobando la petición de mensajes.',
+                'created_at': '2026-10-26T12:00:00Z',
+              },
+              {
+                'message_id': 102,
+                'sequence': 2,
+                'text': 'Comprobé la extracción web.',
+                'created_at': '2026-10-26T12:01:00Z',
+              },
+            ],
           },
-          {
-            'id': 2,
-            'message': 'Extracción web verificada',
-            'created_at': '2026-10-26T12:01:00Z',
-          },
-        ],
-      },
-    ];
-    final capture = GlobalKey();
-    await mount(tester, backend, boundary: capture);
-    await tester.tap(find.text('mail.example.com'));
-    await tester.pumpAndSettle();
-    expect(find.text('mail.example.com · Completado'), findsOneWidget);
-    await tester.ensureVisible(find.text('Pasos de investigación'));
-    await tester.tap(find.text('Pasos de investigación'));
-    await tester.pumpAndSettle();
-    expect(
-      find.textContaining('1. Investigando la petición de mensajes'),
-      findsOneWidget,
-    );
-    expect(find.textContaining('2. Extracción web verificada'), findsOneWidget);
-    expect(find.text('Reanudar construcción'), findsNothing);
-    expect(find.text('Abrir sitio en Gennie Web'), findsNothing);
-    expect(tester.takeException(), isNull);
-    if (const bool.fromEnvironment('CAPTURE_UI')) {
-      final boundary =
-          capture.currentContext!.findRenderObject()! as RenderRepaintBoundary;
-      await tester.runAsync(() async {
-        final image = await boundary.toImage();
-        final bytes = await image.toByteData(format: ImageByteFormat.png);
-        await File(
-          '../.verification/plugins-investigation.png',
-        ).writeAsBytes(bytes!.buffer.asUint8List());
-        image.dispose();
-      });
-    }
-    await tester.pumpWidget(const SizedBox());
-  });
+          'trigger_conversation_id': 7,
+          'attempts': 2,
+          'max_attempts': 4,
+          'events': [
+            {
+              'id': 1,
+              'message': 'Investigando la petición de mensajes',
+              'created_at': '2026-10-26T12:00:00Z',
+            },
+            {
+              'id': 2,
+              'message': 'Extracción web verificada',
+              'created_at': '2026-10-26T12:01:00Z',
+            },
+          ],
+        },
+      ];
+      final capture = GlobalKey();
+      await mount(tester, backend, boundary: capture);
+      await tester.tap(find.text('mail.example.com'));
+      await tester.pumpAndSettle();
+      expect(find.text('mail.example.com · Completado'), findsOneWidget);
+      await tester.ensureVisible(
+        find.textContaining('Últimas actualizaciones de'),
+      );
+      await tester.tap(find.textContaining('Últimas actualizaciones de'));
+      await tester.pumpAndSettle();
+      expect(
+        find.textContaining('1. Estoy comprobando la petición de mensajes.'),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('2. Comprobé la extracción web.'),
+        findsOneWidget,
+      );
+      expect(find.text('Funciones verificadas'), findsNothing);
+      expect(
+        find.textContaining('Investigando la petición de mensajes'),
+        findsNothing,
+      );
+      expect(find.textContaining('Extracción web verificada'), findsNothing);
+      expect(find.text('Reanudar construcción'), findsNothing);
+      expect(find.text('Abrir sitio en Gennie Web'), findsNothing);
+      expect(tester.takeException(), isNull);
+      if (const bool.fromEnvironment('CAPTURE_UI')) {
+        final boundary =
+            capture.currentContext!.findRenderObject()!
+                as RenderRepaintBoundary;
+        await tester.runAsync(() async {
+          final image = await boundary.toImage();
+          final bytes = await image.toByteData(format: ImageByteFormat.png);
+          await captureOutput(
+            '../.verification',
+            'plugins-investigation.png',
+          ).writeAsBytes(bytes!.buffer.asUint8List());
+          image.dispose();
+        });
+      }
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
   for (final brightness in Brightness.values) {
     for (final size in [const Size(1100, 720), const Size(640, 420)]) {
       testWidgets('ficha utilizable ${brightness.name} ${size.width}', (
@@ -1202,8 +1245,9 @@ void main() {
             final bytes = (await image.toByteData(
               format: ImageByteFormat.png,
             ))!.buffer.asUint8List();
-            final file = File(
-              '../.verification/plugins-${brightness.name}-${size.width.toInt()}.png',
+            final file = captureOutput(
+              '../.verification',
+              'plugins-${brightness.name}-${size.width.toInt()}.png',
             );
             await file.parent.create(recursive: true);
             await file.writeAsBytes(bytes);

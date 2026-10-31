@@ -6,6 +6,245 @@ use std::{
     process::{Command, Stdio},
 };
 #[test]
+fn stdio_preserves_parse_errors_null_ids_and_notifications_without_closing() {
+    use std::{
+        sync::mpsc,
+        time::{Duration, Instant},
+    };
+    let mut server = gennie_mcp::Server::start(
+        gennie_mcp::Registry::default(),
+        std::path::Path::new(env!("CARGO_BIN_EXE_gennie")),
+    )
+    .unwrap();
+    let launch = server.launch();
+    let mut child = Command::new(&launch.helper)
+        .arg("--mcp")
+        .arg(&launch.socket)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut input = child.stdin.take().unwrap();
+    let output = child.stdout.take().unwrap();
+    let (sender, replies) = mpsc::channel();
+    let reader = std::thread::spawn(move || {
+        for line in BufReader::new(output)
+            .lines()
+            .map_while(std::result::Result::ok)
+        {
+            if sender.send(line).is_err() {
+                break;
+            }
+        }
+    });
+    let result = (|| -> Result<(), String> {
+        for (request, expected) in [
+            ("{broken", Some(-32700)),
+            ("42", Some(-32600)),
+            (r#"{"jsonrpc":"1.0","method":"ping"}"#, Some(-32600)),
+            (r#"{"jsonrpc":"2.0","id":null,"method":"ping"}"#, None),
+        ] {
+            writeln!(input, "{request}").map_err(|e| e.to_string())?;
+            input.flush().map_err(|e| e.to_string())?;
+            let line = replies
+                .recv_timeout(Duration::from_secs(2))
+                .map_err(|e| e.to_string())?;
+            let response: Value = serde_json::from_str(&line).map_err(|e| e.to_string())?;
+            if response["id"] != Value::Null {
+                return Err("El error alteró id=null".into());
+            }
+            if let Some(code) = expected {
+                if response["error"]["code"] != code {
+                    return Err("Falta error del protocolo".into());
+                }
+            } else if response["result"] != json!({}) {
+                return Err("Falta respuesta ping con id=null".into());
+            }
+        }
+        writeln!(
+            input,
+            "{}\n{}",
+            json!({"jsonrpc":"2.0","method":"notifications/initialized"}),
+            json!({"jsonrpc":"2.0","id":7,"method":"ping"})
+        )
+        .map_err(|e| e.to_string())?;
+        input.flush().map_err(|e| e.to_string())?;
+        let line = replies
+            .recv_timeout(Duration::from_secs(2))
+            .map_err(|e| e.to_string())?;
+        let response: Value = serde_json::from_str(&line).map_err(|e| e.to_string())?;
+        if response["id"] != 7 || response["result"] != json!({}) {
+            return Err("La notificación consumió otra respuesta".into());
+        }
+        Ok(())
+    })();
+    drop(input);
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while child.try_wait().unwrap().is_none() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    if child.try_wait().unwrap().is_none() {
+        let _ = child.kill();
+    }
+    let _ = child.wait();
+    reader.join().unwrap();
+    server.stop().unwrap();
+    result.unwrap();
+}
+#[test]
+fn helper_eof_cancels_host_context_even_with_a_blocked_output_consumer() {
+    use std::{
+        sync::{Arc, Mutex},
+        time::{Duration, Instant},
+    };
+    for blocked_output in [false, true] {
+        let observed = Arc::new(Mutex::new(None::<gennie_mcp::CallContext>));
+        let captured = observed.clone();
+        let mut registry = gennie_mcp::Registry::default();
+        registry
+            .register([gennie_mcp::ContextTool {
+                definition: json!({"name":"wait"}),
+                call: Box::new(move |_, context| {
+                    *captured.lock().unwrap() = Some(context.clone());
+                    if blocked_output {
+                        return Ok(json!({"payload":"x".repeat(1024 * 1024)}));
+                    }
+                    while !context.is_cancelled() {
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
+                    context.check()?;
+                    Ok(json!({}))
+                }),
+            }])
+            .unwrap();
+        let mut server =
+            gennie_mcp::Server::start(registry, std::path::Path::new(env!("CARGO_BIN_EXE_gennie")))
+                .unwrap();
+        let launch = server.launch();
+        let mut child = Command::new(&launch.helper)
+            .arg("--mcp")
+            .arg(&launch.socket)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let mut input = child.stdin.take().unwrap();
+        writeln!(
+            input,
+            "{}",
+            json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"wait"}})
+        )
+        .unwrap();
+        input.flush().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while observed.lock().unwrap().is_none() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let context = observed.lock().unwrap().clone();
+        if blocked_output {
+            // Conserva stdout abierto sin consumir una respuesta mayor que el pipe.
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        drop(input);
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let mut exited = false;
+        while Instant::now() < deadline {
+            if child.try_wait().unwrap().is_some() {
+                exited = true;
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        if !exited {
+            let _ = child.kill();
+        }
+        let _ = child.wait();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while context.as_ref().is_some_and(|c| !c.is_cancelled()) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        server.stop().unwrap();
+        assert!(
+            exited,
+            "El helper quedó retenido por la respuesta o por stdout"
+        );
+        assert!(context.unwrap().is_cancelled());
+    }
+}
+#[test]
+fn helper_observes_stdin_eof_while_waiting_for_a_tool_response() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+    use std::time::{Duration, Instant};
+    let entered = Arc::new(AtomicBool::new(false));
+    let release = Arc::new(AtomicBool::new(false));
+    let saw = entered.clone();
+    let done = release.clone();
+    let mut registry = gennie_mcp::Registry::default();
+    registry
+        .register([gennie_mcp::Tool {
+            definition: json!({"name":"wait"}),
+            call: Box::new(move |_| {
+                saw.store(true, Ordering::Release);
+                while !done.load(Ordering::Acquire) {
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                Ok(json!({"fixture":true}))
+            }),
+        }])
+        .unwrap();
+    let mut server =
+        gennie_mcp::Server::start(registry, std::path::Path::new(env!("CARGO_BIN_EXE_gennie")))
+            .unwrap();
+    let launch = server.launch();
+    let mut child = Command::new(&launch.helper)
+        .arg("--mcp")
+        .arg(&launch.socket)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut input = child.stdin.take().unwrap();
+    writeln!(
+        input,
+        "{}",
+        json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"wait"}})
+    )
+    .unwrap();
+    input.flush().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while !entered.load(Ordering::Acquire) && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let started = entered.load(Ordering::Acquire);
+    drop(input);
+    let deadline = Instant::now() + Duration::from_millis(700);
+    let mut exited = false;
+    while Instant::now() < deadline {
+        if child.try_wait().unwrap().is_some() {
+            exited = true;
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    release.store(true, Ordering::Release);
+    if !exited {
+        let _ = child.kill();
+    }
+    let _ = child.wait();
+    server.stop().unwrap();
+    assert!(started, "No llegó la petición ficticia");
+    assert!(
+        exited,
+        "El helper ignoró EOF mientras esperaba la respuesta de la herramienta"
+    );
+}
+#[test]
 fn stdio_registers_reads_and_edits_on_the_hosts_single_database() {
     let db = gennie_db::Database::memory().unwrap();
     db.migrate(
@@ -43,7 +282,14 @@ fn stdio_registers_reads_and_edits_on_the_hosts_single_database() {
     );
     assert_eq!(init["result"]["protocolVersion"], "2025-06-18");
     let listed = call(json!({"jsonrpc":"2.0","id":2,"method":"tools/list"}));
-    assert_eq!(listed["result"]["tools"].as_array().unwrap().len(), 4);
+    let tools = listed["result"]["tools"].as_array().unwrap();
+    assert_eq!(tools.len(), 6);
+    assert!(
+        tools
+            .iter()
+            .any(|tool| tool["name"] == "assignments_execution_get"
+                && tool["annotations"]["readOnlyHint"] == true)
+    );
     let document = json!({"title":"Investigar autos autónomos","description":"Preparar investigación sobre IA en autos autónomos","kind":"goal","priority":"normal","status":"active","timezone":"America/Bogota","applications":[],"preparation":{"steps":["Reunir fuentes primarias"]}});
     let saved = call(
         json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"assignments_create","arguments":{"request_key":"integration","document":document}}}),

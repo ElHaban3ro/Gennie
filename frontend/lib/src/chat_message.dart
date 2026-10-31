@@ -5,6 +5,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'backend.dart';
+import 'message_quote.dart';
+import 'message_actions.dart';
+import 'tool_evidence.dart';
+import 'assignment_execution.dart';
 
 DateTime? messageLocalDay(String timestamp) {
   final date = DateTime.tryParse(timestamp)?.toLocal();
@@ -99,7 +103,20 @@ class ChatMessage extends StatelessWidget {
     this.state,
     this.conversationId,
     this.onOpenPlugin,
+    this.onReply,
+    this.quote,
+    this.onOpenQuote,
+    this.focusNode,
+    this.tools = const [],
+    this.delegation,
+    this.execution,
   });
+  final VoidCallback? onReply, onOpenQuote;
+  final FocusNode? focusNode;
+  final ReplyQuote? quote;
+  final List<ToolCall> tools;
+  final DelegationCall? delegation;
+  final ExecutionCall? execution;
   final Message message;
   final DesktopState? state;
   final String? conversationId;
@@ -123,133 +140,253 @@ class ChatMessage extends StatelessWidget {
         ? message.text
         : message.text.substring(pluginPrefix.end);
     final time = messageTimeLabel(message.createdAt);
-    return LayoutBuilder(
-      builder: (context, constraints) => Padding(
-        padding: const EdgeInsets.only(bottom: 24),
-        child: Align(
-          alignment: user ? Alignment.centerRight : Alignment.centerLeft,
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(16),
-            child: BackdropFilter(
-              filter: ui.ImageFilter.blur(sigmaX: 4, sigmaY: 4),
-              // Sustituir el fondo filtrado: srcOver conserva el patrón nítido
-              // al componer sobre el canvas transparente de macOS.
-              blendMode: BlendMode.src,
-              child: Container(
-                constraints: BoxConstraints(
-                  minWidth: constraints.maxWidth * .4,
-                  maxWidth: constraints.maxWidth * .7,
-                ),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 12,
-                ),
-                decoration: BoxDecoration(
-                  color: user
-                      ? const Color(0x24D6AD42)
-                      : const Color(0x14808080),
+    return MessageActions(
+      onReply: onReply,
+      focusNode: focusNode,
+      child: LayoutBuilder(
+        builder: (context, constraints) => Padding(
+          padding: const EdgeInsets.only(bottom: 24),
+          child: Align(
+            alignment: user ? Alignment.centerRight : Alignment.centerLeft,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: user
+                  ? CrossAxisAlignment.end
+                  : CrossAxisAlignment.start,
+              children: [
+                ClipRRect(
                   borderRadius: BorderRadius.circular(16),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Flexible(
-                      child: Column(
+                  child: BackdropFilter(
+                    filter: ui.ImageFilter.blur(sigmaX: 4, sigmaY: 4),
+                    // Sustituir el fondo filtrado: srcOver conserva el patrón nítido
+                    // al componer sobre el canvas transparente de macOS.
+                    blendMode: BlendMode.src,
+                    child: Container(
+                      constraints: BoxConstraints(
+                        minWidth: constraints.maxWidth * .4,
+                        maxWidth: constraints.maxWidth * .7,
+                      ),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
+                      decoration: BoxDecoration(
+                        color: user
+                            ? const Color(0x24D6AD42)
+                            : const Color(0x14808080),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Row(
                         mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
-                          if (system)
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 6),
-                              child:
-                                  pluginLabel != null &&
-                                      state != null &&
-                                      conversationId != null &&
-                                      onOpenPlugin != null
-                                  ? _PluginSender(
-                                      label: pluginLabel,
-                                      message: message,
-                                      state: state!,
-                                      conversationId: conversationId!,
-                                      onOpen: onOpenPlugin!,
-                                    )
-                                  : Text(
-                                      pluginLabel ??
-                                          (message.createdAt.isEmpty
-                                              ? 'Sistema · sin guardar'
-                                              : 'Sistema'),
-                                      style: const TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w600,
+                          Flexible(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                if (quote != null)
+                                  Padding(
+                                    padding: const EdgeInsets.only(bottom: 8),
+                                    child: MessageQuote(
+                                      quote: quote!,
+                                      assistantName:
+                                          state
+                                              ?.snapshot
+                                              ?.assistantProfile
+                                              ?.name ??
+                                          'Gennie',
+                                      onOpen: onOpenQuote,
+                                    ),
+                                  ),
+                                if (system)
+                                  Padding(
+                                    padding: const EdgeInsets.only(bottom: 6),
+                                    child:
+                                        pluginLabel != null &&
+                                            state != null &&
+                                            conversationId != null &&
+                                            onOpenPlugin != null
+                                        ? _PluginSender(
+                                            label: pluginLabel,
+                                            message: message,
+                                            state: state!,
+                                            conversationId: conversationId!,
+                                            onOpen: onOpenPlugin!,
+                                          )
+                                        : Text(
+                                            pluginLabel ??
+                                                (message.createdAt.isEmpty
+                                                    ? 'Sistema · sin guardar'
+                                                    : 'Sistema'),
+                                            style: const TextStyle(
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                  ),
+                                if (((system && pluginPrefix != null) ||
+                                        delegation != null) &&
+                                    state != null &&
+                                    conversationId != null)
+                                  _PluginActions(
+                                    delegation: delegation,
+                                    onOpenPlugin: onOpenPlugin,
+                                    message: message,
+                                    state: state!,
+                                    conversationId: conversationId!,
+                                    displayText: displayText,
+                                  )
+                                else if (user || system)
+                                  Text(
+                                    displayText,
+                                    style: const TextStyle(
+                                      fontSize: 14,
+                                      height: 1.65,
+                                    ),
+                                  )
+                                else
+                                  MarkdownBody(
+                                    data: displayText,
+                                    selectable: false,
+                                    styleSheet: MarkdownStyleSheet(
+                                      p: const TextStyle(
+                                        fontFamily: 'Inter',
+                                        fontSize: 14,
+                                        height: 1.65,
                                       ),
                                     ),
+                                    onTapLink: (text, href, title) {
+                                      final uri = Uri.tryParse(href ?? '');
+                                      if (uri != null &&
+                                          [
+                                            'https',
+                                            'http',
+                                          ].contains(uri.scheme)) {
+                                        unawaited(
+                                          launchUrl(
+                                            uri,
+                                            mode:
+                                                LaunchMode.externalApplication,
+                                          ),
+                                        );
+                                      }
+                                    },
+                                  ),
+                                if (message.interruption != null)
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 6),
+                                    child: Semantics(
+                                      liveRegion: true,
+                                      child: Text(
+                                        '${message.interruption == MessageInterruption.cancelled ? 'Respuesta detenida' : 'Respuesta interrumpida'}${message.createdAt.isEmpty ? ' · sin guardar' : ''}',
+                                        key: const ValueKey(
+                                          'message-interruption',
+                                        ),
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: Theme.of(
+                                            context,
+                                          ).colorScheme.onSurfaceVariant,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                              ],
                             ),
-                          if (system &&
-                              pluginPrefix != null &&
-                              state != null &&
-                              conversationId != null)
-                            _PluginActions(
-                              message: message,
-                              state: state!,
-                              conversationId: conversationId!,
-                              displayText: displayText,
-                            )
-                          else if (user || system)
-                            Text(
-                              displayText,
-                              style: const TextStyle(
-                                fontSize: 14,
-                                height: 1.65,
-                              ),
-                            )
-                          else
-                            MarkdownBody(
-                              data: displayText,
-                              selectable: false,
-                              styleSheet: MarkdownStyleSheet(
-                                p: const TextStyle(
-                                  fontFamily: 'Inter',
-                                  fontSize: 14,
-                                  height: 1.65,
+                          ),
+                          if (time.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(left: 12),
+                              child: Transform.translate(
+                                offset: const Offset(0, 6),
+                                child: Text(
+                                  time,
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurface
+                                        .withValues(alpha: .5),
+                                  ),
                                 ),
                               ),
-                              onTapLink: (text, href, title) {
-                                final uri = Uri.tryParse(href ?? '');
-                                if (uri != null &&
-                                    ['https', 'http'].contains(uri.scheme)) {
-                                  unawaited(
-                                    launchUrl(
-                                      uri,
-                                      mode: LaunchMode.externalApplication,
-                                    ),
-                                  );
-                                }
-                              },
                             ),
                         ],
                       ),
                     ),
-                    if (time.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(left: 12),
-                        child: Transform.translate(
-                          offset: const Offset(0, 6),
-                          child: Text(
-                            time,
+                  ),
+                ),
+                if ((delegation != null || execution != null) &&
+                    state?.snapshot?.activeId != null &&
+                    conversationId != state!.snapshot!.activeId)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text(
+                      'Actualización de una conversación anterior',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                if (execution != null && state != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxWidth: constraints.maxWidth * .7,
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            switch (execution!.state) {
+                              'succeeded' => 'La función informó éxito',
+                              'uncertain' => 'Resultado sin confirmar',
+                              'rejected' => 'Operación no enviada',
+                              'skipped' => 'Ocurrencia omitida',
+                              _ => 'Ocurrencia cancelada',
+                            },
                             style: TextStyle(
-                              fontSize: 10,
+                              fontSize: 11,
                               color: Theme.of(
                                 context,
-                              ).colorScheme.onSurface.withValues(alpha: .5),
+                              ).colorScheme.onSurfaceVariant,
                             ),
                           ),
-                        ),
+                          TextButton(
+                            onPressed: state!.backend is ExecutionBackend
+                                ? () => showExecutionRun(
+                                    context,
+                                    state!,
+                                    int.parse(execution!.runId),
+                                    expected: execution,
+                                    onOpenPlugin: onOpenPlugin,
+                                  )
+                                : null,
+                            child: const Text('Ver ejecución del encargo'),
+                          ),
+                        ],
                       ),
-                  ],
-                ),
-              ),
+                    ),
+                  ),
+                if (tools.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxWidth: constraints.maxWidth * .7,
+                      ),
+                      child: ToolEvidence(
+                        calls: tools,
+                        onOpenPlugin: onOpenPlugin,
+                        onRequest: user,
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
         ),
@@ -266,11 +403,15 @@ class _PluginActions extends StatefulWidget {
     required this.state,
     required this.conversationId,
     required this.displayText,
+    this.delegation,
+    this.onOpenPlugin,
   });
+  final ValueChanged<String>? onOpenPlugin;
   final Message message;
   final DesktopState state;
   final String conversationId;
   final String displayText;
+  final DelegationCall? delegation;
   @override
   State<_PluginActions> createState() => _PluginActionsState();
 }
@@ -297,7 +438,8 @@ class _PluginActionsState extends State<_PluginActions> {
     }
     if (oldWidget.message != widget.message ||
         oldWidget.conversationId != widget.conversationId ||
-        oldWidget.state != widget.state) {
+        oldWidget.state != widget.state ||
+        oldWidget.delegation != widget.delegation) {
       refresh();
     }
   }
@@ -312,42 +454,65 @@ class _PluginActionsState extends State<_PluginActions> {
     final version = ++generation;
     final backend = widget.state.backend;
     if (backend is! PluginBackend ||
-        !widget.message.text.startsWith('Plugin')) {
+        (widget.delegation == null &&
+            !widget.message.text.startsWith('Plugin'))) {
       return;
     }
     try {
+      final reference = widget.delegation;
+      final jobId = int.tryParse(reference?.jobId ?? '');
+      if (reference != null && (jobId == null || jobId <= 0)) {
+        if (mounted && version == generation) setState(() => job = null);
+        return;
+      }
       final data =
           jsonDecode(
                 await (backend as PluginBackend).pluginRequest(
-                  jsonEncode({'action': 'list'}),
+                  jsonEncode(
+                    reference == null
+                        ? {'action': 'list'}
+                        : {'action': 'get_job', 'job_id': jobId},
+                  ),
                 ),
               )
               as Map;
       final legacy = RegExp(
         r'^Plugin · trabajo ([0-9]+): ',
       ).firstMatch(widget.message.text);
-      final allJobs = (data['jobs'] as List? ?? []).whereType<Map>().toList();
+      final allJobs = reference == null
+          ? (data['jobs'] as List? ?? []).whereType<Map>().toList()
+          : [if (data['job'] is Map) data['job'] as Map];
       final matches = allJobs.where((j) {
         if ('${j['trigger_conversation_id']}' != widget.conversationId ||
             ![
               'waiting_user',
               'interrupted',
               'cancelled',
+              if (widget.delegation != null) 'completed',
             ].contains(j['state'])) {
           return false;
         }
         if (j['state'] == 'cancelled' &&
-            allJobs.any(
-              (other) =>
-                  other['plugin_id'] == j['plugin_id'] &&
-                  [
-                    'queued',
-                    'running',
-                    'waiting_user',
-                    'interrupted',
-                  ].contains(other['state']),
-            )) {
+            (data['has_live_successor'] == true ||
+                allJobs.any(
+                  (other) =>
+                      other['plugin_id'] == j['plugin_id'] &&
+                      [
+                        'queued',
+                        'running',
+                        'waiting_user',
+                        'interrupted',
+                      ].contains(other['state']),
+                ))) {
           return false;
+        }
+        final delegation = widget.delegation;
+        if (delegation != null) {
+          final events = (j['events'] as List? ?? []).whereType<Map>().toList();
+          return '${j['id']}' == delegation.jobId &&
+              j['plugin_id'] == delegation.pluginId &&
+              events.isNotEmpty &&
+              '${events.last['id']}' == delegation.sourceSequence;
         }
         if (legacy != null) {
           return '${j['id']}' == legacy.group(1) &&
@@ -451,7 +616,25 @@ class _PluginActionsState extends State<_PluginActions> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(text, style: const TextStyle(fontSize: 14, height: 1.65)),
+        if (widget.delegation != null)
+          MarkdownBody(
+            data: text,
+            styleSheet: MarkdownStyleSheet(
+              p: const TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 14,
+                height: 1.65,
+              ),
+            ),
+            onTapLink: (_, href, _) {
+              final uri = Uri.tryParse(href ?? '');
+              if (uri != null && ['https', 'http'].contains(uri.scheme)) {
+                unawaited(launchUrl(uri, mode: LaunchMode.externalApplication));
+              }
+            },
+          )
+        else
+          Text(text, style: const TextStyle(fontSize: 14, height: 1.65)),
         if (job != null)
           Padding(
             padding: const EdgeInsets.only(top: 10),
@@ -459,6 +642,17 @@ class _PluginActionsState extends State<_PluginActions> {
               spacing: 8,
               runSpacing: 8,
               children: [
+                if (job!['state'] == 'completed' &&
+                    widget.delegation != null &&
+                    widget.onOpenPlugin != null)
+                  TextButton(
+                    onPressed: busy
+                        ? null
+                        : () =>
+                              widget.onOpenPlugin!(widget.delegation!.pluginId),
+                    style: buttonStyle,
+                    child: const Text('Ver plugin'),
+                  ),
                 if (job!['state'] == 'cancelled')
                   TextButton(
                     onPressed: busy ? null : () => act('rebuild'),
