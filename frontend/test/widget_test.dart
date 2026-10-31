@@ -230,7 +230,12 @@ class FakeBackend implements DesktopBackend, AssistantChatBackend {
   @override
   Future<void> shutdown() async {}
   @override
-  Future<Snapshot> newChat() async => value;
+  Future<Snapshot> newChat() async {
+    newChats++;
+    return value;
+  }
+
+  int newChats = 0;
   @override
   Future<Snapshot> connect() async => value;
   int browserOpens = 0;
@@ -325,6 +330,27 @@ String draft(WidgetTester tester) =>
     tester.widget<TextField>(composer()).controller!.text;
 
 void main() {
+  testWidgets('nueva conversación está en la cabecera del chat', (
+    tester,
+  ) async {
+    final (fake, _) = await mount(tester, size: const Size(640, 420));
+    final button = find.byKey(const ValueKey('new-chat'));
+    expect(
+      find.ancestor(
+        of: button,
+        matching: find.byKey(const ValueKey('chat-header')),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      tester.getCenter(button).dx,
+      lessThan(tester.getCenter(find.byKey(const ValueKey('open-browser'))).dx),
+    );
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+    expect(fake.newChats, 1);
+  });
+
   testWidgets('navegador junto al menú, bloqueo pendiente y error visible', (
     tester,
   ) async {

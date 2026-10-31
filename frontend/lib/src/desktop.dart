@@ -372,10 +372,6 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
                         AppSidebar(
                           width: width,
                           title: 'Chats',
-                          actionLabel: 'Nueva conversación',
-                          onAction: s?.assistant != null && !s!.busy
-                              ? () => state.perform(state.backend.newChat)
-                              : null,
                           searchController: _historySearch,
                           searchHint: 'Buscar asistentes…',
                           searchKey: const ValueKey('history-search'),
@@ -486,6 +482,23 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
                                               ),
                                             ],
                                           ),
+                                        ),
+                                      ),
+                                    ),
+                                    AppTooltip(
+                                      label: 'Nueva conversación',
+                                      child: IconButton(
+                                        key: const ValueKey('new-chat'),
+                                        onPressed:
+                                            s?.assistant != null && !s!.busy
+                                            ? () => state.perform(
+                                                state.backend.newChat,
+                                              )
+                                            : null,
+                                        icon: const Icon(
+                                          Icons.add,
+                                          size: 17,
+                                          semanticLabel: 'Nueva conversación',
                                         ),
                                       ),
                                     ),

@@ -32,6 +32,9 @@ Una apertura se emite una sola vez. Los errores esperables al observar su result
 Reminders plugin ejecuta llamadas EventKit en un puente Swift local. Su Controller es bloqueante; invocarlo desde un worker y detener el proceso observador en el cierre. Los eventos solo transportan identificador y tipo; la fuente se consulta de nuevo para obtener contenido. [Diseño](../decisions/reminders-plugin.md).
 
 ## Voz de salida
+
+Al interrumpir Kokoro, retirar y esperar el hijo bajo el mismo bloqueo que protege la generación. Antes de reutilizar el canal de voz, comprobar si el hijo terminó o fue retirado y crear otro cuando corresponda; la precarga tampoco debe considerar listo un proceso terminado. Esto evita escribir en una tubería cerrada después de una interrupción, sin atribuirle retrospectivamente todos los errores similares.
+
 `apps/tts` recibe texto final desde presencia y reproduce con Kokoro MLX en un worker fuera de main. Divide respuestas largas en frases breves y conserva un único stream de reproducción; los fragmentos siguientes se sintetizan mientras suena el primero. Su cola es acotada, sin persistir texto/audio ni registrar contenido. Un error de síntesis o precarga no pierde la respuesta escrita y debe verse en la UI. Guardar preferencias confirma después del commit. El hijo TTS se libera al vencer el plazo configurable desde el último fin o precarga, o al desactivar la lectura; la siguiente respuesta lo vuelve a crear. Sin plazo, permanece cargado hasta interrupción o cierre. El intento de dictado invalida la generación de audio en cola, mata solo el hijo TTS activo si estaba hablando y solicita precarga nueva sin audio. Cierre mata y espera únicamente al hijo TTS. Ver [D-022](../decisions/tts.md).
 
 ## Conversación de Gennie

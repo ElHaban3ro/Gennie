@@ -170,22 +170,30 @@ impl AppModule for TtsModule {
                             if !enabled {
                                 continue;
                             }
-                            if process.is_some() {
-                                if ModelStatus::from_atomic(
-                                    worker_model_status.load(Ordering::SeqCst),
-                                ) == ModelStatus::Ready
-                                {
-                                    continue;
-                                }
-                                close_process(&mut process, &worker_child, &worker_model_status);
-                            }
-                            let result = preload(
+                            let prepared = ensure_process(
                                 &mut process,
                                 &worker_child,
                                 &worker_model_status,
                                 &worker_generation,
                                 request_generation,
                             );
+                            if prepared.is_ok()
+                                && process.is_some()
+                                && ModelStatus::from_atomic(
+                                    worker_model_status.load(Ordering::SeqCst),
+                                ) == ModelStatus::Ready
+                            {
+                                continue;
+                            }
+                            let result = prepared.and_then(|()| {
+                                preload(
+                                    &mut process,
+                                    &worker_child,
+                                    &worker_model_status,
+                                    &worker_generation,
+                                    request_generation,
+                                )
+                            });
                             if worker_generation.load(Ordering::SeqCst) != request_generation {
                                 close_process(&mut process, &worker_child, &worker_model_status);
                                 continue;
@@ -488,14 +496,11 @@ impl Controller {
             .map_err(|_| "No se pudieron enviar los ajustes TTS".into())
     }
     pub fn interrupt(&self) -> Result<()> {
+        let mut guard = self.child.lock().map_err(|_| "Proceso TTS inválido")?;
         self.generation.fetch_add(1, Ordering::SeqCst);
-        if let Some(child) = self
-            .child
-            .lock()
-            .map_err(|_| "Proceso TTS inválido")?
-            .as_mut()
-        {
+        if let Some(mut child) = guard.take() {
             let _ = child.kill();
+            let _ = child.wait();
         }
         self.model_status
             .store(ModelStatus::Unloaded.atomic(), Ordering::SeqCst);
@@ -577,21 +582,51 @@ fn ensure_process(
     generation: &AtomicU64,
     request_generation: u64,
 ) -> Result<()> {
+    ensure_process_with(
+        process,
+        child,
+        model_status,
+        generation,
+        request_generation,
+        || {
+            Ok(Command::new(python_path()?)
+                .arg("-u")
+                .arg("-c")
+                .arg(include_str!("../python/worker.py"))
+                .env("HF_HOME", model_cache()?)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .spawn()?)
+        },
+    )
+}
+
+fn ensure_process_with(
+    process: &mut Option<Process>,
+    child: &Arc<Mutex<Option<Child>>>,
+    model_status: &AtomicU8,
+    generation: &AtomicU64,
+    request_generation: u64,
+    spawn: impl FnOnce() -> Result<Child>,
+) -> Result<()> {
     let mut child_guard = child.lock().map_err(|_| "Proceso TTS inválido")?;
     if generation.load(Ordering::SeqCst) != request_generation {
         return Err("Reproducción interrumpida".into());
     }
+    if process.is_some()
+        && match child_guard.as_mut() {
+            Some(child) => child.try_wait()?.is_some(),
+            None => true,
+        }
+    {
+        *process = None;
+        *child_guard = None;
+        model_status.store(ModelStatus::Unloaded.atomic(), Ordering::SeqCst);
+    }
     if process.is_none() {
         model_status.store(ModelStatus::Loading.atomic(), Ordering::SeqCst);
-        let mut spawned = Command::new(python_path()?)
-            .arg("-u")
-            .arg("-c")
-            .arg(include_str!("../python/worker.py"))
-            .env("HF_HOME", model_cache()?)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()?;
+        let mut spawned = spawn()?;
         let stdin = spawned.stdin.take().ok_or("TTS sin entrada")?;
         let stdout = spawned.stdout.take().ok_or("TTS sin salida")?;
         *child_guard = Some(spawned);
@@ -707,6 +742,52 @@ mod tests {
             ModelStatus::Ready
         );
         assert!(process.is_some());
+        close_process(&mut process, &child, &status);
+    }
+    #[cfg(unix)]
+    #[test]
+    fn replaces_exited_child_before_next_request() {
+        let mut spawned = Command::new("/bin/cat")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut process = Some(Process {
+            stdin: spawned.stdin.take().unwrap(),
+            stdout: BufReader::new(spawned.stdout.take().unwrap()),
+        });
+        spawned.kill().unwrap();
+        spawned.wait().unwrap();
+        assert_eq!(
+            process
+                .as_mut()
+                .unwrap()
+                .stdin
+                .write_all(b"test\n")
+                .unwrap_err()
+                .kind(),
+            std::io::ErrorKind::BrokenPipe
+        );
+        let child = Arc::new(Mutex::new(Some(spawned)));
+        let status = AtomicU8::new(ModelStatus::Ready.atomic());
+        let generation = AtomicU64::new(1);
+        ensure_process_with(&mut process, &child, &status, &generation, 1, || {
+            Ok(Command::new("/bin/cat")
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .spawn()?)
+        })
+        .unwrap();
+        assert!(
+            child
+                .lock()
+                .unwrap()
+                .as_mut()
+                .unwrap()
+                .try_wait()
+                .unwrap()
+                .is_none()
+        );
         close_process(&mut process, &child, &status);
     }
     #[test]
@@ -920,23 +1001,7 @@ mod tests {
         *controller.child.lock().unwrap() =
             Some(Command::new("/bin/sleep").arg("30").spawn().unwrap());
         controller.interrupt().unwrap();
-        let deadline = Instant::now() + Duration::from_secs(2);
-        loop {
-            if controller
-                .child
-                .lock()
-                .unwrap()
-                .as_mut()
-                .unwrap()
-                .try_wait()
-                .unwrap()
-                .is_some()
-            {
-                break;
-            }
-            assert!(Instant::now() < deadline);
-            std::thread::sleep(Duration::from_millis(5));
-        }
+        assert!(controller.child.lock().unwrap().is_none());
         module.stop(&state).unwrap();
     }
     #[test]
