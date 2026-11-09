@@ -48,6 +48,11 @@ impl Controller {
         if !self.inner.enabled.load(Ordering::Acquire) {
             return Err("El módulo de navegador está desactivado".into());
         }
+        let _execution = self
+            .inner
+            .web_execution_gate
+            .try_lock()
+            .map_err(|_| "El navegador sigue trabajando; espera antes de revisar")?;
         self.attempt_store()?
             .reconcile(plugin, id, revision, resolution)?;
         self.execution_changed();
@@ -117,7 +122,7 @@ impl Controller {
     pub(super) fn execute_web(
         &self,
         request: &Value,
-        session: &mut process::Session,
+        session: &process::Session,
         context: &gennie_mcp::CallContext,
     ) -> Result<(Value, bool)> {
         let mut preflight = request.clone();

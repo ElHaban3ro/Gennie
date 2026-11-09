@@ -70,6 +70,23 @@ fn another_function_can_run_while_mutations_keep_the_pending_guard() {
     assert!(store.reserve(&metadata(), "verify", Some("job_2")).is_err());
     db.close().unwrap();
 }
+
+#[test]
+fn catalogue_mutation_and_review_cannot_cross_an_active_web_execution() {
+    let (controller, db, _) = fixture();
+    let execution = controller.inner.web_execution_gate.lock().unwrap();
+    assert!(
+        controller
+            .reconcile_web("fixture", 1, 1, "not_applied")
+            .is_err()
+    );
+    let result =
+        controller.call(json!({"method":"plugins","action":"save","manifest":{"id":"fixture"}}));
+    assert!(result.unwrap_err().is::<BusyError>());
+    drop(execution);
+    controller.stop().unwrap();
+    db.close().unwrap();
+}
 #[test]
 fn journal_reservation_completion_and_review_failures_keep_a_safe_gate() {
     let db = db();
@@ -395,5 +412,370 @@ for await(const line of createInterface({input:process.stdin,crlfDelay:Infinity}
         0
     );
     controller.stop().unwrap();
+    db.close().unwrap();
+}
+
+#[test]
+fn confirmed_delete_allows_pending_without_resolving_or_replaying() {
+    let (controller, db, dir) = fixture();
+    let store = attempts::Store(db.clone());
+    let attempt = store.reserve(&metadata(), "run", None).unwrap();
+    store
+        .finish(attempt["id"].as_i64().unwrap(), "reported_failure")
+        .unwrap();
+    let other =
+        json!({"plugin_id":"other","plugin_name":"Otra","function_name":"read","revision":1});
+    let other_attempt = store.reserve(&other, "run", None).unwrap();
+    store
+        .finish(other_attempt["id"].as_i64().unwrap(), "reported_failure")
+        .unwrap();
+    let log = dir.0.join("calls");
+    *controller.inner.session.lock().unwrap() = Some(process::Session::scripted(
+        "while IFS= read -r line; do case \"$line\" in *'\"action\":\"get\"'*) printf '%s\\n' '{\"plugin\":{\"revision\":1}}';; *) printf '%s\\n' 'call' >> \"$GENNIE_WEB_FIXTURE_LOG\"; printf '%s\\n' '{\"status\":\"deleted\"}';; esac; done",
+        &log,
+    ));
+    let deleted = controller
+        .delete_plugin_from_user("fixture", 1, || Ok(()))
+        .unwrap();
+    assert_eq!(deleted["status"], "deleted");
+    assert_eq!(
+        controller.web_attempts("fixture", None).unwrap()["total"],
+        1
+    );
+    assert_eq!(controller.web_attempts("other", None).unwrap()["total"], 1);
+    assert_eq!(
+        controller.automate(request()).unwrap()["status"],
+        "review_required"
+    );
+    assert_eq!(std::fs::read_to_string(&log).unwrap(), "call\n");
+    controller.stop().unwrap();
+    db.close().unwrap();
+}
+
+#[test]
+fn deletion_never_cancels_any_job_when_browser_busy_or_revision_changed() {
+    use std::sync::atomic::AtomicBool;
+    let (controller, db, dir) = fixture();
+    let log = dir.0.join("calls");
+    *controller.inner.session.lock().unwrap() = Some(process::Session::scripted(
+        "while IFS= read -r line; do printf '%s\\n' '{\"plugin\":{\"revision\":2}}'; done",
+        &log,
+    ));
+    let invoked = AtomicBool::new(false);
+    let guard = controller.inner.session.lock().unwrap();
+    let busy = controller.delete_plugin_from_user("fixture", 1, || {
+        invoked.store(true, Ordering::Release);
+        Ok(())
+    });
+    assert!(busy.unwrap_err().is::<BusyError>());
+    assert!(!invoked.load(Ordering::Acquire));
+    drop(guard);
+    let stale = controller
+        .delete_plugin_from_user("fixture", 1, || {
+            invoked.store(true, Ordering::Release);
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(stale["status"], "revision_conflict");
+    assert!(!invoked.load(Ordering::Acquire));
+    controller.stop().unwrap();
+    db.close().unwrap();
+}
+
+#[test]
+fn busy_cleanup_closes_only_owned_task_page_before_next_operation() {
+    let (controller, db, dir) = fixture();
+    let log = dir.0.join("calls");
+    *controller.inner.session.lock().unwrap() = Some(process::Session::scripted(
+        "while IFS= read -r line; do printf '%s\\n' \"$line\" >> \"$GENNIE_WEB_FIXTURE_LOG\"; printf '%s\\n' '{\"status\":\"closed\",\"ok\":true}'; done",
+        &log,
+    ));
+    let held = controller.inner.session.lock().unwrap();
+    controller.close_owned_task_page("37", 0).unwrap();
+    assert!(!log.exists());
+    drop(held);
+    controller.call(json!({"method":"snapshot"})).unwrap();
+    let lines = std::fs::read_to_string(&log).unwrap();
+    let parsed: Vec<Value> = lines
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(parsed.len(), 2);
+    assert_eq!(parsed[0]["method"], "task_page");
+    assert_eq!(parsed[0]["action"], "close");
+    assert_eq!(parsed[0]["page_id"], "37");
+    assert_eq!(parsed[1]["method"], "snapshot");
+    controller.stop().unwrap();
+    db.close().unwrap();
+}
+
+#[test]
+fn deletion_flushes_deferred_owned_page_before_removing_plugin() {
+    let (controller, db, dir) = fixture();
+    let log = dir.0.join("calls");
+    let script = r#"while IFS= read -r line; do
+printf '%s\n' "$line" >> "$GENNIE_WEB_FIXTURE_LOG"
+case "$line" in
+*'"action":"get"'*) printf '%s\n' '{"plugin":{"revision":1}}';;
+*'"action":"delete"'*) printf '%s\n' '{"status":"deleted"}';;
+*) printf '%s\n' '{"status":"closed"}';;
+esac
+done"#;
+    *controller.inner.session.lock().unwrap() = Some(process::Session::scripted(script, &log));
+    let busy = controller.inner.session.lock().unwrap();
+    controller.close_owned_task_page("42", 0).unwrap();
+    drop(busy);
+    let result = controller
+        .delete_plugin_from_user("fixture", 1, || Ok(()))
+        .unwrap();
+    assert_eq!(result["status"], "deleted");
+    let lines = std::fs::read_to_string(&log).unwrap();
+    let requests: Vec<Value> = lines
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(requests.len(), 3);
+    assert_eq!(requests[0]["method"], "task_page");
+    assert_eq!(requests[0]["page_id"], "42");
+    assert_eq!(requests[1]["action"], "get");
+    assert_eq!(requests[2]["action"], "delete");
+    controller.stop().unwrap();
+    db.close().unwrap();
+}
+
+#[test]
+fn old_task_page_cleanup_never_closes_reused_id_in_new_session() {
+    let (controller, db, dir) = fixture();
+    let log = dir.0.join("calls");
+    *controller.inner.session.lock().unwrap() = Some(process::Session::scripted(
+        "while IFS= read -r line; do printf '%s\\n' \"$line\" >> \"$GENNIE_WEB_FIXTURE_LOG\"; printf '%s\\n' '{\"ok\":true}'; done",
+        &log,
+    ));
+    controller
+        .inner
+        .session_generation
+        .store(1, Ordering::Release);
+    let held = controller.inner.session.lock().unwrap();
+    controller.close_owned_task_page("37", 1).unwrap();
+    drop(held);
+    controller
+        .inner
+        .session_generation
+        .store(2, Ordering::Release);
+    controller.call(json!({"method":"snapshot"})).unwrap();
+    let lines = std::fs::read_to_string(&log).unwrap();
+    let requests: Vec<Value> = lines
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0]["method"], "snapshot");
+    controller.stop().unwrap();
+    db.close().unwrap();
+}
+
+#[test]
+fn task_creation_carries_session_identity_for_its_cleanup() {
+    let (controller, db, dir) = fixture();
+    let log = dir.0.join("calls");
+    *controller.inner.session.lock().unwrap() = Some(process::Session::scripted(
+        "while IFS= read -r line; do printf '%s\\n' '{\"page_id\":\"37\"}'; done",
+        &log,
+    ));
+    controller
+        .inner
+        .session_generation
+        .store(5, Ordering::Release);
+    let page = controller
+        .call(json!({"method":"task_page","action":"create"}))
+        .unwrap();
+    assert_eq!(page["page_id"], "37");
+    assert_eq!(page["session_generation"], 5);
+    controller.stop().unwrap();
+    db.close().unwrap();
+}
+
+#[test]
+fn scoped_tools_inject_trusted_origin_and_release_without_starting_another_process() {
+    let (controller, db, dir) = fixture();
+    let log = dir.0.join("scoped-calls");
+    *controller.inner.session.lock().unwrap() = Some(process::Session::scripted(
+        "while IFS= read -r line; do printf '%s\\n' \"$line\" >> \"$GENNIE_WEB_FIXTURE_LOG\"; printf '%s\\n' '{\"open\":true}'; done",
+        &log,
+    ));
+    let origin = std::sync::Arc::new(|| Ok(Some("chat:thread-a".to_owned())));
+    let tools = scoped_contextual_tools(controller.clone(), origin);
+    let snapshot = tools
+        .iter()
+        .find(|tool| tool.definition["name"] == "browser_snapshot")
+        .unwrap();
+    (snapshot.call)(json!({}), gennie_mcp::CallContext::default()).unwrap();
+    assert!(
+        (snapshot.call)(
+            json!({"scope":"chat:other"}),
+            gennie_mcp::CallContext::default()
+        )
+        .is_err()
+    );
+    controller.release_scope("chat:thread-a").unwrap();
+    let requests: Vec<Value> = std::fs::read_to_string(&log)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[0]["scope"], "chat:thread-a");
+    assert_eq!(
+        requests[1],
+        json!({"method":"scope_end","scope":"chat:thread-a"})
+    );
+    controller.stop().unwrap();
+    db.close().unwrap();
+}
+
+#[test]
+fn scoped_requests_overlap_and_cancelling_one_preserves_the_other() {
+    let (controller, db, _) = fixture();
+    let script = r#"
+import { createInterface } from 'node:readline';
+for await (const line of createInterface({input:process.stdin})) {
+  const {request_id,request} = JSON.parse(line);
+  setTimeout(() => console.log(JSON.stringify({request_id,result:{scope:request.scope}})), request.scope === 'chat:slow' ? 800 : 0);
+}
+
+"#;
+    *controller.inner.session.lock().unwrap() = Some(process::Session::multiplex_fixture(script));
+    let cancel = gennie_mcp::CallContext::default();
+    let slow_context = cancel.clone();
+    let slow_controller = controller.clone();
+    let (started, entered) = std::sync::mpsc::channel();
+    let slow = std::thread::spawn(move || {
+        started.send(()).unwrap();
+        slow_controller.call_with_context(
+            json!({"method":"snapshot","scope":"chat:slow"}),
+            slow_context,
+        )
+    });
+    entered.recv().unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    assert!(controller.is_busy());
+    let began = std::time::Instant::now();
+    let fast = controller
+        .call(json!({"method":"snapshot","scope":"chat:fast"}))
+        .unwrap();
+    assert_eq!(fast["scope"], "chat:fast");
+    assert!(began.elapsed() < std::time::Duration::from_millis(600));
+    cancel.cancel();
+    assert!(
+        slow.join()
+            .unwrap()
+            .unwrap_err()
+            .is::<gennie_mcp::Cancelled>()
+    );
+    let next = controller
+        .call(json!({"method":"snapshot","scope":"chat:fast"}))
+        .unwrap();
+    assert_eq!(next["scope"], "chat:fast");
+    controller.stop().unwrap();
+    db.close().unwrap();
+}
+
+#[test]
+#[ignore = "Chromium real con perfil temporal y servidor HTTP local; no usa el perfil personal"]
+fn real_chromium_scopes_overlap_and_cancel_independently() {
+    use std::io::{Read, Write};
+    use std::os::unix::fs::symlink;
+    use std::sync::{Arc, atomic::AtomicBool};
+    use std::time::{Duration, Instant};
+
+    let (controller, db, dir) = fixture();
+    let installed = std::path::PathBuf::from(std::env::var_os("HOME").unwrap())
+        .join("Library/Application Support/Gennie/browser");
+    symlink(
+        installed.join("runtime-patchright-1.64.2"),
+        dir.0.join("runtime-patchright-1.64.2"),
+    )
+    .unwrap();
+    symlink(installed.join("browsers"), dir.0.join("browsers")).unwrap();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let address = listener.local_addr().unwrap();
+    let stopping = Arc::new(AtomicBool::new(false));
+    let stop_server = stopping.clone();
+    let (slow_seen, slow_started) = std::sync::mpsc::channel();
+    let server = std::thread::spawn(move || {
+        let mut clients = Vec::new();
+        while !stop_server.load(Ordering::Acquire) {
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    let slow_seen = slow_seen.clone();
+                    clients.push(std::thread::spawn(move || {
+                        let mut bytes = [0; 8192];
+                        let count = stream.read(&mut bytes).unwrap_or(0);
+                        if String::from_utf8_lossy(&bytes[..count]).starts_with("GET /slow ") {
+                            let _ = slow_seen.send(());
+                            std::thread::sleep(Duration::from_millis(1200));
+                        }
+                        let body = b"<title>Prueba local</title>";
+                        let _ = write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len());
+                        let _ = stream.write_all(body);
+                    }));
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(Duration::from_millis(10))
+                }
+                Err(_) => break,
+            }
+        }
+        for client in clients {
+            let _ = client.join();
+        }
+    });
+    let a = controller
+        .call(json!({"method":"open","scope":"chat:a"}))
+        .unwrap();
+    let b = controller
+        .call(json!({"method":"open","scope":"chat:b"}))
+        .unwrap();
+    assert_ne!(a["page_id"], b["page_id"]);
+    let cancel = gennie_mcp::CallContext::default();
+    let slow_context = cancel.clone();
+    let slow_controller = controller.clone();
+    let slow = std::thread::spawn(move || {
+        slow_controller.call_with_context(
+            json!({"method":"navigate","scope":"chat:a","url":format!("http://{address}/slow")}),
+            slow_context,
+        )
+    });
+    if slow_started.recv_timeout(Duration::from_secs(10)).is_err() {
+        panic!(
+            "La navegación lenta no llegó al servidor: {:?}",
+            slow.join()
+        );
+    }
+    let began = Instant::now();
+    let fast = controller
+        .call(json!({"method":"navigate","scope":"chat:b","url":format!("http://{address}/fast")}))
+        .unwrap();
+    assert_eq!(fast["status"], 200);
+    assert!(began.elapsed() < Duration::from_millis(1000));
+    cancel.cancel();
+    assert!(
+        slow.join()
+            .unwrap()
+            .unwrap_err()
+            .is::<gennie_mcp::Cancelled>()
+    );
+    assert_eq!(
+        controller
+            .call(json!({"method":"snapshot","scope":"chat:b"}))
+            .unwrap()["open"],
+        true
+    );
+    controller.release_scope("chat:a").unwrap();
+    controller.release_scope("chat:b").unwrap();
+    controller.stop().unwrap();
+    stopping.store(true, Ordering::Release);
+    server.join().unwrap();
     db.close().unwrap();
 }

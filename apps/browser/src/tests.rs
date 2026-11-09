@@ -46,7 +46,31 @@ fn disabled_and_busy_calls_never_start_a_process() {
     controller.inner.enabled.store(true, Ordering::Release);
     let guard = controller.inner.session.lock().unwrap();
     assert!(controller.is_busy());
-    assert!(controller.open().unwrap_err().is::<BusyError>());
+    let context = gennie_mcp::CallContext::default();
+    let cancel = context.clone();
+    let waiting = controller.clone();
+    let (started, ready) = std::sync::mpsc::channel();
+    let (done, result) = std::sync::mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        started.send(()).unwrap();
+        done.send(waiting.call_with_context(json!({"method":"open"}), context))
+            .unwrap();
+    });
+    ready.recv().unwrap();
+    assert!(
+        result
+            .recv_timeout(std::time::Duration::from_millis(80))
+            .is_err()
+    );
+    cancel.cancel();
+    assert!(
+        result
+            .recv_timeout(std::time::Duration::from_secs(1))
+            .unwrap()
+            .unwrap_err()
+            .is::<gennie_mcp::Cancelled>()
+    );
+    worker.join().unwrap();
     drop(guard);
     assert!(!controller.is_busy());
     assert!(
