@@ -473,7 +473,60 @@ class _PluginsViewState extends State<PluginsView> {
     }
   }
 
-  Future<void> _menu(Map<String, dynamic> record, Offset position) async {
+  Future<void> removeCancelledJob(Map<String, dynamic> job) async {
+    if (deleting) return;
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Eliminar trabajo'),
+        content: const Text(
+          'Se retirará este trabajo de la lista. El resultado pendiente se conservará sin revisar y seguirá bloqueando la función hasta que se compruebe.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Eliminar'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true || !mounted) return;
+    setState(() {
+      deleting = true;
+      error = null;
+    });
+    try {
+      final result = await call({
+        'action': 'hide_cancelled_job',
+        'job_id': job['id'],
+      });
+      if (result['status'] != 'hidden') {
+        throw StateError('No se pudo eliminar el trabajo.');
+      }
+      if (!mounted) return;
+      setState(() {
+        if (selected == job['plugin_id']) {
+          selected = null;
+          widget.onSelectionChanged?.call(null);
+        }
+      });
+      await refresh();
+    } catch (e) {
+      if (mounted) setState(() => error = '$e');
+    } finally {
+      if (mounted) setState(() => deleting = false);
+    }
+  }
+
+  Future<void> _menu(
+    Map<String, dynamic>? record,
+    Map<String, dynamic>? job,
+    Offset position,
+  ) async {
     final overlay =
         Overlay.of(context).context.findRenderObject()! as RenderBox;
     final action = await showMenu<String>(
@@ -486,7 +539,13 @@ class _PluginsViewState extends State<PluginsView> {
         PopupMenuItem(value: 'delete', child: Text('Eliminar plugin')),
       ],
     );
-    if (mounted && action == 'delete') await remove(record);
+    if (mounted && action == 'delete') {
+      if (record != null) {
+        await remove(record);
+      } else if (job != null) {
+        await removeCancelledJob(job);
+      }
+    }
   }
 
   @override
@@ -502,6 +561,7 @@ class _PluginsViewState extends State<PluginsView> {
       }
     }
     for (final job in latestJobs.values) {
+      if (job['hidden'] == true) continue;
       if (job['state'] == 'cancelled' &&
           ((job['web_pending'] as Map?)?['total'] as int? ?? 0) == 0) {
         continue;
@@ -599,16 +659,22 @@ class _PluginsViewState extends State<PluginsView> {
                           builder: (tileContext) {
                             final itemRecord =
                                 entry['record'] as Map<String, dynamic>?;
+                            final itemJob =
+                                entry['job'] as Map<String, dynamic>?;
+                            final canDelete =
+                                itemRecord != null ||
+                                itemJob?['state'] == 'cancelled';
                             final origin =
                                 (itemRecord?['manifest'] as Map?)?['origin'] ??
                                 (entry['job'] as Map?)?['origin'] ??
                                 '';
                             void openMenu() {
-                              if (itemRecord == null) return;
+                              if (!canDelete) return;
                               final box =
                                   tileContext.findRenderObject()! as RenderBox;
                               _menu(
                                 itemRecord,
+                                itemJob,
                                 box.localToGlobal(box.size.center(Offset.zero)),
                               );
                             }
@@ -624,19 +690,25 @@ class _PluginsViewState extends State<PluginsView> {
                                 ): openMenu,
                               },
                               child: Semantics(
-                                customSemanticsActions: itemRecord == null
+                                customSemanticsActions: !canDelete
                                     ? null
                                     : {
                                         const CustomSemanticsAction(
                                           label: 'Eliminar plugin',
-                                        ): () =>
-                                            remove(itemRecord),
+                                        ): () {
+                                          if (itemRecord != null) {
+                                            remove(itemRecord);
+                                          } else if (itemJob != null) {
+                                            removeCancelledJob(itemJob);
+                                          }
+                                        },
                                       },
                                 child: GestureDetector(
-                                  onSecondaryTapUp: itemRecord == null
+                                  onSecondaryTapUp: !canDelete
                                       ? null
                                       : (details) => _menu(
                                           itemRecord,
+                                          itemJob,
                                           details.globalPosition,
                                         ),
                                   child: SidebarTile(

@@ -33,6 +33,22 @@ pub struct BuildEvent {
 #[derive(Clone)]
 pub(crate) struct Store(pub Database);
 impl Store {
+    pub fn hide_cancelled(&self, id: i64) -> Result<()> {
+        self.0.with_connection(|c| {
+            let changed = c.execute("INSERT OR IGNORE INTO plugin_hidden_jobs(job_id) SELECT id FROM plugin_build_jobs WHERE id=?1 AND state='cancelled'", [id])?;
+            if changed != 1 { return Err("El trabajo no existe, ya se retiró o no está cancelado".into()); }
+            Ok(())
+        })
+    }
+    pub fn is_hidden(&self, id: i64) -> Result<bool> {
+        self.0.with_connection(|c| {
+            Ok(c.query_row(
+                "SELECT EXISTS(SELECT 1 FROM plugin_hidden_jobs WHERE job_id=?1)",
+                [id],
+                |r| r.get(0),
+            )?)
+        })
+    }
     pub fn presentation_origin(
         &self,
         id: i64,
@@ -384,6 +400,18 @@ mod tests {
             max_seconds: 30,
             retry_of: None,
         }
+    }
+    #[test]
+    fn hide_only_cancelled_job_preserves_history() {
+        let store = fixture();
+        let job = store.create(&request("mail"), 7, 0).unwrap();
+        assert!(store.hide_cancelled(job.id).is_err());
+        store.transition(job.id, "cancelled", "Cancelado").unwrap();
+        store.hide_cancelled(job.id).unwrap();
+        assert!(store.is_hidden(job.id).unwrap());
+        assert_eq!(store.get(job.id).unwrap().state, "cancelled");
+        assert!(!store.get(job.id).unwrap().events.is_empty());
+        assert!(store.hide_cancelled(99999).is_err());
     }
     #[test]
     fn retry_preserves_source_and_rejects_changed_scope_or_revision() {

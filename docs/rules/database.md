@@ -158,3 +158,5 @@ Presence 0019 añade interruption opcional cancelled/failed con CHECK de emisor 
 ## Causas de llamadas
 
 Presence 0020 conserva diagnósticos locales reconocidos y categorías fijas de fallos de herramientas, separados de los códigos previos. Los errores antiguos sin causa permanecen desconocidos; no se guardan argumentos, credenciales, datos personales ni errores libres de servidores. Cuando no se reconoce la causa, se registra esa limitación sin inventar una explicación.
+
+La migración 0010 de plugins guarda las fichas de trabajos cancelados retiradas por el usuario. Conserva trabajos, eventos e intentos web; la marca se aplica por ID de trabajo.

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'plugins_test.dart' show PluginsBackend, mount, select;
@@ -139,6 +140,38 @@ void main() {
     expect(find.text('Resultados web pendientes'), findsOneWidget);
     expect(find.text('Revisar resultado'), findsOneWidget);
     expect(b.effects, 0);
+  });
+  testWidgets('elimina la ficha cancelada sin revisar el resultado', (t) async {
+    final b = WebBackend();
+    b.records = [];
+    b.jobs = [
+      {
+        'id': 9,
+        'plugin_id': 'gmail_test',
+        'origin': 'https://example.com',
+        'state': 'cancelled',
+        'summary': 'Cancelado',
+        'objective': 'Consultar correo',
+        'trigger_conversation_id': 7,
+        'attempts': 1,
+        'max_attempts': 4,
+        'web_pending': b.page(),
+      },
+    ];
+    await mount(t, b);
+    final mouse = await t.createGesture(
+      kind: ui.PointerDeviceKind.mouse,
+      buttons: kSecondaryMouseButton,
+    );
+    await mouse.down(t.getCenter(find.text('example.com').first));
+    await mouse.up();
+    await t.pumpAndSettle();
+    await click(t, 'Eliminar plugin');
+    expect(find.text('Eliminar trabajo'), findsOneWidget);
+    await click(t, 'Eliminar');
+    expect(find.text('example.com'), findsNothing);
+    expect(b.pendingRows, hasLength(1));
+    expect(b.requests.any((r) => r['action'] == 'web_reconcile'), isFalse);
   });
   testWidgets('un candidato sin publicar carga su revisión pendiente', (
     t,

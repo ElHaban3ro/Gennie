@@ -52,6 +52,7 @@ impl Controller {
         {
             value["waiting_reason"] = json!("web_review");
         }
+        value["hidden"] = json!(self.0.store.is_hidden(job.id)?);
         value["uncertain_builder_messages"] = self.0.store.uncertain_messages(job.id)?;
         value["web_pending"] = self
             .0

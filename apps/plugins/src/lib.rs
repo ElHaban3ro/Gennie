@@ -60,6 +60,10 @@ pub(crate) const MIGRATIONS: &[Migration] = &[
         version: 9,
         sql: include_str!("../migrations/0009_builder_messages.sql"),
     },
+    Migration {
+        version: 10,
+        sql: include_str!("../migrations/0010_hidden_jobs.sql"),
+    },
 ];
 pub use store::{BuildEvent, Job};
 pub use tools::{contextual_tools, tools};
@@ -544,8 +548,10 @@ impl Controller {
     }
     pub fn submit(&self, request: BuildRequest, conversation: Option<i64>) -> Result<Job> {
         self.permitted()?;
-        if !valid_id(&request.plugin_id)
-            || request.request_key.trim().is_empty()
+        if !valid_id(&request.plugin_id) {
+            return Err("El identificador del plugin debe comenzar por una letra minúscula y contener solo letras minúsculas, números y guion bajo; revisa el identificador y vuelve a intentar".into());
+        }
+        if request.request_key.trim().is_empty()
             || request.request_key.len() > 200
             || request.objective.trim().is_empty()
             || request.objective.len() > 8000
@@ -560,7 +566,7 @@ impl Controller {
             || !origin.username().is_empty()
             || origin.password().is_some()
         {
-            return Err("Usa un origen HTTP/HTTPS sin ruta ni credenciales".into());
+            return Err("Usa únicamente el origen HTTP/HTTPS sin barra final, ruta ni credenciales; vuelve a intentar".into());
         }
         let conversation = match conversation {
             Some(id) => id,
@@ -779,6 +785,12 @@ impl Controller {
                     })
                 }, || self.0.stopping.load(Ordering::Acquire))?;
                 self.touch();Ok(result)
+            }
+            Some("hide_cancelled_job")=>{
+                let id=request["job_id"].as_i64().filter(|id|*id>0).ok_or("Falta un job_id válido")?;
+                self.0.store.hide_cancelled(id)?;
+                self.touch();
+                Ok(json!({"status":"hidden"}))
             }
             Some("get_job")=>{
                 let job=self.0.store.get(request["job_id"].as_i64().filter(|id|*id>0).ok_or("Falta un job_id válido")?)?;

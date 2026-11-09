@@ -95,6 +95,9 @@ class PluginsBackend extends FakeBackend implements PluginBackend {
           }
         }
         return jsonEncode({'status': 'cancelled'});
+      case 'hide_cancelled_job':
+        jobs.singleWhere((j) => j['id'] == request['job_id'])['hidden'] = true;
+        return jsonEncode({'status': 'hidden'});
       case 'connect':
         return jsonEncode({'status': 'opened'});
       case 'save':
