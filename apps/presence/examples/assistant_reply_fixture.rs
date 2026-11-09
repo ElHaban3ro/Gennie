@@ -27,19 +27,27 @@ fn main() -> Result<()> {
         Some(2),
     )?;
     journal.begin_turn("codex", "fixture-thread", "fixture-turn")?;
-    for (id, outcome, detail) in [
-        (
-            "fixture-completed",
-            gennie_llm::ToolOutcome::Completed,
-            None,
-        ),
-        (
-            "fixture-failed",
-            gennie_llm::ToolOutcome::Failed,
-            Some("permission_required"),
-        ),
-        ("fixture-unknown", gennie_llm::ToolOutcome::Running, None),
-    ] {
+    let captured_reason = std::env::var("GENNIE_SAFE_CAUSE_FILE")
+        .ok()
+        .map(std::fs::read_to_string)
+        .transpose()?;
+    for (id, outcome, detail) in
+        [
+            (
+                "fixture-completed",
+                gennie_llm::ToolOutcome::Completed,
+                None,
+            ),
+            (
+                "fixture-failed",
+                gennie_llm::ToolOutcome::Failed,
+                Some(captured_reason.as_deref().unwrap_or(
+                    "cause:El servidor informó que el formato de un dato no es válido.",
+                )),
+            ),
+            ("fixture-unknown", gennie_llm::ToolOutcome::Running, None),
+        ]
+    {
         journal.record_tool(
             "codex",
             "fixture-thread",

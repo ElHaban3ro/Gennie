@@ -1,7 +1,10 @@
 //! Observación optativa y acotada del protocolo en sondas cfg(test).
 use gennie_core::Result;
 use serde_json::{Value, json};
-use std::{cell::RefCell, collections::VecDeque};
+use std::{
+    cell::RefCell,
+    collections::{HashSet, VecDeque},
+};
 
 const MAX_EVENTS: usize = 96;
 
@@ -9,6 +12,9 @@ const MAX_EVENTS: usize = 96;
 struct Observation {
     events_seen: u64,
     events: VecDeque<Value>,
+    collaboration: Vec<Value>,
+    root_thread: Option<String>,
+    root_children: HashSet<String>,
 }
 thread_local! {
     static ACTIVE: RefCell<Option<Observation>> = const { RefCell::new(None) };
@@ -32,7 +38,8 @@ impl Scope {
         self.finished = true;
         json!({"events_seen":trace.events_seen,
             "events_dropped":trace.events_seen.saturating_sub(trace.events.len() as u64),
-            "events":trace.events})
+            "events":trace.events,"collaboration":trace.collaboration,
+            "root_children_observed":trace.root_children.len()})
     }
 }
 impl Drop for Scope {
@@ -49,11 +56,54 @@ pub(super) fn capture<T>(run: impl FnOnce() -> Result<T>) -> (Result<T>, Value) 
     (result, scope.finish())
 }
 
+pub(super) fn capture_with_root<T>(
+    root: &str,
+    run: impl FnOnce() -> Result<T>,
+) -> (Result<T>, Value) {
+    let scope = Scope::begin();
+    ACTIVE.with(|slot| {
+        if let Some(trace) = slot.borrow_mut().as_mut() {
+            trace.root_thread = Some(root.to_owned());
+        }
+    });
+    let result = run();
+    (result, scope.finish())
+}
+
 pub(super) fn record(parsed: &Result<Value>) {
     ACTIVE.with(|slot| {
         let mut active = slot.borrow_mut();
         let Some(trace) = active.as_mut() else { return };
         trace.events_seen = trace.events_seen.saturating_add(1);
+        if let Ok(event) = parsed {
+            let kind = event.pointer("/params/item/type").and_then(Value::as_str);
+            let method = event.get("method").and_then(Value::as_str);
+            if matches!(kind, Some("collabAgentToolCall" | "subAgentActivity"))
+                && matches!(method, Some("item/started" | "item/completed"))
+                && trace.collaboration.len() < 96
+            {
+                if event.pointer("/params/threadId").and_then(Value::as_str)
+                    == trace.root_thread.as_deref()
+                    && kind == Some("subAgentActivity")
+                    && let Some(child) = event
+                        .pointer("/params/item/agentThreadId")
+                        .and_then(Value::as_str)
+                    && Some(child) != trace.root_thread.as_deref()
+                    && trace.root_children.len() < 32
+                {
+                    trace.root_children.insert(child.to_owned());
+                }
+                let tool = event
+                    .pointer("/params/item/tool")
+                    .and_then(Value::as_str)
+                    .filter(|tool| {
+                        matches!(*tool, "spawnAgent" | "wait" | "sendInput" | "closeAgent")
+                    });
+                trace
+                    .collaboration
+                    .push(json!({"item_type":kind,"method":method,"tool":tool}));
+            }
+        }
         if trace.events.len() == MAX_EVENTS {
             trace.events.pop_front();
         }
@@ -109,6 +159,8 @@ fn project(parsed: &Result<Value>) -> Value {
                 .filter(|value| matches!(
                     *value,
                     "agentMessage"
+                        | "collabAgentToolCall"
+                        | "subAgentActivity"
                         | "mcpToolCall"
                         | "reasoning"
                         | "commandExecution"
@@ -151,6 +203,44 @@ mod tests {
             trace["events"].as_array().unwrap().last().unwrap()["method"],
             "item/tool/requestUserInput"
         );
+    }
+
+    #[test]
+    fn collaboration_survives_delta_saturation_without_private_fields() {
+        let (_, trace) = capture(|| {
+            record(&Ok(json!({"method":"item/completed","params":{"item":{
+                "type":"subAgentActivity","agentThreadId":"PRIVATE_ID","message":"PRIVATE_TEXT"}}})));
+            for _ in 0..200 {
+                record(&Ok(json!({"method":"item/agentMessage/delta"})));
+            }
+            Ok(())
+        });
+        assert_eq!(trace["collaboration"].as_array().unwrap().len(), 1);
+        assert!(trace["events_dropped"].as_u64().unwrap() > 0);
+        assert!(!trace.to_string().contains("PRIVATE"));
+    }
+
+    #[test]
+    fn project_observation_counts_distinct_children_without_serializing_ids() {
+        let (_, trace) = capture_with_root("ROOT_PRIVATE", || {
+            for child in [
+                "CHILD_ONE_PRIVATE",
+                "CHILD_TWO_PRIVATE",
+                "CHILD_ONE_PRIVATE",
+            ] {
+                record(&Ok(
+                    json!({"method":"item/started","params":{"threadId":"ROOT_PRIVATE",
+                    "item":{"type":"subAgentActivity","agentThreadId":child}}}),
+                ));
+            }
+            record(&Ok(
+                json!({"method":"item/started","params":{"threadId":"OTHER_PRIVATE",
+                "item":{"type":"subAgentActivity","agentThreadId":"THIRD_PRIVATE"}}}),
+            ));
+            Ok(())
+        });
+        assert_eq!(trace["root_children_observed"], 2);
+        assert!(!trace.to_string().contains("PRIVATE"));
     }
 
     #[test]

@@ -88,8 +88,8 @@ impl Profile {
         {
             return Err("Tipo y proveedor de arquitecto incompatibles".into());
         }
-        validate_text(&self.personality, 1000)?;
-        validate_text(&self.instructions, 6000)?;
+        validate_text(&self.personality, 4000)?;
+        validate_text(&self.instructions, 64000)?;
         if self.provider == "openrouter_decisions" {
             if self.effort.is_some()
                 || self.read_files
@@ -138,13 +138,13 @@ pub(crate) fn validate_text(text: &str, max: usize) -> Result<()> {
             .chars()
             .any(|c| c.is_control() && !matches!(c, '\n' | '\t' | '\r'))
     {
-        return Err("Personalización demasiado larga o con caracteres no admitidos".into());
+        return Err("Texto demasiado largo o con caracteres no admitidos".into());
     }
     Ok(())
 }
 fn read(connection: &SqliteConnection, id: &str) -> Result<Profile> {
     let profile = connection.query_row(
-        "SELECT id,revision,enabled,provider,model,effort,personality,instructions,read_files,write_files,run_commands,local_actions,name,role FROM llm_architect_profiles WHERE id=?1",
+        "SELECT p.id,p.revision,p.enabled,p.provider,p.model,p.effort,c.personality,c.instructions,p.read_files,p.write_files,p.run_commands,p.local_actions,p.name,p.role FROM llm_architect_profiles p JOIN llm_architect_prompts c ON c.architect_id=p.id WHERE p.id=?1",
         params![id],
         |r| Ok(Profile {id:r.get(0)?, revision:r.get(1)?, enabled:r.get(2)?,provider:r.get(3)?,model:r.get(4)?,effort:r.get(5)?,personality:r.get(6)?,instructions:r.get(7)?,read_files:r.get(8)?,write_files:r.get(9)?,run_commands:r.get(10)?,local_actions:r.get(11)?,name:r.get(12)?,role:r.get(13)?}),
     )?;
@@ -198,10 +198,12 @@ pub fn save(db: &Database, profile: &Profile) -> Result<Profile> {
         let tx = c.transaction()?;
         let table = if profile.is_base() { "llm_architects" } else { "llm_architect_instances" };
         let changed = tx.execute(
-            &format!("UPDATE {table} SET revision=revision+1,enabled=?1,model=?2,effort=?3,personality=?4,instructions=?5,read_files=?6,write_files=?7,run_commands=?8,local_actions=?9,name=?12,role=?13,provider=?14,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?10 AND revision=?11"),
-            params![profile.enabled,profile.model,profile.effort,profile.personality,profile.instructions,profile.read_files,profile.write_files,profile.run_commands,profile.local_actions,profile.id,profile.revision,profile.name,profile.role,profile.provider],
+            &format!("UPDATE {table} SET revision=revision+1,enabled=?1,model=?2,effort=?3,read_files=?4,write_files=?5,run_commands=?6,local_actions=?7,name=?8,role=?9,provider=?10,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?11 AND revision=?12"),
+            params![profile.enabled,profile.model,profile.effort,profile.read_files,profile.write_files,profile.run_commands,profile.local_actions,profile.name,profile.role,profile.provider,profile.id,profile.revision],
         )?;
         if changed != 1 { return Err("El arquitecto cambió. Recarga su configuración antes de guardar".into()); }
+        let changed = tx.execute("UPDATE llm_architect_prompts SET personality=?1,instructions=?2 WHERE architect_id=?3", params![profile.personality, profile.instructions, profile.id])?;
+        if changed != 1 { return Err("No existe la configuración del arquitecto".into()); }
         if profile.id == Role::Bot.id() {
             let changed = tx.execute("UPDATE llm_preferences SET read_files=?1,write_files=?2,run_commands=?3,local_actions=?4,model=?5,effort=?6,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=1",params![profile.read_files,profile.write_files,profile.run_commands,profile.local_actions,profile.model,profile.effort])?;
             if changed != 1 { return Err("No existe la fila de ajustes de conversación".into()); }
@@ -220,8 +222,9 @@ pub fn create(db: &Database, draft: &Profile) -> Result<Profile> {
         profile.id = tx.query_row("SELECT 'architect_' || lower(hex(randomblob(16)))", [], |r| r.get(0))?;
         profile.revision = 1;
         profile.validate()?;
-        tx.execute("INSERT INTO llm_architect_instances (id,name,role,provider,revision,enabled,model,effort,personality,instructions,read_files,write_files,run_commands,local_actions) VALUES (?1,?2,?3,?4,1,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
-            params![profile.id,profile.name,profile.role,profile.provider,profile.enabled,profile.model,profile.effort,profile.personality,profile.instructions,profile.read_files,profile.write_files,profile.run_commands,profile.local_actions])?;
+        tx.execute("INSERT INTO llm_architect_instances (id,name,role,provider,revision,enabled,model,effort,read_files,write_files,run_commands,local_actions) VALUES (?1,?2,?3,?4,1,?5,?6,?7,?8,?9,?10,?11)",
+            params![profile.id,profile.name,profile.role,profile.provider,profile.enabled,profile.model,profile.effort,profile.read_files,profile.write_files,profile.run_commands,profile.local_actions])?;
+        tx.execute("INSERT INTO llm_architect_prompts(architect_id,personality,instructions) VALUES(?1,?2,?3)", params![profile.id,profile.personality,profile.instructions])?;
         let saved = read(&tx, &profile.id)?;
         tx.commit()?;
         Ok(saved)
@@ -230,7 +233,8 @@ pub fn create(db: &Database, draft: &Profile) -> Result<Profile> {
 
 pub fn remove(db: &Database, id: &str, revision: i64) -> Result<()> {
     db.with_connection(|c| {
-        let changed = c.execute(
+        let tx = c.transaction()?;
+        let changed = tx.execute(
             "DELETE FROM llm_architect_instances WHERE id=?1 AND revision=?2",
             params![id, revision],
         )?;
@@ -240,6 +244,11 @@ pub fn remove(db: &Database, id: &str, revision: i64) -> Result<()> {
                     .into(),
             );
         }
+        tx.execute(
+            "DELETE FROM llm_architect_prompts WHERE architect_id=?1",
+            [id],
+        )?;
+        tx.commit()?;
         Ok(())
     })
 }

@@ -162,6 +162,415 @@ struct Fixture {
     browser: gennie_browser::BrowserModule,
     state: AppState,
 }
+
+#[test]
+#[ignore = "Comparación real de construcción de plugin, con Codex y navegador headless temporal"]
+fn real_plugin_agent_comparison() {
+    struct ScopedBrowser {
+        root: PathBuf,
+        browser: gennie_browser::BrowserModule,
+        state: AppState,
+    }
+    impl Drop for ScopedBrowser {
+        fn drop(&mut self) {
+            let _ = self.browser.stop(&self.state);
+            let _ = self.state.db.close();
+            let _ = std::fs::remove_dir_all(&self.root);
+        }
+    }
+    let origin = std::env::var("GENNIE_PILOT_ORIGIN").unwrap();
+    assert!(origin.starts_with("http://127.0.0.1:"));
+    let root = std::env::temp_dir().join(format!(
+        "gennie-real-agent-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(root.join("browser")).unwrap();
+    let installed = PathBuf::from(std::env::var_os("HOME").unwrap())
+        .join("Library/Application Support/Gennie/browser");
+    for name in ["runtime-patchright-1.64.2", "browsers"] {
+        std::os::unix::fs::symlink(installed.join(name), root.join("browser").join(name)).unwrap();
+    }
+    let db = Database::open(&root.join("fixture.sqlite3"), 500).unwrap();
+    let state = AppState {
+        db: db.clone(),
+        config: Arc::new(gennie_config::Config {
+            database_path: root.join("fixture.sqlite3"),
+            db_busy_timeout_ms: 500,
+        }),
+        shutdown: Default::default(),
+    };
+    let browser = gennie_browser::BrowserModule::new(root.join("browser"));
+    db.migrate(browser.name(), browser.migrations()).unwrap();
+    browser.start(&state).unwrap();
+    browser.controller().set_automation_allowed(true);
+    let fixture = ScopedBrowser {
+        root,
+        browser,
+        state,
+    };
+    let mut registry = gennie_mcp::Registry::default();
+    let mut allowed = Vec::new();
+    for tool in gennie_browser::tools(fixture.browser.controller()) {
+        let name = tool.definition["name"].as_str().unwrap_or("").to_owned();
+        if ![
+            "browser_open",
+            "browser_navigate",
+            "browser_snapshot",
+            "browser_read",
+            "browser_plugins",
+            "browser_plugin_run",
+        ]
+        .contains(&name.as_str())
+        {
+            continue;
+        }
+        let permitted_origin = origin.clone();
+        allowed.push(gennie_mcp::Tool {
+            definition: tool.definition,
+            call: Box::new(move |mut args| {
+                if name == "browser_open" {
+                    args["background"] = json!(true);
+                }
+                if name == "browser_navigate"
+                    && args["url"].as_str() != Some(format!("{permitted_origin}/main").as_str())
+                {
+                    return Err("Navegación fuera del sitio sintético".into());
+                }
+                if name == "browser_plugins" && args["action"] == "save" {
+                    let m = &args["manifest"];
+                    if m["id"] != "fixture"
+                        || m["origin"] != permitted_origin
+                        || !m["login_url"].is_null()
+                        || !m["login_urls"].is_null()
+                        || !m["functions"].as_array().is_some_and(|fs| {
+                            !fs.is_empty()
+                                && fs.iter().all(|f| {
+                                    f["transport"] == "page"
+                                        && f["path"] == "/main"
+                                        && f["code"].is_null()
+                                })
+                        })
+                    {
+                        return Err(
+                            "El piloto solo admite funciones de lectura page del sitio sintético"
+                                .into(),
+                        );
+                    }
+                }
+                if name == "browser_plugins"
+                    && !["get", "list", "save"].contains(&args["action"].as_str().unwrap_or(""))
+                {
+                    return Err("Acción no disponible en el piloto".into());
+                }
+                if name == "browser_plugin_run"
+                    && (args["plugin_id"] != "fixture"
+                        || !["verify", "run"].contains(&args["action"].as_str().unwrap_or("")))
+                {
+                    return Err("Solo se permite ejecutar el plugin del piloto".into());
+                }
+                (tool.call)(args)
+            }),
+        });
+    }
+    registry.register(allowed).unwrap();
+    let helper =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/flutter/debug/gennie");
+    let mut server = gennie_mcp::Server::start(registry, &helper).unwrap();
+    let child_output = fixture.root.join("agent-result.json");
+    let script = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../scripts/probes/pilot_real_plugin_agent.py");
+    let started = Instant::now();
+    let status = std::process::Command::new("python3")
+        .arg(script)
+        .env("GENNIE_REAL_MCP_HELPER", server.launch().helper)
+        .env("GENNIE_REAL_MCP_SOCKET", server.launch().socket)
+        .env("GENNIE_REAL_AGENT_OUTPUT", &child_output)
+        .status()
+        .unwrap();
+    let agent: Value = std::fs::read(&child_output)
+        .ok()
+        .and_then(|v| serde_json::from_slice(&v).ok())
+        .unwrap_or(Value::Null);
+    let catalog = fixture
+        .browser
+        .controller()
+        .call(json!({"method":"plugins","action":"get","plugin_id":"fixture"}))
+        .unwrap();
+    let revision = catalog["plugin"]["revision"].as_u64();
+    let result = revision.and_then(|revision| {
+        fixture
+            .browser
+            .controller()
+            .run_web_plugin("fixture", "extract", revision, json!({}))
+            .ok()
+    });
+    server.stop().unwrap();
+    let output = std::env::var_os("GENNIE_PILOT_OUTPUT").unwrap();
+    std::fs::write(
+        output,
+        serde_json::to_vec(&json!({"agent":agent,"exit_code":status.code(),
+        "result":result,"elapsed_ms":started.elapsed().as_millis()}))
+        .unwrap(),
+    )
+    .unwrap();
+}
+
+#[test]
+#[ignore = "Verifica una receta sintética en Chromium headless con perfil temporal"]
+fn real_browser_checks_comparison_manifest() {
+    struct BrowserFixture {
+        root: PathBuf,
+        browser: gennie_browser::BrowserModule,
+        state: AppState,
+    }
+    impl Drop for BrowserFixture {
+        fn drop(&mut self) {
+            let _ = self.browser.stop(&self.state);
+            let _ = self.state.db.close();
+            let _ = std::fs::remove_dir_all(&self.root);
+        }
+    }
+    let manifest_path = std::env::var_os("GENNIE_PILOT_MANIFEST_FILE").expect("Falta manifiesto");
+    let manifest: Value = serde_json::from_slice(&std::fs::read(manifest_path).unwrap()).unwrap();
+    let origin = manifest["origin"].as_str().unwrap();
+    assert!(origin.starts_with("http://127.0.0.1:"));
+    let root = std::env::temp_dir().join(format!(
+        "gennie-recipe-browser-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(root.join("browser")).unwrap();
+    let installed = PathBuf::from(std::env::var_os("HOME").unwrap())
+        .join("Library/Application Support/Gennie/browser");
+    for name in ["runtime-patchright-1.64.2", "browsers"] {
+        std::os::unix::fs::symlink(installed.join(name), root.join("browser").join(name)).unwrap();
+    }
+    let db = Database::open(&root.join("fixture.sqlite3"), 500).unwrap();
+    let state = AppState {
+        db: db.clone(),
+        config: Arc::new(gennie_config::Config {
+            database_path: root.join("fixture.sqlite3"),
+            db_busy_timeout_ms: 500,
+        }),
+        shutdown: Default::default(),
+    };
+    let browser = gennie_browser::BrowserModule::new(root.join("browser"));
+    db.migrate(browser.name(), browser.migrations()).unwrap();
+    browser.start(&state).unwrap();
+    browser.controller().set_automation_allowed(true);
+    browser.controller().set_program_allowed(true);
+    let fixture = BrowserFixture {
+        root,
+        browser,
+        state,
+    };
+    let started = Instant::now();
+    let save = fixture
+        .browser
+        .controller()
+        .call(json!({"method":"plugins","action":"save","manifest":manifest,"expected_revision":0}))
+        .unwrap();
+    let verify=fixture.browser.controller().automate(json!({"method":"plugin_run","action":"verify", "plugin_id":"fixture", "function_name":"extract", "expected_revision":1,"arguments":{}})).unwrap();
+    let run = fixture
+        .browser
+        .controller()
+        .run_web_plugin("fixture", "extract", 1, json!({}))
+        .ok();
+    let output = std::env::var_os("GENNIE_PILOT_OUTPUT").expect("Falta resultado");
+    std::fs::write(
+        output,
+        serde_json::to_vec(&json!({"save":save,"verify":verify,"run":run,
+        "elapsed_ms":started.elapsed().as_millis()}))
+        .unwrap(),
+    )
+    .unwrap();
+}
+
+// Ensayo optativo aislado: usa el constructor real y un servidor sintético externo al test.
+#[test]
+#[ignore = "Piloto real acotado con Codex, Chromium headless y servidor loopback propio"]
+fn real_builder_runs_comparison_fixture() {
+    fn collect_usage(dir: &std::path::Path, thread_id: &str, out: &mut Vec<Value>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                collect_usage(&path, thread_id, out);
+            } else if path.extension().is_some_and(|ext| ext == "jsonl") {
+                let Ok(text) = std::fs::read_to_string(path) else {
+                    continue;
+                };
+                let mut matches = false;
+                let mut usage = None;
+                for line in text.lines() {
+                    let Ok(item) = serde_json::from_str::<Value>(line) else {
+                        continue;
+                    };
+                    if item["type"] == "session_meta" && item["payload"]["id"] == thread_id {
+                        matches = true;
+                    }
+                    if item["payload"]["type"] == "token_count" {
+                        usage = item["payload"]["info"].get("total_token_usage").cloned();
+                    }
+                }
+                if matches && let Some(value) = usage {
+                    out.push(value);
+                }
+            }
+        }
+    }
+    let origin = std::env::var("GENNIE_PILOT_ORIGIN").expect("Falta origen del sitio sintético");
+    assert!(origin.starts_with("http://127.0.0.1:"));
+    let case = std::env::var("GENNIE_PILOT_CASE").expect("Falta caso");
+    assert!(["simple", "fallback", "compound"].contains(&case.as_str()));
+    let settings_path =
+        std::env::var_os("GENNIE_PILOT_SETTINGS_FILE").expect("Falta perfil de prueba");
+    let settings_json =
+        std::fs::read_to_string(settings_path).expect("No se pudo leer el perfil temporal");
+    let settings_value: Value = serde_json::from_str(&settings_json).unwrap();
+    let settings = Settings {
+        model: settings_value["model"].as_str().unwrap().into(),
+        effort: settings_value["effort"].as_str().unwrap().into(),
+        personality: settings_value["personality"].as_str().unwrap_or("").into(),
+        instructions: settings_value["instructions"].as_str().unwrap_or("").into(),
+        read_files: settings_value["read_files"].as_bool().unwrap(),
+        write_files: settings_value["write_files"].as_bool().unwrap(),
+        run_commands: settings_value["run_commands"].as_bool().unwrap(),
+        local_actions: settings_value["local_actions"].as_bool().unwrap(),
+    };
+    let root = std::env::temp_dir().join(format!(
+        "gennie-comparison-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(root.join("browser")).unwrap();
+    let installed = PathBuf::from(std::env::var_os("HOME").unwrap())
+        .join("Library/Application Support/Gennie/browser");
+    for name in ["runtime-patchright-1.64.2", "browsers"] {
+        std::os::unix::fs::symlink(installed.join(name), root.join("browser").join(name)).unwrap();
+    }
+    let db = Database::open(&root.join("fixture.sqlite3"), 500).unwrap();
+    let state = AppState {
+        db: db.clone(),
+        config: Arc::new(gennie_config::Config {
+            database_path: root.join("fixture.sqlite3"),
+            db_busy_timeout_ms: 500,
+        }),
+        shutdown: Default::default(),
+    };
+    let browser = gennie_browser::BrowserModule::new(root.join("browser"));
+    db.migrate(browser.name(), browser.migrations()).unwrap();
+    browser.start(&state).unwrap();
+    browser.controller().set_automation_allowed(true);
+    let names_only = std::env::var_os("GENNIE_PILOT_NAMES").is_some();
+    browser.controller().set_program_allowed(
+        !names_only
+            && settings.read_files
+            && settings.write_files
+            && settings.run_commands
+            && settings.local_actions,
+    );
+    let helper = std::env::var_os("GENNIE_TEST_HELPER")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/flutter/debug/gennie")
+        });
+    let journal = Arc::new(Journal::default());
+    let plugins = PluginsModule::new(
+        db.clone(),
+        browser.controller(),
+        journal,
+        crate::AgentSettings::shared(Arc::new(move || Ok(settings.clone()))),
+        helper,
+        root.join("builds"),
+    );
+    db.migrate(plugins.name(), plugins.migrations()).unwrap();
+    plugins.start(&state).unwrap();
+    let fixture = Fixture {
+        root,
+        stop: Arc::new(AtomicBool::new(false)),
+        server: None,
+        plugins,
+        browser,
+        state,
+    };
+    let controller = fixture.plugins.controller();
+    let fields = if case == "compound" {
+        "Devuelve objeto con emails (enlaces mailto) y dates (atributos datetime)."
+    } else {
+        "Devuelve objeto con emails que contenga todos los enlaces mailto."
+    };
+    let objective = if names_only {
+        format!(
+            "Crea y verifica un plugin de solo lectura id fixture, función extract sin parámetros, que obtenga todos los nombres del directorio en un array de cadenas. El sitio autorizado es {origin}/main. La función debe usar transport=page y path=/main; guarda y verifica el plugin real. No uses otros destinos."
+        )
+    } else {
+        format!(
+            "Sitio sintético autorizado: {origin}/main, alternativa {origin}/backup. {fields} Crea un plugin reutilizable con id fixture y función extract sin parámetros, que consulte el DOM y devuelva el objeto solicitado. Prueba la función y publica únicamente si se verifica."
+        )
+    };
+    let started = Instant::now();
+    let job = controller
+        .submit(
+            BuildRequest {
+                request_key: "comparison".into(),
+                plugin_id: "fixture".into(),
+                origin,
+                objective,
+                max_attempts: 4,
+                max_seconds: 150,
+                retry_of: None,
+            },
+            Some(7),
+        )
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(150);
+    let finished = loop {
+        let current = controller.0.store.get(job.id).unwrap();
+        if !matches!(current.state.as_str(), "queued" | "running") {
+            break current;
+        }
+        if Instant::now() >= deadline {
+            let _ = controller.cancel(job.id);
+            break controller.0.store.get(job.id).unwrap();
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    };
+    let result = if finished.state == "completed" {
+        fixture
+            .browser
+            .controller()
+            .run_web_plugin("fixture", "extract", 1, json!({}))
+            .ok()
+    } else {
+        None
+    };
+    let mut usage = Vec::new();
+    if let Some(thread) = &finished.thread_id {
+        collect_usage(&fixture.root.join("builds"), thread, &mut usage);
+    }
+    let output = std::env::var("GENNIE_PILOT_OUTPUT").expect("Falta ruta del resultado");
+    std::fs::write(
+        output,
+        serde_json::to_vec(&json!({"case":case,"state":finished.state,
+        "elapsed_ms":started.elapsed().as_millis(),"attempts":finished.attempts,
+        "thread_id":finished.thread_id,"output":result,"usage_candidates":usage,"summary":finished.summary}))
+        .unwrap(),
+    )
+    .unwrap();
+}
 impl Drop for Fixture {
     fn drop(&mut self) {
         let _ = self.plugins.stop(&self.state);

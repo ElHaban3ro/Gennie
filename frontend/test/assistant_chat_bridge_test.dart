@@ -261,7 +261,7 @@ void main() {
             final evidence = find.byType(ToolEvidence);
             expect(evidence, findsOneWidget);
             final evidenceLabel = find.text(
-              'Usó: Correo de prueba · 1 fallo · 1 sin confirmar',
+              'Usó: Correo de prueba · 1 intento fallido · 1 sin confirmar',
             );
             await tester.ensureVisible(evidenceLabel);
             await tester.pumpAndSettle();
@@ -269,6 +269,12 @@ void main() {
             await tester.pumpAndSettle();
             expect(find.text('Finalizada'), findsOneWidget);
             expect(find.text('Falló'), findsOneWidget);
+            expect(
+              find.text(
+                'Causa: El servidor informó que el formato de un dato no es válido.',
+              ),
+              findsOneWidget,
+            );
             expect(find.text('Sin confirmar'), findsOneWidget);
             await capture(
               tester,

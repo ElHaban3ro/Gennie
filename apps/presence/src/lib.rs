@@ -114,6 +114,10 @@ impl AppModule for PresenceModule {
                 version: 19,
                 sql: include_str!("../migrations/0019_interrupted_responses.sql"),
             },
+            Migration {
+                version: 20,
+                sql: include_str!("../migrations/0020_tool_failure_reason.sql"),
+            },
         ]
     }
     fn start(&self, state: &AppState) -> Result<()> {

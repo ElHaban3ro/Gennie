@@ -1,6 +1,7 @@
 use super::*;
 use gennie_llm::builder::BuilderSession;
 use gennie_mcp::{Registry, Server};
+use std::hash::{Hash, Hasher};
 use std::time::{Duration, Instant};
 
 pub(crate) fn run(controller: Controller) {
@@ -40,6 +41,26 @@ pub(crate) fn run(controller: Controller) {
                     }
                     build(&controller, &job)
                 })();
+                if controller
+                    .0
+                    .store
+                    .has_uncertain_messages(job.id)
+                    .unwrap_or(true)
+                {
+                    let _ = controller.0.store.finish_messages(job.id, false);
+                    if controller
+                        .0
+                        .store
+                        .get(job.id)
+                        .is_ok_and(|j| j.state == "running")
+                    {
+                        let _ = controller.transition(job.id, "interrupted", "No pude confirmar la recepción de tu instrucción. Conservé el trabajo sin reenviarla; revisa el estado antes de continuar.");
+                    }
+                }
+                controller
+                    .0
+                    .feedback_inflight
+                    .store(false, Ordering::Release);
                 if let Err(error) = result
                     && controller
                         .0
@@ -47,11 +68,15 @@ pub(crate) fn run(controller: Controller) {
                         .get(job.id)
                         .is_ok_and(|j| j.state == "running")
                 {
-                    let _ = controller.transition(
-                        job.id,
-                        "interrupted",
-                        interruption_message(error.as_ref()),
-                    );
+                    if error.is::<gennie_browser::BusyError>() {
+                        let _ = controller.0.store.schedule_browser_retry(job.id);
+                    } else {
+                        let _ = controller.transition(
+                            job.id,
+                            "interrupted",
+                            interruption_message(error.as_ref()),
+                        );
+                    }
                 }
                 if let Ok(mut active) = controller.0.active.lock() {
                     active.take();
@@ -113,12 +138,13 @@ pub(crate) fn reconcile_pending(
 struct TaskPage {
     browser: gennie_browser::Controller,
     id: String,
+    generation: u64,
 }
 impl Drop for TaskPage {
     fn drop(&mut self) {
         let _ = self
             .browser
-            .call(json!({"method":"task_page","action":"close","page_id":self.id}));
+            .close_owned_task_page(&self.id, self.generation);
     }
 }
 fn copy_retry_candidate(
@@ -201,6 +227,32 @@ fn tool_transport_available(store: &store::Store, job_id: i64, server: &Server) 
 }
 #[derive(Default)]
 struct IdleTurns(u8);
+#[derive(Default)]
+struct RepeatedFailures {
+    last: Option<u64>,
+    count: u8,
+}
+impl RepeatedFailures {
+    fn record(&mut self, name: &str, args: &Value, category: Option<&str>) -> bool {
+        let Some(category) = category else {
+            self.last = None;
+            self.count = 0;
+            return false;
+        };
+        let mut hash = std::collections::hash_map::DefaultHasher::new();
+        name.hash(&mut hash);
+        args.to_string().hash(&mut hash);
+        category.hash(&mut hash);
+        let key = hash.finish();
+        self.count = if self.last == Some(key) {
+            self.count.saturating_add(1)
+        } else {
+            1
+        };
+        self.last = Some(key);
+        self.count >= 3
+    }
+}
 impl IdleTurns {
     fn recover(&mut self, store: &store::Store, job_id: i64, calls: u64) -> Result<bool> {
         self.0 = if calls == 0 {
@@ -215,6 +267,15 @@ impl IdleTurns {
     }
 }
 fn build(controller: &Controller, job: &Job) -> Result<()> {
+    let control = BuilderControl::default();
+    *controller
+        .0
+        .active
+        .lock()
+        .map_err(|_| "Constructor inválido")? = Some((job.id, control.clone()));
+    if controller.0.store.get(job.id)?.state != "running" {
+        return Ok(());
+    }
     let settings = controller.permitted()?;
     controller.0.store.report(job.id,"Estoy explorando la web y preparando funciones reutilizables; conservaré la versión publicada hasta verificar el candidato.")?;
     controller.notify();
@@ -228,6 +289,9 @@ fn build(controller: &Controller, job: &Job) -> Result<()> {
             .as_str()
             .ok_or("No se pudo crear la pestaña de trabajo")?
             .into(),
+        generation: page["session_generation"]
+            .as_u64()
+            .ok_or("Falta la sesión de la pestaña de trabajo")?,
     };
     let candidate_id = format!("job_{}", job.id);
     let candidate=controller.0.browser.automate(json!({"method":"candidate","action":"get","plugin_id":job.plugin_id,"candidate_id":candidate_id}))?;
@@ -283,9 +347,13 @@ fn build(controller: &Controller, job: &Job) -> Result<()> {
     let base = controller.0.root.join(&candidate_id);
     let mut session: Option<BuilderSession> = None;
     let mut idle_turns = IdleTurns::default();
+    let mut busy_reported = false;
     loop {
         let current = controller.0.store.get(job.id)?;
         if current.state != "running" || controller.0.stopping.load(Ordering::Acquire) {
+            break;
+        }
+        if pause_for_web_review(controller, &current)? {
             break;
         }
         if session.is_some() && !tool_transport_available(&controller.0.store, job.id, &server)? {
@@ -293,8 +361,21 @@ fn build(controller: &Controller, job: &Job) -> Result<()> {
             break;
         }
         if controller.0.browser.is_busy() {
+            if !busy_reported {
+                controller.0.store.report(job.id, "El navegador está ocupado con otra operación. Esperaré a que termine para continuar sin interrumpirla.")?;
+                controller.notify();
+                busy_reported = true;
+            }
             std::thread::sleep(Duration::from_millis(200));
             continue;
+        }
+        if busy_reported {
+            controller.0.store.report(
+                job.id,
+                "El navegador vuelve a estar disponible; continuaré la construcción.",
+            )?;
+            controller.notify();
+            busy_reported = false;
         }
         if !controller.0.store.begin_attempt(job.id)? {
             break;
@@ -307,19 +388,13 @@ fn build(controller: &Controller, job: &Job) -> Result<()> {
             .map_err(|_| "Estrategia de construcción inválida")?
             .begin_turn();
         if session.is_none() {
-            let control = BuilderControl::default();
-            *controller
-                .0
-                .active
-                .lock()
-                .map_err(|_| "Constructor inválido")? = Some((job.id, control.clone()));
             match BuilderSession::connect(
                 base.clone(),
                 &settings,
                 server.launch(),
-                settings.role_instructions(include_str!("builder-instructions.md")),
+                settings.agent_instructions(),
                 current.thread_id.clone(),
-                control,
+                control.clone(),
             ) {
                 Ok(mut connected) => {
                     controller
@@ -359,11 +434,89 @@ fn build(controller: &Controller, job: &Job) -> Result<()> {
             .lock()
             .map_err(|_| "Estrategia de construcción inválida")?
             .review_context();
-        let prompt=json!({"plugin_id":current.plugin_id,"origin":current.origin,"objective":current.objective,"base_revision":current.base_revision,"execution_state":"running","continuation":"El host autoriza continuar este trabajo ahora. El Goal nativo permanece paused exclusivamente para impedir turnos automáticos de Codex; no representa una pausa solicitada por el usuario. Esta petición reanuda el trabajo frente a mensajes anteriores de pausa. Consulta el candidato y la interfaz con tus herramientas y ejecuta el siguiente experimento autorizado; no respondas únicamente que el trabajo sigue pausado.","construction_scope":"Construye y verifica capacidades reutilizables. La ejecución periódica futura es independiente y su ausencia no bloquea por sí sola el plugin; no declares verificadas funciones que aún falten.","instruction":instruction,"stop_review":review}).to_string();
-        let turn = session.as_mut().expect("sesión creada").turn(&prompt);
-        if controller.0.store.get(job.id)?.state != "running"
-            || controller.0.stopping.load(Ordering::Acquire)
+        let messages = controller.0.store.reserve_messages(job.id)?;
+        let prompt=json!({"plugin_id":current.plugin_id,"origin":current.origin,"objective":current.objective,"base_revision":current.base_revision,"execution_state":"running","user_corrections":messages.iter().map(|(_,message)|message).collect::<Vec<_>>(),"corrections_instruction":"Las correcciones proceden del usuario a través de su bot: incorpóralas antes de continuar; prevalecen sobre instrucciones anteriores incompatibles, sin ampliar permisos.","continuation":"El host autoriza continuar este trabajo ahora. El Goal nativo permanece paused exclusivamente para impedir turnos automáticos de Codex; no representa una pausa solicitada por el usuario. Esta petición reanuda el trabajo frente a mensajes anteriores de pausa. Consulta el candidato y la interfaz con tus herramientas y ejecuta el siguiente experimento autorizado; no respondas únicamente que el trabajo sigue pausado.","construction_scope":"Construye y verifica capacidades reutilizables. La ejecución periódica futura es independiente y su ausencia no bloquea por sí sola el plugin; no declares verificadas funciones que aún falten.","instruction":instruction,"stop_review":review}).to_string();
+        let mut steering_disabled = !messages.is_empty();
+        let mut feedback = |event| -> Result<Option<String>> {
+            use gennie_llm::builder::FeedbackEvent;
+            match event {
+                FeedbackEvent::Poll if !steering_disabled => {
+                    if !controller.0.store.has_pending_messages(job.id)? {
+                        return Ok(None);
+                    }
+                    controller
+                        .0
+                        .feedback_inflight
+                        .store(true, Ordering::Release);
+                    let notes = controller.0.store.reserve_messages(job.id);
+                    if !notes.as_ref().is_ok_and(|notes| !notes.is_empty()) {
+                        controller
+                            .0
+                            .feedback_inflight
+                            .store(false, Ordering::Release);
+                    }
+                    let notes = notes?;
+                    if notes.is_empty() {
+                        return Ok(None);
+                    }
+                    Ok(Some(json!({"user_corrections":notes.iter().map(|(_, message)| message).collect::<Vec<_>>(),"instruction":"Incorpora las correcciones del usuario antes de continuar; prevalecen sobre instrucciones anteriores incompatibles sin ampliar permisos."}).to_string()))
+                }
+                FeedbackEvent::Poll => Ok(None),
+                FeedbackEvent::Accepted => {
+                    controller.0.store.finish_messages(job.id, true)?;
+                    controller
+                        .0
+                        .feedback_inflight
+                        .store(false, Ordering::Release);
+                    Ok(None)
+                }
+                FeedbackEvent::Rejected => {
+                    controller.0.store.return_messages(job.id)?;
+                    controller
+                        .0
+                        .feedback_inflight
+                        .store(false, Ordering::Release);
+                    steering_disabled = true;
+                    Ok(None)
+                }
+                FeedbackEvent::Uncertain => {
+                    controller.0.store.finish_messages(job.id, false)?;
+                    controller
+                        .0
+                        .feedback_inflight
+                        .store(false, Ordering::Release);
+                    Ok(None)
+                }
+            }
+        };
+        let turn = session
+            .as_mut()
+            .expect("sesión creada")
+            .turn_with_feedback(&prompt, &mut feedback);
+        if messages.is_empty() && controller.0.store.has_uncertain_messages(job.id)? {
+            controller.transition(job.id, "interrupted", "No pude confirmar la recepción de tu instrucción. Conservé el trabajo sin reenviarla; revisa el estado antes de continuar.")?;
+            break;
+        }
+        if !messages.is_empty() {
+            controller.0.store.finish_messages(job.id, turn.is_ok())?;
+            if turn.is_err() {
+                controller.transition(job.id,"interrupted","No pude confirmar la recepción de tu instrucción. Conservé el trabajo sin reenviarla; revisa el estado antes de continuar.")?;
+                break;
+            }
+        }
+        let after_turn = controller.0.store.get(job.id)?;
+        if after_turn.state == "waiting_user"
+            && controller.0.store.has_unconsumed_messages(job.id)?
+            && !controller.0.store.has_uncertain_messages(job.id)?
         {
+            controller.transition(
+                job.id,
+                "queued",
+                "La respuesta está guardada y el trabajo se retomará.",
+            )?;
+            break;
+        }
+        if after_turn.state != "running" || controller.0.stopping.load(Ordering::Acquire) {
             break;
         }
         if !tool_transport_available(&controller.0.store, job.id, &server)? {
@@ -391,6 +544,9 @@ fn build(controller: &Controller, job: &Job) -> Result<()> {
             if controller.0.store.get(job.id)?.state != "running" {
                 break;
             }
+            if controller.0.store.has_unconsumed_messages(job.id)? {
+                continue;
+            }
             let result=controller.0.browser.automate(json!({"method":"plugins","action":"promote","plugin_id":job.plugin_id,"candidate_id":candidate_id,"expected_revision":job.base_revision}))?;
             if result["status"] == "promoted" {
                 controller.transition(job.id,"completed","El plugin quedó disponible: se verificaron las funciones nuevas o modificadas y se conservaron las ya publicadas sin cambios.")?;
@@ -414,6 +570,17 @@ fn build(controller: &Controller, job: &Job) -> Result<()> {
     drop(session);
     server.stop()?;
     Ok(())
+}
+fn pause_for_web_review(controller: &Controller, job: &Job) -> Result<bool> {
+    let attempts = controller.0.browser.web_attempts(&job.plugin_id, None)?;
+    if !attempts["attempts"]
+        .as_array()
+        .is_some_and(|items| items.iter().any(|attempt| attempt["state"] == "uncertain"))
+    {
+        return Ok(false);
+    }
+    controller.transition(job.id, "waiting_user", "Una prueba web quedó sin resultado confirmado. Revisa su efecto en el servicio y abre «Resultados web pendientes» en Plugins para guardar la revisión. Después podrás continuar la construcción; no repetiré la prueba automáticamente.")?;
+    Ok(true)
 }
 fn prior_candidate(
     job: &Job,
@@ -614,6 +781,9 @@ fn scoped_tools(
             args["method"]=json!("candidate");args["candidate_id"]=json!(format!("job_{}",job.id));args["plugin_id"]=json!(job.plugin_id);
             let saving = name == "plugin_candidate" && args["action"] == "save";
             let mut response=controller.0.browser.automate_with_context(args,context.clone())?;
+            if response["review_required"] == true {
+                pause_for_web_review(&controller, &job)?;
+            }
             if saving && response["status"] == "saved" {
                 strategy.lock().map_err(|_| "Estrategia de construcción inválida")?.candidate_changed();
                 candidate_ready.store(false, Ordering::Release);
@@ -660,6 +830,9 @@ _context.check()?;
             }
         })
     });
+    let scope_controller = controller.clone();
+    let scope_job_id = job.id;
+    let repeated = Arc::new(Mutex::new(RepeatedFailures::default()));
     let controller = controller.clone();
     let job = job.clone();
     result.push(Tool {
@@ -686,6 +859,63 @@ _context.check()?;
         }),
     });
     result
+        .into_iter()
+        .map(|tool| {
+            let name = tool.definition["name"].as_str().unwrap_or("");
+            if !name.starts_with("browser_")
+                && !matches!(
+                    name,
+                    "plugin_candidate" | "plugin_candidate_test" | "plugin_build_findings"
+                )
+            {
+                return tool;
+            }
+            let guarded_controller = scope_controller.clone();
+            let guarded_job = scope_job_id;
+            let guarded_name = name.to_owned();
+            let repeated = repeated.clone();
+            Tool {
+                definition: tool.definition,
+                call: Box::new(move |args, context| {
+                    let _guard = guarded_controller
+                        .0
+                        .builder_tool_calls
+                        .lock()
+                        .map_err(|_| "Estado de herramientas del constructor inválido")?;
+                    context.check()?;
+                    if guarded_controller.0.store.get(guarded_job)?.state != "running" {
+                        return Err("La construcción ya no está activa".into());
+                    }
+                    if guarded_controller.0.feedback_inflight.load(Ordering::Acquire)
+                        || guarded_controller.0.store.has_pending_messages(guarded_job)? {
+                        return Err("Hay una nueva instrucción del usuario pendiente. Termina este turno para recibirla antes de continuar con las herramientas.".into());
+                    }
+                    let observed_args = args.clone();
+                    let result = (tool.call)(args, context);
+                    let category = match &result {
+                        Err(error) if error.is::<gennie_browser::BusyError>() => None,
+                        Err(_) => Some("tool_error"),
+                        Ok(value) => match value["status"].as_str() {
+                            Some("authentication_required") => Some("authentication_required"),
+                            Some("invalid_arguments" | "input_required" | "access_denied" | "site_changed" | "error") => Some("reported_failure"),
+                            _ => None,
+                        },
+                    };
+                    let stalled = repeated.lock().map_err(|_| "Estado de repeticiones inválido")?
+                        .record(&guarded_name, &observed_args, category);
+                    if stalled && guarded_controller.0.store.get(guarded_job)?.state == "running" {
+                        let (state, message) = if category == Some("authentication_required") {
+                            ("waiting_user", "Una vía de acceso sigue necesitando una sesión. Puedes abrir Gennie Web e iniciar sesión, o continuar la construcción para explorar otra alternativa autorizada.")
+                        } else {
+                            ("interrupted", "La misma operación falló repetidamente sin cambios. Detuve la construcción para evitar un bucle; el candidato se conserva y puedes continuar para probar otra alternativa.")
+                        };
+                        guarded_controller.transition(guarded_job, state, message)?;
+                    }
+                    result
+                }),
+            }
+        })
+        .collect()
 }
 fn validate_task_url(name: &str, origin: &str, args: &Value) -> Result<()> {
     let Some(raw) = args["url"].as_str() else {
@@ -745,6 +975,107 @@ fn gate(controller: &Controller, job: &Job, calls: &AtomicU64) -> Result<()> {
 #[cfg(test)]
 mod retry_tests {
     use super::*;
+    #[test]
+    fn repeated_identical_failures_stop_but_alternatives_reset_the_counter() {
+        let mut tracker = RepeatedFailures::default();
+        let a = json!({"function_name":"read"});
+        let b = json!({"function_name":"other"});
+        assert!(!tracker.record("plugin_candidate_test", &a, Some("authentication_required")));
+        assert!(!tracker.record("plugin_candidate_test", &a, Some("authentication_required")));
+        assert!(!tracker.record("plugin_candidate_test", &b, Some("authentication_required")));
+        assert!(!tracker.record("plugin_candidate_test", &b, Some("authentication_required")));
+        assert!(tracker.record("plugin_candidate_test", &b, Some("authentication_required")));
+        assert!(!tracker.record("plugin_candidate_test", &b, None));
+        assert!(!tracker.record("plugin_candidate_test", &b, Some("authentication_required")));
+    }
+    #[test]
+    fn baseline_successful_reads_and_alternating_failures_are_not_interrupted() {
+        let mut tracker = RepeatedFailures::default();
+        let a = json!({"selector":"inbox"});
+        let b = json!({"selector":"details"});
+        // La observación actual solo recibe categoría de fallo, no el resultado de lectura.
+        for _ in 0..6 {
+            assert!(!tracker.record("browser_read", &a, None));
+        }
+        // Alternar dos fallos reinicia el contador, aunque no haya avance.
+        for _ in 0..3 {
+            assert!(!tracker.record("browser_read", &a, Some("tool_error")));
+            assert!(!tracker.record("browser_read", &b, Some("tool_error")));
+        }
+    }
+    #[test]
+    fn repeated_real_scoped_tool_failures_interrupt_without_exposing_arguments() {
+        let (store, _, job) = running_build();
+        let root = std::env::temp_dir().join("gennie-repeated-failure-test");
+        let browser = gennie_browser::BrowserModule::new(root.clone());
+        let module = PluginsModule::new(
+            store.0.clone(),
+            browser.controller(),
+            Arc::new(TestJournal),
+            crate::AgentSettings::shared(Arc::new(|| Ok(Settings::default()))),
+            root.join("unused"),
+            root,
+        );
+        let controller = module.controller();
+        controller.0.enabled.store(true, Ordering::Release);
+        controller.0.mcp.start().unwrap();
+        let tools = scoped_tools(
+            &controller,
+            &job,
+            "unused",
+            Arc::new(AtomicU64::new(0)),
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(Mutex::new(strategy::BuildStrategy::default())),
+        );
+        let tool = tools
+            .iter()
+            .find(|t| t.definition["name"] == "browser_navigate")
+            .unwrap();
+        let args = json!({"url":"https://other.example/private-value"});
+        for _ in 0..3 {
+            assert!((tool.call)(args.clone(), gennie_mcp::CallContext::default()).is_err());
+        }
+        let saved = store.get(job.id).unwrap();
+        assert_eq!(saved.state, "interrupted");
+        assert!(saved.summary.contains("falló repetidamente"));
+        assert!(!saved.summary.contains("private-value"));
+        assert_eq!(saved.attempts, 1);
+    }
+    #[test]
+    fn baseline_alternating_scoped_failures_leave_job_running() {
+        let (store, _, job) = running_build();
+        let root = std::env::temp_dir().join("gennie-alternating-failure-test");
+        let browser = gennie_browser::BrowserModule::new(root.clone());
+        let module = PluginsModule::new(
+            store.0.clone(),
+            browser.controller(),
+            Arc::new(TestJournal),
+            crate::AgentSettings::shared(Arc::new(|| Ok(Settings::default()))),
+            root.join("unused"),
+            root,
+        );
+        let controller = module.controller();
+        controller.0.enabled.store(true, Ordering::Release);
+        controller.0.mcp.start().unwrap();
+        let tools = scoped_tools(
+            &controller,
+            &job,
+            "unused",
+            Arc::new(AtomicU64::new(0)),
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(Mutex::new(strategy::BuildStrategy::default())),
+        );
+        let tool = tools
+            .iter()
+            .find(|t| t.definition["name"] == "browser_navigate")
+            .unwrap();
+        for index in 0..6 {
+            let path = if index % 2 == 0 { "a" } else { "b" };
+            let args = json!({"url":format!("https://other.example/{path}")});
+            assert!((tool.call)(args, gennie_mcp::CallContext::default()).is_err());
+        }
+        assert_eq!(store.get(job.id).unwrap().state, "running");
+    }
     #[test]
     fn helper_file_limits_gate_program_candidates_but_allow_web_recipes() {
         let settings = Settings {
@@ -902,6 +1233,42 @@ mod retry_tests {
         store.claim().unwrap();
         assert!(store.begin_attempt(job.id).unwrap());
         (store, request, job)
+    }
+    #[test]
+    fn unresolved_web_attempt_pauses_only_its_plugin_before_another_turn() {
+        use gennie_core::{AppModule, AppState};
+        let (store, _, job) = running_build();
+        let root = std::env::temp_dir().join("gennie-web-review-unit");
+        let browser = gennie_browser::BrowserModule::new(root.clone());
+        store.0.migrate("browser", browser.migrations()).unwrap();
+        let state = AppState {
+            config: Arc::new(gennie_config::Config {
+                database_path: root.clone(),
+                db_busy_timeout_ms: 500,
+            }),
+            db: store.0.clone(),
+            shutdown: Default::default(),
+        };
+        browser.start(&state).unwrap();
+        let module = PluginsModule::new(
+            store.0.clone(),
+            browser.controller(),
+            Arc::new(TestJournal),
+            crate::AgentSettings::shared(Arc::new(|| Ok(Settings::default()))),
+            root.join("helper"),
+            root,
+        );
+        let controller = module.controller();
+        assert!(!pause_for_web_review(&controller, &job).unwrap());
+        store.0.with_connection(|c| { c.execute("INSERT INTO browser_web_attempts(plugin_id,plugin_name,function_name,plugin_revision,candidate_id,operation,state,reason) VALUES('other','Other','read',1,'job_2','verify','uncertain','interrupted')", [])?; Ok(()) }).unwrap();
+        assert!(!pause_for_web_review(&controller, &job).unwrap());
+        store.0.with_connection(|c| { c.execute("INSERT INTO browser_web_attempts(plugin_id,plugin_name,function_name,plugin_revision,candidate_id,operation,state,reason) VALUES('mail','Mail','read',1,'job_1','verify','uncertain','interrupted')", [])?; Ok(()) }).unwrap();
+        assert!(pause_for_web_review(&controller, &job).unwrap());
+        let saved = store.get(job.id).unwrap();
+        assert_eq!(saved.state, "waiting_user");
+        assert!(saved.summary.contains("Resultados web pendientes"));
+        assert_eq!(saved.attempts, 1);
+        browser.stop(&state).unwrap();
     }
     fn block_args(capability: &str) -> Value {
         json!({"state":"blocked","message":"Falta una capacidad comprobada", "blocker":{"kind":"exhausted_alternatives", "capability":capability, "required_outcome":"Resultado solicitado", "outcome_status":"unmet", "evidence":"Impedimento observado", "next_step":"Investigar otra vía", "attempted_approaches":["Controles de la vista", "Vista de detalle"], "research":{"sources":["https://example.com/docs"], "findings":"Ayuda de la interfaz consultada"},"observation_ids":[]}})
@@ -1239,10 +1606,110 @@ mod retry_tests {
         }
     }
     #[test]
+    fn confirmed_deletion_waits_while_other_operation_remains_busy() {
+        let attempts = std::cell::Cell::new(0);
+        let result = wait_for_browser_delete(
+            || {
+                attempts.set(attempts.get() + 1);
+                if attempts.get() <= 3 {
+                    Err(Box::new(gennie_browser::BusyError))
+                } else {
+                    Ok(json!({"status":"deleted"}))
+                }
+            },
+            || false,
+        )
+        .unwrap();
+        assert_eq!(attempts.get(), 4);
+        assert_eq!(result["status"], "deleted");
+        attempts.set(0);
+        let stopped = wait_for_browser_delete(
+            || {
+                attempts.set(attempts.get() + 1);
+                Err(Box::new(gennie_browser::BusyError))
+            },
+            || attempts.get() >= 1,
+        );
+        assert!(stopped.is_err());
+        assert_eq!(attempts.get(), 1);
+    }
+    #[test]
+    fn deletion_does_not_retry_error_after_possible_send() {
+        let mut calls = 0;
+        assert!(
+            wait_for_browser_delete(
+                || {
+                    calls += 1;
+                    Err("error sin confirmar".into())
+                },
+                || false
+            )
+            .is_err()
+        );
+        assert_eq!(calls, 1);
+    }
+    #[test]
+    fn deletion_stops_only_idle_owned_builder_without_waiting_for_browser() {
+        let (store, template, job) = running_build();
+        let other = store
+            .create(
+                &BuildRequest {
+                    request_key: "other".into(),
+                    plugin_id: "other_plugin".into(),
+                    ..template
+                },
+                7,
+                0,
+            )
+            .unwrap();
+        let root = std::env::temp_dir().join("gennie-delete-owned-test");
+        let browser = gennie_browser::BrowserModule::new(root.clone());
+        let module = PluginsModule::new(
+            store.0.clone(),
+            browser.controller(),
+            Arc::new(TestJournal),
+            crate::AgentSettings::shared(Arc::new(|| Ok(Settings::default()))),
+            root.join("unused"),
+            root,
+        );
+        let controller = module.controller();
+        controller.0.enabled.store(true, Ordering::Release);
+        *controller.0.active.lock().unwrap() =
+            Some((job.id, gennie_llm::builder::BuilderControl::default()));
+        let in_flight = controller.0.builder_tool_calls.lock().unwrap();
+        controller
+            .cancel_owned_builder_when_idle(&job.plugin_id)
+            .unwrap();
+        assert_eq!(store.get(job.id).unwrap().state, "running");
+        drop(in_flight);
+        controller
+            .cancel_owned_builder_when_idle(&job.plugin_id)
+            .unwrap();
+        assert_eq!(store.get(job.id).unwrap().state, "cancelled");
+        assert_eq!(store.get(other.id).unwrap().state, "queued");
+        assert!(controller.has_active_builder_for(&job.plugin_id).unwrap());
+        *controller.0.active.lock().unwrap() = None;
+        assert!(!controller.has_active_builder_for(&job.plugin_id).unwrap());
+    }
+    #[test]
     fn deleting_a_plugin_retires_its_blocked_job_but_preserves_history() {
-        let (store, _, job) = running_build();
+        let (store, request_template, job) = running_build();
+        let other = store
+            .create(
+                &BuildRequest {
+                    request_key: "other-job".into(),
+                    plugin_id: "other_plugin".into(),
+                    ..request_template
+                },
+                7,
+                0,
+            )
+            .unwrap();
         store
             .transition(job.id, "blocked", "Revisión bloqueada")
+            .unwrap();
+        store
+            .transition(other.id, "running", "Trabajo independiente")
             .unwrap();
         let root = std::env::temp_dir().join("gennie-delete-no-runtime");
         let browser = gennie_browser::BrowserModule::new(root.clone());
@@ -1257,7 +1724,17 @@ mod retry_tests {
         let controller = module.controller();
         controller.0.mcp.start().unwrap();
         controller.0.enabled.store(true, Ordering::Release);
+        *controller.0.active.lock().unwrap() =
+            Some((other.id, gennie_llm::builder::BuilderControl::default()));
         let request = json!({"plugin_id":job.plugin_id});
+        controller
+            .cancel_owned_builder_when_idle(&job.plugin_id)
+            .unwrap();
+        assert_eq!(store.get(other.id).unwrap().state, "running");
+        assert_eq!(
+            controller.0.active.lock().unwrap().as_ref().unwrap().0,
+            other.id
+        );
         controller
             .catalogue_changed(&request, &json!({"status":"revision_conflict"}))
             .unwrap();
@@ -1267,6 +1744,11 @@ mod retry_tests {
             .unwrap();
         let saved = store.get(job.id).unwrap();
         assert_eq!(saved.state, "cancelled");
+        assert_eq!(store.get(other.id).unwrap().state, "running");
+        assert_eq!(
+            controller.0.active.lock().unwrap().as_ref().unwrap().0,
+            other.id
+        );
         assert!(
             saved
                 .events

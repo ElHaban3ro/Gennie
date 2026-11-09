@@ -48,30 +48,38 @@ fn validate(turn: &str, usage: &ToolUse) -> Result<()> {
             .as_deref()
             .is_some_and(|v| !matches!(v, "run" | "verify"))
         || usage.detail.as_deref().is_some_and(|v| {
-            !matches!(
-                v,
-                "result_uncertain"
-                    | "timeout"
-                    | "browser_closed"
-                    | "response_too_large"
-                    | "authentication_required"
-                    | "access_denied"
-                    | "site_changed"
-                    | "redirect_blocked"
-                    | "redirect_limit"
-                    | "http_error"
-                    | "execution_failed"
-                    | "permission_required"
-                    | "revision_conflict"
-                    | "verification_required"
-                    | "plugin_not_found"
-                    | "function_not_found"
-            )
+            !((v.starts_with("cause:") || v.starts_with("review_cause:")) && valid(v, 506))
+                && !matches!(
+                    v,
+                    "result_uncertain"
+                        | "timeout"
+                        | "browser_closed"
+                        | "response_too_large"
+                        | "authentication_required"
+                        | "access_denied"
+                        | "site_changed"
+                        | "redirect_blocked"
+                        | "redirect_limit"
+                        | "http_error"
+                        | "execution_failed"
+                        | "permission_required"
+                        | "revision_conflict"
+                        | "verification_required"
+                        | "plugin_not_found"
+                        | "function_not_found"
+                )
         })
     {
         return Err("Metadatos de herramienta inválidos".into());
     }
     Ok(())
+}
+fn split_detail(value: Option<&str>) -> (Option<&str>, Option<&str>) {
+    match value {
+        Some(v) if v.starts_with("review_cause:") => (Some("result_uncertain"), Some(v)),
+        Some(v) if v.starts_with("cause:") => (None, Some(v)),
+        _ => (value, None),
+    }
 }
 fn request_id(
     c: &SqliteConnection,
@@ -114,7 +122,7 @@ pub fn record(
         let tx = c.transaction()?;
         let Some(user) = request_id(&tx,provider,thread,turn)? else { return Ok(false); };
         let previous = {
-            let mut statement = tx.prepare("SELECT id,server,tool,plugin_id,function_name,display_name,operation,outcome,detail FROM presence_tool_uses WHERE user_message_id=?1 AND turn_id=?2 AND call_id=?3")?;
+            let mut statement = tx.prepare("SELECT id,server,tool,plugin_id,function_name,display_name,operation,outcome,COALESCE(failure_reason,detail) FROM presence_tool_uses WHERE user_message_id=?1 AND turn_id=?2 AND call_id=?3")?;
             let mut rows = statement.query(params![user,turn,usage.call_id])?;
             rows.next()?.map(|r| -> Result<_> { Ok((r.get::<_,i64>(0)?, ToolUse { call_id: usage.call_id.clone(), server:r.get(1)?, tool:r.get(2)?, plugin_id:r.get(3)?,function_name:r.get(4)?,display_name:r.get(5)?,operation:r.get(6)?,outcome:ToolOutcome::parse(&r.get::<_,String>(7)?)?,detail:r.get(8)? })) }).transpose()?
         };
@@ -133,12 +141,19 @@ pub fn record(
             next.function_name = next.function_name.or(old.function_name.clone());
             next.display_name = next.display_name.or(old.display_name.clone());
             next.operation = next.operation.or(old.operation.clone());
+            if next.detail.as_deref() == Some("cause:La herramienta informó un fallo; no se pudo determinar su causa.") && old.detail.is_some() {
+                next.detail = old.detail.clone();
+            } else {
+                next.detail = next.detail.or(old.detail.clone());
+            }
             if next == old { return Ok(false); }
-            tx.execute("UPDATE presence_tool_uses SET plugin_id=?2,function_name=?3,display_name=?4,operation=?5,outcome=?6,detail=?7,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?1",params![id,next.plugin_id,next.function_name,next.display_name,next.operation,next.outcome.as_str(),next.detail])?;
+            let (detail, reason) = split_detail(next.detail.as_deref());
+            tx.execute("UPDATE presence_tool_uses SET plugin_id=?2,function_name=?3,display_name=?4,operation=?5,outcome=?6,detail=?7,failure_reason=?8,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?1",params![id,next.plugin_id,next.function_name,next.display_name,next.operation,next.outcome.as_str(),detail,reason])?;
         } else {
             let count: i64 = tx.query_row("SELECT count(*) FROM presence_tool_uses WHERE user_message_id=?1 AND turn_id=?2",params![user,turn],|r|r.get(0))?;
             if count >= MAX_CALLS_PER_TURN as i64 { return Err("El turno excedió el límite de llamadas registrables; el resultado restante no está confirmado".into()); }
-            tx.execute("INSERT INTO presence_tool_uses(user_message_id,message_id,turn_id,call_id,server,tool,plugin_id,function_name,display_name,operation,outcome,detail) VALUES(?1,?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",params![user,turn,next.call_id,next.server,next.tool,next.plugin_id,next.function_name,next.display_name,next.operation,next.outcome.as_str(),next.detail])?;
+            let (detail, reason) = split_detail(next.detail.as_deref());
+            tx.execute("INSERT INTO presence_tool_uses(user_message_id,message_id,turn_id,call_id,server,tool,plugin_id,function_name,display_name,operation,outcome,detail,failure_reason) VALUES(?1,?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",params![user,turn,next.call_id,next.server,next.tool,next.plugin_id,next.function_name,next.display_name,next.operation,next.outcome.as_str(),detail,reason])?;
         }
         tx.commit()?;
         Ok(true)
@@ -232,7 +247,7 @@ pub fn recover(db: &Database) -> Result<bool> {
     db.with_connection(|c| Ok(c.execute("UPDATE presence_tool_uses SET outcome='unknown',detail='restart',updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE outcome='running'",[])? > 0))
 }
 pub fn load(c: &SqliteConnection, message: i64) -> Result<Vec<StoredToolUse>> {
-    let mut statement = c.prepare("SELECT call_id,server,tool,plugin_id,function_name,display_name,operation,outcome,detail,created_at,updated_at FROM presence_tool_uses WHERE message_id=?1 ORDER BY id LIMIT 513")?;
+    let mut statement = c.prepare("SELECT call_id,server,tool,plugin_id,function_name,display_name,operation,outcome,COALESCE(failure_reason,detail),created_at,updated_at FROM presence_tool_uses WHERE message_id=?1 ORDER BY id LIMIT 513")?;
     let mut rows = statement.query([message])?;
     let mut result = Vec::new();
     while let Some(r) = rows.next()? {

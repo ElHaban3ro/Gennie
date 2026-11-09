@@ -902,8 +902,8 @@ fn plugin_origin_comes_from_the_emitting_turn_not_the_active_or_selected_chat() 
         display_name: "Integración de prueba".into(),
         objective: "Petición inicial".into(),
         sequence: 1,
-        state: gennie_llm::delegation::State::Running,
-        kind: gennie_llm::delegation::Kind::Progress,
+        state: gennie_llm::delegation::State::Queued,
+        kind: gennie_llm::delegation::Kind::Status,
         detail: "Avance PRIVADO del primer trabajo".into(),
     };
     journal.deliver(&update).unwrap();
@@ -918,7 +918,7 @@ fn plugin_origin_comes_from_the_emitting_turn_not_the_active_or_selected_chat() 
     assert_eq!(history.active_id.unwrap().to_string(), second);
     assert_eq!(
         history.selected_messages.last().unwrap().text,
-        "Integración de prueba: La preparación del plugin está en curso."
+        "He delegado la preparación del plugin. Te informaré cuando haya un resultado o necesite tu intervención."
     );
     assert_eq!(
         history.selected_messages.last().unwrap().speaker,

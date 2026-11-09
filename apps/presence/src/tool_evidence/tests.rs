@@ -673,3 +673,63 @@ fn uncertain_mcp_result_has_a_fixed_code_and_free_error_text_remains_rejected() 
     assert_eq!(page(&db)[0].tools.len(), 1);
     db.close().unwrap();
 }
+
+#[test]
+fn failure_reason_survives_journal_readback() {
+    let db = Database::memory().unwrap();
+    let journal = setup(&db);
+    activate(&journal, "active");
+    journal.append("codex", "active", "user", "Prueba").unwrap();
+    journal.begin_turn("codex", "active", "turn").unwrap();
+    let mut call = usage("failed", ToolOutcome::Failed);
+    call.detail = Some("cause:La hora debe ser HH:mm (00:00–23:59)".into());
+    journal
+        .record_tool("codex", "active", "turn", &call)
+        .unwrap();
+    let mut duplicate = call.clone();
+    duplicate.detail = None;
+    journal
+        .record_tool("codex", "active", "turn", &duplicate)
+        .unwrap();
+    let entries = page(&db);
+    let saved = entries.iter().flat_map(|e| &e.tools).next().unwrap();
+    assert_eq!(saved.usage.detail, call.detail);
+}
+
+#[test]
+fn reviewed_mcp_failure_keeps_cause_and_uncertain_flag() {
+    let db = Database::memory().unwrap();
+    let journal = setup(&db);
+    activate(&journal, "active");
+    journal.append("codex", "active", "user", "Prueba").unwrap();
+    journal.begin_turn("codex", "active", "turn").unwrap();
+    let mut call = usage("external", ToolOutcome::Failed);
+    call.server = "mcp:external".into();
+    call.detail =
+        Some("review_cause:El servidor informó que el formato de un dato no es válido.".into());
+    journal
+        .record_tool("codex", "active", "turn", &call)
+        .unwrap();
+    db.with_connection(|c| {
+        let row: (String, String) = c.query_row(
+            "SELECT detail,failure_reason FROM presence_tool_uses",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        assert_eq!(row.0, "result_uncertain");
+        assert_eq!(row.1, call.detail.as_deref().unwrap());
+        Ok(())
+    })
+    .unwrap();
+    let entries = page(&db);
+    assert_eq!(
+        entries
+            .iter()
+            .flat_map(|e| &e.tools)
+            .next()
+            .unwrap()
+            .usage
+            .detail,
+        call.detail
+    );
+}

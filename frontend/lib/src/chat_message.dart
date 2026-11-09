@@ -136,9 +136,13 @@ class ChatMessage extends StatelessWidget {
               RegExp(r'^trabajo [0-9]+$').hasMatch(pluginSource)
         ? 'Plugin'
         : 'Plugin · $pluginSource';
-    final displayText = pluginPrefix == null
+    final historicalDelegationPrefix = !system && delegation != null
+        ? RegExp(r'^Plugin(?: · [^:\n]+)?: ').firstMatch(message.text)
+        : null;
+    final prefix = pluginPrefix ?? historicalDelegationPrefix;
+    final displayText = prefix == null
         ? message.text
-        : message.text.substring(pluginPrefix.end);
+        : message.text.substring(prefix.end);
     final time = messageTimeLabel(message.createdAt);
     return MessageActions(
       onReply: onReply,
@@ -488,11 +492,12 @@ class _PluginActionsState extends State<_PluginActions> {
               'waiting_user',
               'interrupted',
               'cancelled',
+              if (widget.delegation != null) 'blocked',
               if (widget.delegation != null) 'completed',
             ].contains(j['state'])) {
           return false;
         }
-        if (j['state'] == 'cancelled' &&
+        if ((j['state'] == 'cancelled' || j['state'] == 'blocked') &&
             (data['has_live_successor'] == true ||
                 allJobs.any(
                   (other) =>
@@ -590,6 +595,11 @@ class _PluginActionsState extends State<_PluginActions> {
 
   @override
   Widget build(BuildContext context) {
+    final webReview = job?['waiting_reason'] == 'web_review';
+    final reviewPage = job?['web_pending'] as Map?;
+    final pendingReview =
+        reviewPage?['status'] != 'ready' ||
+        (reviewPage?['total'] as int? ?? 0) > 0;
     final text = job?['state'] == 'waiting_user'
         ? widget.displayText.replaceAll(
             'Continuar en Plugins',
@@ -653,13 +663,29 @@ class _PluginActionsState extends State<_PluginActions> {
                     style: buttonStyle,
                     child: const Text('Ver plugin'),
                   ),
-                if (job!['state'] == 'cancelled')
+                if (job!['state'] == 'cancelled' ||
+                    (job!['state'] == 'blocked' &&
+                        widget.state.pluginAccessOpened.contains(accessKey)))
                   TextButton(
                     onPressed: busy ? null : () => act('rebuild'),
                     style: buttonStyle,
                     child: const Text('Volver a generar'),
                   ),
-                if (job!['state'] == 'waiting_user' &&
+                if (webReview &&
+                    pendingReview &&
+                    widget.delegation != null &&
+                    widget.onOpenPlugin != null)
+                  TextButton(
+                    onPressed: busy
+                        ? null
+                        : () =>
+                              widget.onOpenPlugin!(widget.delegation!.pluginId),
+                    style: buttonStyle,
+                    child: const Text('Revisar resultado'),
+                  ),
+                if (!webReview &&
+                    (job!['state'] == 'waiting_user' ||
+                        job!['state'] == 'blocked') &&
                     !widget.state.pluginAccessOpened.contains(accessKey))
                   TextButton(
                     onPressed: busy ? null : () => act('connect'),
@@ -668,7 +694,11 @@ class _PluginActionsState extends State<_PluginActions> {
                   ),
                 if (job!['state'] == 'interrupted' ||
                     (job!['state'] == 'waiting_user' &&
-                        widget.state.pluginAccessOpened.contains(accessKey)))
+                        ((webReview && !pendingReview) ||
+                            (!webReview &&
+                                widget.state.pluginAccessOpened.contains(
+                                  accessKey,
+                                )))))
                   TextButton(
                     onPressed: busy ? null : () => act('resume'),
                     style: buttonStyle,

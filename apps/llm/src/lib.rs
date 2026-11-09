@@ -196,8 +196,10 @@ fn reuse_empty_chat(
 
 #[cfg(test)]
 type TestConnector = Arc<dyn Fn(codex::ProcessHandle) -> Result<codex::Session> + Send + Sync>;
+pub type InvocationFinished = Arc<dyn Fn(&str) -> Result<()> + Send + Sync>;
 pub struct LlmModule {
     invocation: Arc<Mutex<Option<String>>>,
+    invocation_finished: Mutex<Option<InvocationFinished>>,
     journal: Option<Arc<dyn ConversationJournal>>,
     tools: Mutex<Option<gennie_mcp::Launch>>,
     notice_guide: Mutex<Option<notices::guidance::GuideFactory>>,
@@ -272,6 +274,7 @@ impl Default for LlmModule {
     fn default() -> Self {
         Self {
             invocation: Arc::default(),
+            invocation_finished: Mutex::new(None),
             journal: None,
             tools: Mutex::new(None),
             notice_guide: Mutex::new(None),
@@ -301,6 +304,17 @@ impl LlmModule {
     /// Hilo emisor del turno en curso; no sigue la selección de lectura de la UI.
     pub fn invocation_context(&self) -> Arc<Mutex<Option<String>>> {
         self.invocation.clone()
+    }
+    /// Notifica el fin del turno al propietario de recursos asociados al hilo.
+    pub fn configure_invocation_finished(&self, callback: InvocationFinished) -> Result<()> {
+        if self.worker.lock().map_err(|_| "Worker inválido")?.is_some() {
+            return Err("Configura el callback antes de iniciar LLM".into());
+        }
+        *self
+            .invocation_finished
+            .lock()
+            .map_err(|_| "Callback de turno inválido")? = Some(callback);
+        Ok(())
     }
     /// Composición antes de start; no se modifica una sesión en marcha.
     pub fn configure_tools(&self, tools: gennie_mcp::Launch) -> Result<()> {
@@ -371,6 +385,10 @@ impl AppModule for LlmModule {
                 version: 10,
                 sql: include_str!("../migrations/0010_expandable_architects.sql"),
             },
+            Migration {
+                version: 11,
+                sql: include_str!("../migrations/0011_owned_architect_prompts.sql"),
+            },
         ]
     }
     fn start(&self, state: &AppState) -> Result<()> {
@@ -405,6 +423,11 @@ impl AppModule for LlmModule {
         architects::list(&db)?;
         let settings = Arc::new(Mutex::new(settings::load(&db)?));
         let invocation = self.invocation.clone();
+        let invocation_finished = self
+            .invocation_finished
+            .lock()
+            .map_err(|_| "Callback de turno inválido")?
+            .clone();
         let worker_settings = settings.clone();
         let worker_pending = pending.clone();
         let worker_stopping = stopping.clone();
@@ -607,8 +630,11 @@ impl AppModule for LlmModule {
                             | Command::SaveArchitect(..) => Ok(None),
                         }
                     })();
-                    if let Ok(mut origin) = invocation.lock() {
-                        *origin = None;
+                    let finished_origin = invocation.lock().ok().and_then(|mut origin| origin.take());
+                    if let (Some(origin), Some(callback)) = (finished_origin, &invocation_finished)
+                        && callback(&origin).is_err()
+                    {
+                        let _ = event_sender.send(Event::HistoryWarning("No se pudo cerrar la sesión de trabajo del navegador; comprueba si hay una acción o descarga pendiente.".into()));
                     }
                     if let Some(ticket) = ticket {
                         let cancelled = ticket.context.is_cancelled();
@@ -965,7 +991,17 @@ mod tests {
         let module = LlmModule::default();
         db.migrate(module.name(), module.migrations()).unwrap();
         save_thread(&db, "saved-thread").unwrap();
-        assert_eq!(settings::load(&db).unwrap(), Settings::default());
+        let baseline = settings::load(&db).unwrap();
+        assert!(!baseline.personality.is_empty());
+        assert!(!baseline.instructions.is_empty());
+        assert_eq!(
+            Settings {
+                personality: String::new(),
+                instructions: String::new(),
+                ..baseline.clone()
+            },
+            Settings::default()
+        );
         let next = Settings {
             read_files: true,
             write_files: false,
@@ -973,7 +1009,7 @@ mod tests {
             local_actions: false,
             model: "gpt-6-astra".into(),
             effort: "high".into(),
-            ..Default::default()
+            ..baseline
         };
         settings::save(&db, &next).unwrap();
         assert_eq!(settings::load(&db).unwrap(), next);
@@ -1005,7 +1041,16 @@ mod tests {
 
         db.migrate(module.name(), module.migrations()).unwrap();
         assert_eq!(load_thread(&db).unwrap().as_deref(), Some("saved-thread"));
-        assert_eq!(settings::load(&db).unwrap(), Settings::default());
+        let migrated = settings::load(&db).unwrap();
+        assert!(migrated.instructions.contains("Eres Gennie"));
+        assert_eq!(
+            Settings {
+                personality: String::new(),
+                instructions: String::new(),
+                ..migrated
+            },
+            Settings::default()
+        );
         db.with_connection(|connection| {
             let count: i64 = connection.query_row(
                 "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='llm_memory'",

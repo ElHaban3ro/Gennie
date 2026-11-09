@@ -49,12 +49,12 @@ fn retryable_provider_info(info: &Value) -> bool {
 }
 
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(30);
-const TURN_TIMEOUT: Duration = Duration::from_secs(180);
+const TURN_IDLE_TIMEOUT: Duration = Duration::from_secs(180);
+const ACTIVE_TOOL_TIMEOUT: Duration = Duration::from_secs(gennie_mcp::MAX_TOOL_EXECUTION_SECS + 30);
 const MAX_REPLY_BYTES: usize = 32_000;
 // Una notificación puede encapsular como JSON escapado una respuesta MCP completa.
 const MAX_PROVIDER_MESSAGE_BYTES: usize = 2 * gennie_mcp::MAX_RESPONSE_BYTES + 64 * 1024;
 const VOICE_PROFILE: &str = "gennie_voice";
-const ASSISTANT_INSTRUCTIONS: &str = include_str!("assistant-instructions.md");
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ScopedOutput {
@@ -759,6 +759,16 @@ impl Session {
         request["id"] = json!(9); // Activa el drenaje de turn/interrupt en errores del constructor.
         self.run_turn(request, None, &mut |_| Ok(()))
     }
+    pub(crate) fn build_turn_with_feedback(
+        &mut self,
+        text: &str,
+        feedback: &mut dyn FnMut(crate::builder::FeedbackEvent) -> Result<Option<String>>,
+    ) -> Result<()> {
+        let mut request =
+            turn_start_request(&self.thread_id, &self.cwd, &self.model, &self.effort, text);
+        request["id"] = json!(9);
+        self.run_turn_with_policy(request, None, false, &mut |_| Ok(()), Some(feedback))
+    }
     fn discover_tools(&mut self, tools: &gennie_mcp::Launch) -> Result<()> {
         self.send(
             json!({"jsonrpc":"2.0","id":13,"method":"mcpServerStatus/list","params":{
@@ -978,10 +988,12 @@ impl Session {
         text: &str,
         on_message: &mut impl FnMut(StreamEvent) -> Result<()>,
     ) -> Result<()> {
-        self.run_turn(
+        self.run_turn_with_policy(
             turn_start_request(&self.thread_id, &self.cwd, &self.model, &self.effort, text),
-            Some(TURN_TIMEOUT),
+            Some(TURN_IDLE_TIMEOUT),
+            true,
             on_message,
+            None,
         )
     }
 
@@ -990,6 +1002,17 @@ impl Session {
         request: Value,
         timeout: Option<Duration>,
         on_message: &mut impl FnMut(StreamEvent) -> Result<()>,
+    ) -> Result<()> {
+        self.run_turn_with_policy(request, timeout, false, on_message, None)
+    }
+
+    fn run_turn_with_policy(
+        &mut self,
+        request: Value,
+        timeout: Option<Duration>,
+        idle_timeout: bool,
+        on_message: &mut impl FnMut(StreamEvent) -> Result<()>,
+        feedback: Option<&mut dyn FnMut(crate::builder::FeedbackEvent) -> Result<Option<String>>>,
     ) -> Result<()> {
         let id = request["id"]
             .as_i64()
@@ -1007,7 +1030,14 @@ impl Session {
             .pointer("/turn/id")
             .and_then(Value::as_str)
             .ok_or("El proveedor no inició el turno")?;
-        let result = self.receive_turn(&thread_id, turn_id, timeout, on_message);
+        let result = self.receive_turn(
+            &thread_id,
+            turn_id,
+            timeout,
+            idle_timeout,
+            on_message,
+            feedback,
+        );
         if result.is_err() && id == 9
             && self.send(json!({"jsonrpc":"2.0","id":12,"method":"turn/interrupt","params":{"threadId":thread_id,"turnId":turn_id}})).is_ok()
         {
@@ -1021,9 +1051,14 @@ impl Session {
         thread_id: &str,
         turn_id: &str,
         timeout: Option<Duration>,
+        idle_timeout: bool,
         on_message: &mut impl FnMut(StreamEvent) -> Result<()>,
+        mut feedback: Option<
+            &mut dyn FnMut(crate::builder::FeedbackEvent) -> Result<Option<String>>,
+        >,
     ) -> Result<()> {
-        let deadline = timeout.map(|duration| Instant::now() + duration);
+        let mut deadline = timeout.map(|duration| Instant::now() + duration);
+        let mut active_tools = std::collections::HashMap::<String, Instant>::new();
         let mut messages = MessageCollector::default();
         let journal = (thread_id == self.thread_id)
             .then(|| self.journal.clone())
@@ -1041,9 +1076,50 @@ impl Session {
             }
             on_message(message)
         };
+        let mut steering = false;
         let result: Result<()> = (|| -> Result<()> {
             loop {
-                let event = self.next(deadline)?;
+                if !steering
+                    && let Some(ref mut callback) = feedback
+                    && let Some(text) = callback(crate::builder::FeedbackEvent::Poll)?
+                {
+                    steering = true;
+                    self.send(json!({"jsonrpc":"2.0","id":33,"method":"turn/steer","params":{"threadId":thread_id,"expectedTurnId":turn_id,"input":[{"type":"text","text":text}]}}))?;
+                }
+                let wait_until = if idle_timeout && !active_tools.is_empty() {
+                    active_tools.values().copied().min()
+                } else {
+                    deadline
+                };
+                let poll_deadline = feedback
+                    .as_ref()
+                    .map(|_| Instant::now() + Duration::from_millis(200));
+                let read_deadline = match (wait_until, poll_deadline) {
+                    (Some(a), Some(b)) => Some(a.min(b)),
+                    (a, b) => a.or(b),
+                };
+                let event = match self.next(read_deadline) {
+                    Err(e)
+                        if feedback.is_some()
+                            && e.is::<RetryableProviderError>()
+                            && wait_until.is_none_or(|d| Instant::now() < d)
+                            && read_deadline.is_some_and(|d| Instant::now() >= d) =>
+                    {
+                        continue;
+                    }
+                    other => other?,
+                };
+                if steering && event.get("id").and_then(Value::as_i64) == Some(33) {
+                    steering = false;
+                    if let Some(ref mut callback) = feedback {
+                        callback(if event.get("error").is_some() {
+                            crate::builder::FeedbackEvent::Rejected
+                        } else {
+                            crate::builder::FeedbackEvent::Accepted
+                        })?;
+                    }
+                    continue;
+                }
                 if event.get("id").is_some() && event.get("method").is_some() {
                     return Err(
                     "El proveedor solicitó una acción no disponible para la conversación por voz"
@@ -1058,6 +1134,50 @@ impl Session {
                     continue;
                 }
                 let method = event.get("method").and_then(Value::as_str);
+                if idle_timeout
+                    && event.pointer("/params/threadId").and_then(Value::as_str) == Some(thread_id)
+                    && event.pointer("/params/turnId").and_then(Value::as_str) == Some(turn_id)
+                {
+                    let item = &event["params"]["item"];
+                    let item_id = item.get("id").and_then(Value::as_str);
+                    let is_tool = matches!(
+                        item["type"].as_str(),
+                        Some(
+                            "mcpToolCall"
+                                | "commandExecution"
+                                | "collabAgentToolCall"
+                                | "dynamicToolCall"
+                        )
+                    );
+                    if is_tool && let Some(id) = item_id {
+                        match method {
+                            Some("item/started") => {
+                                active_tools
+                                    .insert(id.to_owned(), Instant::now() + ACTIVE_TOOL_TIMEOUT);
+                            }
+                            Some("item/completed") => {
+                                active_tools.remove(id);
+                            }
+                            _ => {}
+                        }
+                    }
+                    if matches!(
+                        method,
+                        Some(
+                            "item/started"
+                                | "item/completed"
+                                | "item/agentMessage/delta"
+                                | "item/reasoning/textDelta"
+                                | "item/reasoning/summaryTextDelta"
+                                | "item/commandExecution/outputDelta"
+                        )
+                    ) {
+                        deadline = timeout.map(|duration| Instant::now() + duration);
+                        for tool_deadline in active_tools.values_mut() {
+                            *tool_deadline = Instant::now() + ACTIVE_TOOL_TIMEOUT;
+                        }
+                    }
+                }
                 self.observe(|| {
                     if let Some(journal) = &journal
                         && let Some(usage) =
@@ -1097,6 +1217,9 @@ impl Session {
                 }
             }
         })();
+        if steering && let Some(ref mut callback) = feedback {
+            callback(crate::builder::FeedbackEvent::Uncertain)?;
+        }
         // Solo terminar un fragmento ya observado; nunca consumir eventos tardíos al cancelar.
         if result.is_err() && !messages.current_text.trim().is_empty() {
             let text = std::mem::take(&mut messages.current_text);
@@ -1267,6 +1390,7 @@ fn session_capabilities(settings: &Settings, tool_names: &[String]) -> Value {
         "gennie_web": {
             "available": has_browser && local_control,
             "transport": "MCP directo a la API Playwright, sin controlar el ordenador",
+            "session_behavior": "Las herramientas de este turno usan pestañas headless propias y el perfil persistente. Para iniciar sesión, el usuario abre Gennie Web con el botón del chat; no pidas credenciales. Al terminar se liberan las pestañas del turno y se restaura la ventana visible si estaba abierta.",
             "tools": browser_tools,
             "tools_registered": has_browser,
             "permission_enabled": local_control,
@@ -1289,17 +1413,10 @@ fn session_capabilities(settings: &Settings, tool_names: &[String]) -> Value {
     })
 }
 fn instructions(settings: &Settings, tool_names: &[String]) -> String {
-    let mut text = ASSISTANT_INSTRUCTIONS.to_owned();
-    text.push_str(" Si el MCP local gennie ofrece herramientas assignments_*, úsalas para registrar, consultar y actualizar encargos a petición del usuario o cuando acepte claramente una propuesta tuya. No escribas directamente sus archivos ni SQLite. Hay encargos puntuales, recurrentes y objetivos. Antes de crear, consulta assignments_list para obtener fecha UTC, zona horaria del sistema y encargos existentes; usa esa referencia salvo que el usuario indique otra zona. Separa estrictamente el horario de aviso al usuario de la cadencia de preparación interna; revisiones frecuentes no implican avisos frecuentes. Elige prioridad, pasos e intervalo según el objetivo y justifica la cadencia. Usa la referencia horaria de assignments_list sin preguntar la zona salvo contradicción. Completa tú título, descripción, tipo, prioridad, pasos y seguimiento a partir de la necesidad aceptada; no conviertas los campos del registro en preguntas. Pregunta solo por el principal dato indispensable que siga faltando, como un horario obligatorio o una fuente ambigua. No inventes horarios ni cuentas. El motivo y otros campos opcionales pueden quedar vacíos. Conserva el contexto e identifica las inferencias. No inventes plugins ni acceso a cuentas. Si hay herramientas browser_*, el navegador de Gennie permite trabajo web autorizado sobre sesiones verificadas; no implica conexión nativa de esas aplicaciones ni ejecución autónoma de encargos. Registrar un encargo solo acredita su guardado. Confirma los datos acordados, sin añadir avisos de implementación o integración pendiente. No deduzcas del registro que una revisión se ejecutó o una conexión quedó activada. Confirma el guardado únicamente cuando assignments_create/assignments_update devuelva éxito; ante errores corrige datos o pide lo que falte. Antes de editar consulta assignments_get y usa su revision. Reutiliza request_key solo para repetir la misma creación; una solicitud nueva necesita otra clave. Estas herramientas registran datos propios de Gennie y son independientes de los permisos de archivos/comandos del ordenador. No hay herramientas de memoria todavía.");
-    text.push_str("\n\n");
-    text.push_str(include_str!("web-research-instructions.md"));
-    text.push_str(include_str!("web-plugin-instructions.md"));
+    let mut text = settings.agent_instructions();
     text.push_str("\n\nCapacidades de esta sesión, derivadas de las herramientas registradas y los permisos vigentes; no son una autorización general para actuar:\n");
     text.push_str(&session_capabilities(settings, tool_names).to_string());
-    text.push_str("\nUsa esta disponibilidad actual, aunque un mensaje anterior tuyo haya negado acceso. No confundas la ausencia de plugins o conectores nativos con la ausencia del navegador por MCP. Si gennie_web.available es true, tienes Gennie Web y debes intentar su API antes de afirmar que no puedes acceder a ese navegador. Si es false, distingue herramienta ausente de permiso desactivado y no intentes eludir esa restricción. La red de los comandos está desactivada; un fallo de curl/wget no implica que la búsqueda web o Playwright estén bloqueados. No gastes intentos equivalentes contra la misma restricción.");
-    if settings.local_actions {
-        text.push_str(" Puedes usar el ordenador para completar una petición del usuario que lo necesite, también como alternativa razonable dentro del mismo objetivo de lectura o navegación. No esperes una orden literal «usa el ordenador» para continuar una investigación aceptada. Prefiere primero la API de Gennie Web; si falla por una causa comprobada y queda una vía pertinente, puedes probar Safari u otro navegador disponible mediante comandos de macOS (por ejemplo osascript/System Events), con los permisos existentes. Abrir un enlace no prueba que hayas leído su contenido: obsérvalo por una vía disponible. No inventes herramientas de ordenador instaladas ni permisos del sistema concedidos. Informa brevemente de un cambio de vía cuando aporte contexto; no pidas autorización repetida para pasos de lectura ya comprendidos en la petición. El envío de mensajes, compras o cambios externos conserva el alcance autorizado por el usuario.");
-    } else {
+    if !settings.local_actions {
         text.push_str(
             " No controles la interfaz de otras aplicaciones, tampoco mediante comandos.",
         );
@@ -1313,7 +1430,7 @@ fn instructions(settings: &Settings, tool_names: &[String]) -> String {
     if !settings.write_files {
         text.push_str(" No escribas ni modifiques archivos locales.");
     }
-    settings.role_instructions(&text)
+    text
 }
 impl Drop for Session {
     fn drop(&mut self) {
@@ -1383,6 +1500,22 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn stored_profile_replaces_default_bot_instructions() {
+        let settings = Settings {
+            personality: "Personalidad propia del perfil".into(),
+            instructions: "Instrucciones completas editadas por el usuario".into(),
+            ..Default::default()
+        };
+        let text = super::instructions(&settings, &[]);
+        assert!(text.contains(&settings.personality));
+        assert!(text.contains(&settings.instructions));
+        assert!(!text.contains("Eres Gennie, un asistente personal"));
+        assert!(!text.contains("Eres el constructor técnico"));
+        assert!(!text.contains("Personalización de esta instancia"));
+        assert!(text.contains("Capacidades de esta sesión"));
+    }
+
+    #[test]
     fn composed_bot_instructions_distinguish_assignment_execution_from_building() {
         let inventories = [
             vec![],
@@ -1405,6 +1538,11 @@ mod tests {
                 "plugin_build_start",
             ],
         ];
+        let db = gennie_db::Database::memory().unwrap();
+        let module = crate::LlmModule::default();
+        use gennie_core::AppModule;
+        db.migrate(module.name(), module.migrations()).unwrap();
+        let profile = crate::architects::load(&db, crate::architects::Role::Bot).unwrap();
         for names in inventories {
             let tools: Vec<String> = names.into_iter().map(str::to_owned).collect();
             for permissions in [false, true] {
@@ -1413,7 +1551,7 @@ mod tests {
                     write_files: permissions,
                     run_commands: permissions,
                     local_actions: permissions,
-                    ..Default::default()
+                    ..profile.settings()
                 };
                 let text = super::instructions(&settings, &tools);
                 for obsolete in [
@@ -1448,7 +1586,7 @@ mod tests {
     }
 
     #[test]
-    fn bot_customization_is_composed_with_fixed_policy_and_current_permissions() {
+    fn bot_configuration_is_composed_with_current_permissions() {
         let settings = Settings {
             personality: "Conciso".into(),
             instructions: "Usa ejemplos".into(),
@@ -1459,12 +1597,43 @@ mod tests {
             ..Default::default()
         };
         let text = super::instructions(&settings, &[]);
-        assert!(text.starts_with(super::ASSISTANT_INSTRUCTIONS));
+        assert!(text.starts_with(&settings.agent_instructions()));
         assert!(text.contains("No ejecutes comandos ni procesos locales"));
         assert!(text.contains("No controles la interfaz de otras aplicaciones"));
-        assert!(text.contains("no cambia sus capacidades, permisos"));
+        assert!(!text.contains("Personalización de esta instancia"));
         assert!(text.contains("Conciso"));
         assert!(text.contains("Usa ejemplos"));
+    }
+
+    #[test]
+    fn baseline_capabilities_require_known_tools_and_both_local_permissions() {
+        let names: Vec<String> = ["plugin_mcp_catalog", "plugin_mcp_run"]
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        for (commands, local, expected) in [
+            (false, false, false),
+            (false, true, false),
+            (true, false, false),
+            (true, true, true),
+        ] {
+            let settings = Settings {
+                run_commands: commands,
+                local_actions: local,
+                ..Settings::default()
+            };
+            let capabilities = super::session_capabilities(&settings, &names);
+            assert_eq!(capabilities["mcp_plugins"]["available"], expected);
+            let without_run = vec![names[0].clone()];
+            assert_eq!(
+                super::session_capabilities(&settings, &without_run)["mcp_plugins"]["available"],
+                false
+            );
+            let artificial = vec!["probe_read".to_owned()];
+            let fixture = super::session_capabilities(&settings, &artificial);
+            assert_eq!(fixture["mcp_plugins"]["available"], false);
+            assert!(!fixture.to_string().contains("probe_read"));
+        }
     }
     #[test]
     #[ignore = "Consume una redacción real del bot con contexto ficticio, sin herramientas ni DB personal"]
@@ -1650,6 +1819,75 @@ esac
                 );
             }
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn builder_steers_the_active_turn_and_observes_acknowledgement() {
+        use super::*;
+        let script = r#"
+IFS= read -r start || exit 1
+printf '%s\n' '{"id":9,"result":{"turn":{"id":"active-turn"}}}'
+IFS= read -r steer || exit 2
+case "$steer" in
+ *'"method":"turn/steer"'*'"expectedTurnId":"active-turn"'* ) ;;
+ * ) exit 3 ;;
+esac
+printf '%s\n' '{"id":33,"result":{"turnId":"active-turn"}}' '{"method":"item/completed","params":{"threadId":"t","turnId":"active-turn","item":{"id":"m","type":"agentMessage","text":"Corrección recibida"}}}' '{"method":"turn/completed","params":{"turn":{"id":"active-turn","status":"completed"}}}'
+"#;
+        let mut child = Command::new("sh")
+            .args(["-c", script])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .process_group(0)
+            .spawn()
+            .unwrap();
+        let stdin = child.stdin.take().unwrap();
+        let stdout = child.stdout.take().unwrap();
+        let process = ProcessHandle::default();
+        *process.0.lock().unwrap() = Some(child);
+        let (sender, lines) = mpsc::channel();
+        let reader = std::thread::spawn(move || {
+            for line in BufReader::new(stdout).lines() {
+                if sender.send(line.unwrap()).is_err() {
+                    break;
+                }
+            }
+        });
+        let mut session = Session {
+            stdin,
+            lines,
+            reader: Some(reader),
+            process,
+            thread_id: "t".into(),
+            journal: None,
+            cwd: std::env::temp_dir(),
+            model: "fixture".into(),
+            effort: "medium".into(),
+            title_effort: None,
+            settings: Settings::default(),
+            tool_names: vec![],
+            has_mcp: false,
+            cancellation: None,
+            ticket: None,
+        };
+        let mut sent = false;
+        let mut acknowledged = false;
+        session
+            .build_turn_with_feedback("Inicial", &mut |event| match event {
+                crate::builder::FeedbackEvent::Poll if !sent => {
+                    sent = true;
+                    Ok(Some("No iniciar sesión".into()))
+                }
+                crate::builder::FeedbackEvent::Accepted => {
+                    acknowledged = true;
+                    Ok(None)
+                }
+                crate::builder::FeedbackEvent::Poll => Ok(None),
+                _ => Err("El envío no fue aceptado".into()),
+            })
+            .unwrap();
+        assert!(sent && acknowledged);
     }
 
     #[cfg(unix)]

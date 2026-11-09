@@ -164,6 +164,7 @@ class _PluginsViewState extends State<PluginsView> {
   String get botName =>
       widget.state.snapshot?.assistantProfile?.name ?? 'Gennie';
   final search = TextEditingController();
+  final webAttemptsKey = GlobalKey();
   List<Map<String, dynamic>> records = [], jobs = [], mcpSources = [];
   String? mcpError;
   bool creatingMcp = false;
@@ -171,6 +172,7 @@ class _PluginsViewState extends State<PluginsView> {
   String catalogueStatus = 'ready';
   bool loading = true,
       fetching = false,
+      deleting = false,
       editing = false,
       creating = false,
       updating = false;
@@ -315,6 +317,55 @@ class _PluginsViewState extends State<PluginsView> {
     }
   }
 
+  Future<void> reviewBuilderMessage(
+    Map<String, dynamic> job,
+    Map message,
+  ) async {
+    final resolution = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Revisar instrucción'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'No se pudo confirmar si el constructor recibió esta instrucción. Revisa el trabajo y elige cómo continuar:',
+            ),
+            const SizedBox(height: 12),
+            SelectableText('${message['message']}'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Decidir después'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, 'received'),
+            child: const Text('Sí la recibió'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, 'resend'),
+            child: const Text('Reenviar al reanudar'),
+          ),
+        ],
+      ),
+    );
+    if (resolution == null) return;
+    try {
+      await call({
+        'action': 'review_builder_message',
+        'job_id': job['id'],
+        'message_id': message['id'],
+        'resolution': resolution,
+      });
+      await refresh();
+    } catch (e) {
+      if (mounted) setState(() => error = '$e');
+    }
+  }
+
   Future<void> rebuild(Map<String, dynamic> job) async {
     if (rebuilding) return;
     final id = job['id'] as int;
@@ -350,13 +401,14 @@ class _PluginsViewState extends State<PluginsView> {
   }
 
   Future<void> remove(Map<String, dynamic> record) async {
+    if (deleting) return;
     final manifest = record['manifest'] as Map;
     final confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Eliminar plugin'),
         content: Text(
-          '¿Eliminar ${manifest['name']}? Se cancelarán sus trabajos pendientes. La sesión del navegador se conserva.',
+          '¿Eliminar ${manifest['name']}? Se cancelarán sus trabajos pendientes. Los resultados sin confirmar seguirán registrados. Si el navegador está ocupado, Gennie esperará sin detener otras tareas.',
         ),
         actions: [
           TextButton(
@@ -370,13 +422,34 @@ class _PluginsViewState extends State<PluginsView> {
         ],
       ),
     );
-    if (confirm != true) return;
+    if (confirm != true || !mounted) return;
+    setState(() {
+      deleting = true;
+      error = null;
+    });
     try {
       final response = await call({
         'action': 'delete',
         'plugin_id': manifest['id'],
         'expected_revision': record['revision'],
       });
+      if (response['status'] == 'review_required') {
+        await refresh();
+        if (!mounted) return;
+        setState(
+          () => error =
+              'Revisa el resultado web pendiente antes de eliminar el plugin.',
+        );
+        final panel = webAttemptsKey.currentContext;
+        if (panel != null && panel.mounted) {
+          await Scrollable.ensureVisible(
+            panel,
+            alignment: .1,
+            duration: const Duration(milliseconds: 200),
+          );
+        }
+        return;
+      }
       if (response['status'] != 'deleted') {
         throw StateError('El plugin cambió. Recarga antes de eliminarlo.');
       }
@@ -395,6 +468,8 @@ class _PluginsViewState extends State<PluginsView> {
       await refresh();
     } catch (e) {
       if (mounted) setState(() => error = '$e');
+    } finally {
+      if (mounted) setState(() => deleting = false);
     }
   }
 
@@ -427,7 +502,10 @@ class _PluginsViewState extends State<PluginsView> {
       }
     }
     for (final job in latestJobs.values) {
-      if (job['state'] == 'cancelled') continue;
+      if (job['state'] == 'cancelled' &&
+          ((job['web_pending'] as Map?)?['total'] as int? ?? 0) == 0) {
+        continue;
+      }
       final id = job['plugin_id'] as String;
       if (job['state'] == 'completed' &&
           !records.any((r) => (r['manifest'] as Map)['id'] == id)) {
@@ -731,13 +809,15 @@ class _PluginsViewState extends State<PluginsView> {
                           PluginProfile(
                             key: ValueKey('$selected-${record['revision']}'),
                             record: record,
+                            webAttemptsKey: webAttemptsKey,
                             job: associated.isNotEmpty
                                 ? associated.first
                                 : null,
                             call: call,
                             onActivity: () => refresh(quiet: true),
                             onEdit: () => setState(() => editing = true),
-                            onDelete: () => remove(record),
+                            onDelete: deleting ? null : () => remove(record),
+                            deleting: deleting,
                             onUpdate: () => setState(() => updating = true),
                           ),
                         if (record == null &&
@@ -961,12 +1041,26 @@ class _PluginsViewState extends State<PluginsView> {
                                           ),
                                       ],
                                     ),
-                                  if (job['state'] == 'waiting_user')
+                                  if (job['state'] == 'waiting_user' &&
+                                      job['waiting_reason'] != 'web_review')
                                     const Padding(
                                       padding: EdgeInsets.only(bottom: 4),
                                       child: Text(
                                         'Revisa el mensaje del asistente en el chat de origen antes de continuar.',
                                         style: TextStyle(fontSize: 12),
+                                      ),
+                                    ),
+                                  for (final message
+                                      in (job['uncertain_builder_messages']
+                                              as List? ??
+                                          const []))
+                                    TextButton(
+                                      onPressed: () => reviewBuilderMessage(
+                                        job,
+                                        message as Map,
+                                      ),
+                                      child: const Text(
+                                        'Revisar instrucción sin confirmar',
                                       ),
                                     ),
                                   Wrap(
@@ -992,7 +1086,8 @@ class _PluginsViewState extends State<PluginsView> {
                                               : () => rebuild(job),
                                           child: const Text('Volver a generar'),
                                         ),
-                                      if (job['state'] == 'waiting_user')
+                                      if (job['state'] == 'waiting_user' &&
+                                          job['waiting_reason'] != 'web_review')
                                         TextButton(
                                           onPressed: () =>
                                               jobAction('connect', job),
@@ -1000,10 +1095,24 @@ class _PluginsViewState extends State<PluginsView> {
                                             'Abrir sitio en Gennie Web',
                                           ),
                                         ),
-                                      if ([
-                                        'waiting_user',
-                                        'interrupted',
-                                      ].contains(job['state']))
+                                      if ((job['uncertain_builder_messages']
+                                                      as List? ??
+                                                  const [])
+                                              .isEmpty &&
+                                          (job['waiting_reason'] !=
+                                                  'web_review' ||
+                                              ((job['web_pending']
+                                                          as Map?)?['status'] ==
+                                                      'ready' &&
+                                                  (((job['web_pending']
+                                                                  as Map?)?['total']
+                                                              as int?) ??
+                                                          0) ==
+                                                      0)) &&
+                                          [
+                                            'waiting_user',
+                                            'interrupted',
+                                          ].contains(job['state']))
                                         TextButton(
                                           onPressed: () =>
                                               jobAction('resume', job),
@@ -1042,17 +1151,22 @@ class PluginProfile extends StatefulWidget {
   const PluginProfile({
     super.key,
     required this.record,
+    this.webAttemptsKey,
     required this.call,
     required this.onEdit,
     required this.onDelete,
+    this.deleting = false,
     required this.onUpdate,
     this.job,
     this.onActivity,
   });
   final Map<String, dynamic> record;
+  final GlobalKey? webAttemptsKey;
   final Map<String, dynamic>? job;
   final PluginCall call;
-  final VoidCallback onEdit, onDelete, onUpdate;
+  final VoidCallback onEdit, onUpdate;
+  final VoidCallback? onDelete;
+  final bool deleting;
   final Future<void> Function()? onActivity;
   @override
   State<PluginProfile> createState() => _PluginProfileState();
@@ -1122,6 +1236,7 @@ class _PluginProfileState extends State<PluginProfile> {
         ],
         const SizedBox(height: 20),
         WebAttemptPanel(
+          key: widget.webAttemptsKey,
           pluginId: m['id'] as String,
           initial: widget.record['web_pending'] as Map?,
           call: widget.call,
@@ -1152,8 +1267,24 @@ class _PluginProfileState extends State<PluginProfile> {
             ),
             TextButton(
               onPressed: widget.onDelete,
-              child: const Text('Eliminar'),
+              child: Text(widget.deleting ? 'Eliminando…' : 'Eliminar'),
             ),
+            if (((widget.record['web_pending'] as Map?)?['total'] as int? ??
+                    0) >
+                0)
+              TextButton(
+                onPressed: () {
+                  final panel = widget.webAttemptsKey?.currentContext;
+                  if (panel != null && panel.mounted) {
+                    Scrollable.ensureVisible(
+                      panel,
+                      alignment: .1,
+                      duration: const Duration(milliseconds: 200),
+                    );
+                  }
+                },
+                child: const Text('Ver resultado pendiente'),
+              ),
           ],
         ),
         const Divider(height: 32),

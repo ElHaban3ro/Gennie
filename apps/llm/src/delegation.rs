@@ -136,13 +136,32 @@ impl Update {
     }
     fn needs_model(&self) -> bool {
         self.kind != Kind::Legacy
-            && matches!(
-                self.state,
-                State::WaitingUser | State::Completed | State::Blocked
-            )
+            && (self.kind == Kind::Progress
+                || matches!(
+                    self.state,
+                    State::WaitingUser | State::Completed | State::Blocked
+                ))
     }
     fn routine_message(&self) -> String {
         let text = match self.state {
+            State::Queued
+                if self.detail
+                    == "El navegador está ocupado con otra operación. Conservé el trabajo y volveré a intentarlo en unos cinco minutos sin interrumpirla." =>
+            {
+                "El navegador está ocupado con otra operación. Conservaré el trabajo y volveré a intentarlo en unos cinco minutos sin interrumpirla."
+            }
+            State::Running
+                if self.detail
+                    == "El navegador está ocupado con otra operación. Esperaré a que termine para continuar sin interrumpirla." =>
+            {
+                "El navegador está ocupado con otra operación. Esperaré a que termine para continuar sin interrumpirla."
+            }
+            State::Running
+                if self.detail
+                    == "El navegador vuelve a estar disponible; continuaré la construcción." =>
+            {
+                "El navegador vuelve a estar disponible; continuaré la construcción."
+            }
             State::Queued if self.kind == Kind::Retry => {
                 "La conexión de la construcción se interrumpió. El trabajo sigue guardado para poder retomarlo."
             }
@@ -163,13 +182,19 @@ impl Update {
                 "La construcción del plugin quedó cancelada. Puedes consultar su estado en Plugins."
             }
             State::Interrupted => {
-                "La preparación del plugin se interrumpió. Puedes revisar el trabajo y continuar cuando quieras."
+                if self.detail
+                    == "La misma operación falló repetidamente sin cambios. Detuve la construcción para evitar un bucle; el candidato se conserva y puedes continuar para probar otra alternativa."
+                {
+                    "La misma operación falló repetidamente sin cambios. Detuve la construcción para evitar un bucle; el candidato se conserva y puedes continuar para probar otra alternativa."
+                } else {
+                    "La preparación del plugin se interrumpió. Puedes revisar el trabajo y continuar cuando quieras."
+                }
             }
             State::Legacy => {
                 "Hay una actualización de una construcción anterior. Puedes consultar el estado del trabajo en Plugins."
             }
         };
-        format!("{}: {text}", self.display_name)
+        text.to_owned()
     }
     fn explanation_unavailable_message(&self) -> String {
         format!(

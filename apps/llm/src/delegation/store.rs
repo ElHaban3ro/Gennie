@@ -74,8 +74,8 @@ impl Store {
             if state!="ready" { return Ok(false); }
             let newer:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM llm_delegation_updates WHERE delegation_id=?1 AND sequence>?2)",params![update.delegation_id,update.sequence],|r|r.get(0))?;
             let repeated = if update.kind==Kind::Progress || update.kind==Kind::Legacy {
-                let previous={let mut q=tx.prepare("SELECT document FROM llm_delegation_updates WHERE delegation_id=?1 AND state='delivered' ORDER BY sequence DESC LIMIT 1")?;q.query_map([&update.delegation_id],|r|r.get::<_,String>(0))?.next().transpose()?};
-                previous.map(|document| -> Result<bool> {let previous:Update=serde_json::from_str(&document)?;Ok(previous.state==update.state && previous.kind==update.kind)}).transpose()?.unwrap_or(false)
+                let previous={let mut q=tx.prepare("SELECT document,rendered_text FROM llm_delegation_updates WHERE delegation_id=?1 AND state='delivered' ORDER BY sequence DESC LIMIT 1")?;q.query_map([&update.delegation_id],|r|Ok((r.get::<_,String>(0)?,r.get::<_,Option<String>>(1)?)))?.next().transpose()?};
+                previous.map(|(document,previous_text)| -> Result<bool> {let previous:Update=serde_json::from_str(&document)?;Ok(previous.state==update.state && previous.kind==update.kind && (update.kind==Kind::Legacy || (text.is_some() && previous_text==text)))}).transpose()?.unwrap_or(false)
             } else {false};
             let newer=newer || repeated;
             let delivered=if newer { false } else {

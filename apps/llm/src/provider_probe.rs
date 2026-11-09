@@ -8,6 +8,18 @@ use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 #[path = "provider_plugin_probe.rs"]
 mod plugins;
 
+#[path = "provider_continuity_probe.rs"]
+mod continuity;
+
+#[path = "provider_real_web_probe.rs"]
+mod real_web;
+
+#[path = "provider_project_probe.rs"]
+mod project;
+
+#[path = "provider_long_turn_probe.rs"]
+mod long_turn;
+
 #[path = "provider_probe_diagnostics.rs"]
 mod diagnostics;
 
@@ -17,6 +29,16 @@ enum Scenario {
     Full,
     StopResume,
     PluginSemantics,
+    Continuity,
+    ContinuityExtended,
+    ContinuityExplicit,
+    ContinuityStall,
+    ContinuityCorrection,
+    ContinuityCompare,
+    ContinuityModelCompare,
+    ContinuityCompareFollowup,
+    ContinuityModelFollowup,
+    ContinuityCorrectionModel,
 }
 impl Scenario {
     fn turns(self) -> u32 {
@@ -24,6 +46,16 @@ impl Scenario {
             Self::Full => 4,
             Self::StopResume => 2,
             Self::PluginSemantics => 3,
+            Self::Continuity => 2,
+            Self::ContinuityExtended => 2,
+            Self::ContinuityExplicit => 2,
+            Self::ContinuityStall => 2,
+            Self::ContinuityCorrection => 2,
+            Self::ContinuityCompare => 4,
+            Self::ContinuityModelCompare => 2,
+            Self::ContinuityCompareFollowup => 4,
+            Self::ContinuityModelFollowup => 2,
+            Self::ContinuityCorrectionModel => 2,
         }
     }
 }
@@ -58,7 +90,17 @@ impl Plan {
     fn validate(&self) -> Result<()> {
         if self.version != 2
             || !matches!(self.mode.as_str(), "protocol" | "live")
-            || self.model != "gpt-6-luna"
+            || self.model
+                != if matches!(
+                    self.scenario,
+                    Scenario::ContinuityModelCompare
+                        | Scenario::ContinuityModelFollowup
+                        | Scenario::ContinuityCorrectionModel
+                ) {
+                    "gpt-6.1-sol"
+                } else {
+                    "gpt-6-luna"
+                }
             || self.effort != "low"
             || self.model_turns_max != self.scenario.turns()
             || self.cell_timeout_seconds != 60
@@ -217,6 +259,10 @@ struct Scope {
 }
 impl Scope {
     fn new(control: &turn::Control) -> Result<Self> {
+        Self::with_timeout(control, Duration::from_secs(60))
+    }
+
+    fn with_timeout(control: &turn::Control, duration: Duration) -> Result<Self> {
         let ticket = control.begin()?;
         let (sender, receiver) = mpsc::channel();
         let control = control.clone();
@@ -224,19 +270,16 @@ impl Scope {
         let id = ticket.id.clone();
         let timed_out = Arc::new(AtomicBool::new(false));
         let timeout = timed_out.clone();
-        let handle =
-            std::thread::spawn(
-                move || match receiver.recv_timeout(Duration::from_secs(60)) {
-                    Ok(Signal::Cancel) => {
-                        let _ = worker.cancel(&id);
-                    }
-                    Err(mpsc::RecvTimeoutError::Timeout) => {
-                        timeout.store(true, Ordering::Release);
-                        let _ = worker.cancel(&id);
-                    }
-                    _ => {}
-                },
-            );
+        let handle = std::thread::spawn(move || match receiver.recv_timeout(duration) {
+            Ok(Signal::Cancel) => {
+                let _ = worker.cancel(&id);
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                timeout.store(true, Ordering::Release);
+                let _ = worker.cancel(&id);
+            }
+            _ => {}
+        });
         Ok(Self {
             ticket,
             sender,
@@ -254,6 +297,18 @@ impl Drop for Scope {
         }
         self.control.finish(&self.ticket.id);
     }
+}
+
+#[test]
+fn probe_scope_deadline_cancels_its_ticket() {
+    let control = turn::Control::new(ProcessHandle::default());
+    let scope = Scope::with_timeout(&control, Duration::from_millis(20)).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while !scope.ticket.context.is_cancelled() && Instant::now() < deadline {
+        std::thread::yield_now();
+    }
+    assert!(scope.timed_out.load(Ordering::Acquire));
+    assert!(scope.ticket.context.is_cancelled());
 }
 
 fn open(
@@ -453,6 +508,21 @@ fn rollout_text(directory: &Path, id: &str) -> Result<String> {
 }
 
 fn exercise(plan: &Plan, report: &mut Value) -> Result<()> {
+    if matches!(
+        plan.scenario,
+        Scenario::Continuity
+            | Scenario::ContinuityExtended
+            | Scenario::ContinuityExplicit
+            | Scenario::ContinuityStall
+            | Scenario::ContinuityCorrection
+            | Scenario::ContinuityCompare
+            | Scenario::ContinuityModelCompare
+            | Scenario::ContinuityCompareFollowup
+            | Scenario::ContinuityModelFollowup
+            | Scenario::ContinuityCorrectionModel
+    ) {
+        return continuity::exercise(plan, report);
+    }
     if plan.scenario == Scenario::PluginSemantics {
         return plugins::exercise(plan, report);
     }
@@ -705,8 +775,32 @@ fn provider_probe_plan_rejects_unbounded_or_unknown_modes() {
 
 #[test]
 fn provider_probe_turn_counter_never_exceeds_the_selected_scenario() {
-    for (scenario, turns) in [("stop_resume", 2), ("full", 4), ("plugin_semantics", 3)] {
-        let plan: Plan = serde_json::from_value(json!({"version":2,"scenario":scenario,"mode":"protocol","output_dir":"/tmp/gennie-fixture","nonce":"c".repeat(32),"model":"gpt-6-luna","effort":"low","model_turns_max":turns,"cell_timeout_seconds":60})).unwrap();
+    for (scenario, turns) in [
+        ("stop_resume", 2),
+        ("full", 4),
+        ("plugin_semantics", 3),
+        ("continuity", 2),
+        ("continuity_extended", 2),
+        ("continuity_explicit", 2),
+        ("continuity_stall", 2),
+        ("continuity_correction", 2),
+        ("continuity_compare", 4),
+        ("continuity_model_compare", 2),
+        ("continuity_compare_followup", 4),
+        ("continuity_model_followup", 2),
+        ("continuity_correction_model", 2),
+    ] {
+        let model = if matches!(
+            scenario,
+            "continuity_model_compare"
+                | "continuity_model_followup"
+                | "continuity_correction_model"
+        ) {
+            "gpt-6.1-sol"
+        } else {
+            "gpt-6-luna"
+        };
+        let plan: Plan = serde_json::from_value(json!({"version":2,"scenario":scenario,"mode":"protocol","output_dir":"/tmp/gennie-fixture","nonce":"c".repeat(32),"model":model,"effort":"low","model_turns_max":turns,"cell_timeout_seconds":60})).unwrap();
         plan.validate().unwrap();
         let mut report = json!({"model_turns":0});
         for expected in 1..=turns {

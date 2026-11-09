@@ -59,6 +59,145 @@ fn plugin_identifier(value: Option<&Value>) -> Option<String> {
     })
 }
 
+// Solo diagnósticos locales conocidos: nunca persistir datos arbitrarios de servidores.
+fn local_failure_reason(item: &Value, server: &str, tool: &str) -> Option<String> {
+    if server != "gennie" || !tool.starts_with("assignments_") {
+        return None;
+    }
+    let reason = item
+        .pointer("/error/message")
+        .and_then(Value::as_str)
+        .or_else(|| {
+            item.pointer("/result/content/0/text")
+                .and_then(Value::as_str)
+        })?;
+    const SAFE: &[&str] = &[
+        "Un encargo recurrente usa recurrence para la hora local; elimina notify_at o usa null. No conviertas esa hora en una fecha UTC",
+        "Un encargo recurrente usa recurrence para la hora local; elimina notify_at o usa null.",
+        "La zona horaria no contiene reglas IANA válidas",
+        "La fecha debe ser válida y UTC: AAAA-MM-DDTHH:MM:SSZ",
+        "La hora debe ser HH:mm (00:00–23:59)",
+        "La recurrencia semanal necesita días únicos entre 1 y 7; la diaria no admite días",
+        "El encargo cambió o no existe. Vuelve a consultarlo antes de guardar",
+        "La petición ya existe con otros datos; consulta el encargo antes de editarlo",
+        "El título debe ocupar una sola línea",
+        "El intervalo de preparación debe estar entre 1 minuto y un año",
+        "Explica por qué elegiste ese intervalo de preparación",
+        "Demasiados pasos o aplicaciones",
+        "El encargo supera el tamaño máximo de 12 KB",
+    ];
+    SAFE.contains(&reason).then(|| format!("cause:{reason}"))
+}
+
+// Las cadenas externas son datos no confiables: solo se conservan categorías fijas.
+fn failure_category(item: &Value, status: Option<&str>) -> String {
+    let fixed = match status {
+        Some("input_required" | "invalid_arguments") => {
+            Some("La herramienta rechazó los datos de la solicitud.")
+        }
+        Some("schema_unavailable") => Some("No estaba disponible el esquema de la herramienta."),
+        Some("permission_required") => Some("La herramienta informó que faltan permisos."),
+        Some("revision_conflict") => Some("La revisión cambió antes de ejecutar la herramienta."),
+        Some("function_not_found") => Some("No se encontró la función solicitada."),
+        Some("busy") => Some("La herramienta estaba ocupada."),
+        _ => None,
+    };
+    if let Some(reason) = fixed {
+        return format!("cause:{reason}");
+    }
+    let native_error = (item
+        .pointer("/result/structuredContent/content_delivery")
+        .and_then(Value::as_str)
+        == Some("native"))
+    .then(|| item.pointer("/result/content").and_then(Value::as_array))
+    .flatten()
+    .and_then(|blocks| {
+        blocks.iter().skip(1).find_map(|block| {
+            (block["type"].as_str() == Some("text"))
+                .then(|| block["text"].as_str())
+                .flatten()
+        })
+    });
+    let source = native_error
+        .or_else(|| item.pointer("/error/message").and_then(Value::as_str))
+        .or_else(|| {
+            item.pointer("/result/structuredContent/result/content/0/text")
+                .and_then(Value::as_str)
+        })
+        .or_else(|| {
+            item.pointer("/result/content/0/text")
+                .and_then(Value::as_str)
+        })
+        .unwrap_or("");
+    // El texto solo se examina en memoria y nunca se copia a SQLite, logs o UI.
+    let lower: String = source.chars().take(4096).collect::<String>().to_lowercase();
+    let reason = if [
+        "timed out",
+        "timeout",
+        "time out",
+        "tiempo de espera agotado",
+        "se agotó el tiempo",
+    ]
+    .iter()
+    .any(|v| lower.contains(v))
+    {
+        "El servidor informó que se agotó el tiempo de espera."
+    } else if [
+        "unauthorized",
+        "authentication required",
+        "unauthenticated",
+        "authentication failed",
+        "authentication_required",
+    ]
+    .iter()
+    .any(|v| lower.contains(v))
+    {
+        "El servidor informó un problema de autenticación."
+    } else if [
+        "permission denied",
+        "permission_required",
+        "insufficient permissions",
+        "forbidden",
+        "access denied",
+    ]
+    .iter()
+    .any(|v| lower.contains(v))
+    {
+        "El servidor informó que se denegó el acceso o faltan permisos."
+    } else if [
+        "invalid arguments",
+        "invalid parameters",
+        "invalid params",
+        "invalid_arguments",
+    ]
+    .iter()
+    .any(|v| lower.contains(v))
+    {
+        "El servidor informó que los argumentos no son válidos."
+    } else if lower.contains("invalid") && lower.contains("format") {
+        "El servidor informó que el formato de un dato no es válido."
+    } else if ["rate limit", "too many requests", "rate_limit"]
+        .iter()
+        .any(|v| lower.contains(v))
+    {
+        "El servidor informó que se alcanzó un límite de solicitudes."
+    } else if [
+        "connection refused",
+        "connection reset",
+        "connection closed",
+        "broken pipe",
+        "connection failed",
+    ]
+    .iter()
+    .any(|v| lower.contains(v))
+    {
+        "El servidor informó un fallo de conexión."
+    } else {
+        "La herramienta informó un fallo; no se pudo determinar su causa."
+    };
+    format!("cause:{reason}")
+}
+
 pub(crate) fn from_notification(
     event: &Value,
     thread: &str,
@@ -134,9 +273,26 @@ pub(crate) fn from_notification(
             display_name,
             operation: None,
             outcome,
-            detail: result
-                .filter(|r| r["review_required"] == true || r["status"] == "review_required")
-                .map(|_| "result_uncertain".into()),
+            detail: if result
+                .is_some_and(|r| r["review_required"] == true || r["status"] == "review_required")
+            {
+                if result.is_some_and(|r| r["status"] == "tool_failed") {
+                    let reason = failure_category(item, None);
+                    Some(format!(
+                        "review_cause:{}",
+                        reason.trim_start_matches("cause:")
+                    ))
+                } else {
+                    Some("result_uncertain".into())
+                }
+            } else if outcome == ToolOutcome::Failed {
+                Some(failure_category(
+                    item,
+                    result.and_then(|r| r["status"].as_str()),
+                ))
+            } else {
+                None
+            },
         }));
     }
     let plugin_id = local_plugin
@@ -155,7 +311,11 @@ pub(crate) fn from_notification(
         .flatten();
     let structured = item.pointer("/result/structuredContent");
     let mut display_name = text(item.pointer("/appContext/appName"), 200);
-    let mut detail = None;
+    let mut detail = if outcome == ToolOutcome::Failed {
+        local_failure_reason(item, &server, &tool).or_else(|| Some(failure_category(item, None)))
+    } else {
+        None
+    };
     if local_plugin {
         display_name = None;
         if let Some(result) = structured {
@@ -171,7 +331,10 @@ pub(crate) fn from_notification(
             if completed && outcome == ToolOutcome::Completed {
                 match result["status"].as_str() {
                     Some("ok") => {}
-                    Some("input_required" | "invalid_arguments") => outcome = ToolOutcome::Failed,
+                    Some(status @ ("input_required" | "invalid_arguments")) => {
+                        outcome = ToolOutcome::Failed;
+                        detail = Some(failure_category(item, Some(status)));
+                    }
                     Some(
                         code @ ("result_uncertain" | "timeout" | "browser_closed"
                         | "response_too_large"),

@@ -780,7 +780,21 @@ impl Backend {
                 }
             }
             if active.contains("browser") {
-                let mut browser_tools = gennie_browser::contextual_tools(browser.clone());
+                let invocation = llm.invocation_context();
+                let mut browser_tools = gennie_browser::scoped_contextual_tools(
+                    browser.clone(),
+                    Arc::new(move || {
+                        Ok(invocation
+                            .lock()
+                            .map_err(|_| "Contexto emisor inválido")?
+                            .as_ref()
+                            .map(|thread| format!("chat:{thread}")))
+                    }),
+                );
+                let release_browser = browser.clone();
+                llm.configure_invocation_finished(Arc::new(move |thread| {
+                    release_browser.release_scope(&format!("chat:{thread}"))
+                }))?;
                 if active.contains("plugins") {
                     for tool in &mut browser_tools {
                         if tool.definition["name"] == "browser_plugins" {
@@ -1652,6 +1666,14 @@ impl Backend {
         let mut refresh_history = false;
         let mut errors = Vec::new();
         let mut dictated = Vec::new();
+        if self.browser.take_restore_warning() {
+            errors.push(("No se pudo restaurar la ventana de Gennie Web. Abre el navegador para intentar recuperarla.".into(), false));
+            dirty = true;
+        }
+        if self.browser.take_cleanup_warning() {
+            errors.push(("Hay una tarea web pendiente de cerrar; Gennie Web se restaurará cuando pueda liberarse.".into(), false));
+            dirty = true;
+        }
         if let Some(c) = &mut self.dictation {
             for event in c.tick() {
                 use gennie_transcription::Event::*;

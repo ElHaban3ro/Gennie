@@ -29,6 +29,7 @@ class BotNoticeBackend extends PluginsBackend {
     ];
   }
   bool hideCatalogueJob = false;
+  bool hasLiveSuccessor = false;
   @override
   Future<String> pluginRequest(String text) async {
     final request = Map<String, dynamic>.from(jsonDecode(text) as Map);
@@ -36,7 +37,7 @@ class BotNoticeBackend extends PluginsBackend {
       requests.add(request);
       return jsonEncode({
         'job': jobs.firstWhere((j) => j['id'] == request['job_id']),
-        'has_live_successor': false,
+        'has_live_successor': hasLiveSuccessor,
       });
     }
     if (request['action'] == 'list' && hideCatalogueJob) {
@@ -82,6 +83,26 @@ Future<BotNoticeBackend> mount(
 }
 
 void main() {
+  testWidgets('la revisión web ofrece revisar en vez de iniciar sesión', (
+    t,
+  ) async {
+    final b = BotNoticeBackend();
+    b.message = 'Hay una prueba pendiente de revisión.';
+    b.jobs.first['waiting_reason'] = 'web_review';
+    b.jobs.first['web_pending'] = {'status': 'ready', 'total': 1};
+    await mount(t, backend: b);
+    expect(find.text('Revisar resultado'), findsOneWidget);
+    expect(find.text('Abrir Gennie Web'), findsNothing);
+    expect(find.text('Continuar'), findsNothing);
+  });
+  testWidgets('un diario web no disponible no habilita continuar', (t) async {
+    final b = BotNoticeBackend();
+    b.jobs.first['waiting_reason'] = 'web_review';
+    b.jobs.first['web_pending'] = {'status': 'unavailable'};
+    await mount(t, backend: b);
+    expect(find.text('Continuar'), findsNothing);
+    expect(find.text('Abrir Gennie Web'), findsNothing);
+  });
   testWidgets(
     'el aviso del bot usa origen/evento persistidos y conserva abrir/continuar',
     (t) async {
@@ -108,6 +129,43 @@ void main() {
       expect(t.takeException(), isNull);
     },
   );
+  testWidgets(
+    'un trabajo bloqueado permite abrir el sitio y volver a generar',
+    (t) async {
+      final b = BotNoticeBackend();
+      b.jobs.single['state'] = 'blocked';
+      b.message = 'No pude acceder al sitio.';
+      await mount(t, backend: b);
+      expect(find.text('Abrir Gennie Web'), findsOneWidget);
+      await t.tap(find.text('Abrir Gennie Web'));
+      await t.pumpAndSettle();
+      expect(
+        b.requests.where((r) => r['action'] == 'connect').single['job_id'],
+        7,
+      );
+      expect(find.text('Volver a generar'), findsOneWidget);
+      await t.tap(find.text('Volver a generar'));
+      await t.pumpAndSettle();
+      expect(
+        b.requests
+            .where((r) => r['action'] == 'build')
+            .single['request']['retry_of'],
+        7,
+      );
+    },
+  );
+  testWidgets('un bloqueo anterior o reemplazado no habilita acciones', (
+    t,
+  ) async {
+    final b = BotNoticeBackend()..sequence = '102';
+    b.jobs.single['state'] = 'blocked';
+    await mount(t, backend: b);
+    expect(find.text('Abrir Gennie Web'), findsNothing);
+    final next = BotNoticeBackend()..hasLiveSuccessor = true;
+    next.jobs.single['state'] = 'blocked';
+    await mount(t, backend: next);
+    expect(find.text('Abrir Gennie Web'), findsNothing);
+  });
   testWidgets(
     'una actualización anterior no habilita acciones por similitud de texto',
     (t) async {

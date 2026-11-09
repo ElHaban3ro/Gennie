@@ -45,6 +45,14 @@ impl Controller {
 
     pub(crate) fn present_job(&self, job: &Job) -> Result<Value> {
         let mut value = serde_json::to_value(job)?;
+        if job.state == "waiting_user"
+            && job
+                .summary
+                .starts_with("Una prueba web quedó sin resultado confirmado.")
+        {
+            value["waiting_reason"] = json!("web_review");
+        }
+        value["uncertain_builder_messages"] = self.0.store.uncertain_messages(job.id)?;
         value["web_pending"] = self
             .0
             .browser

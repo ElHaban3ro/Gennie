@@ -1,5 +1,6 @@
 //! Construcción de plugins bajo demanda, independiente del chat y sin scheduler.
 mod external_mcp;
+mod feedback;
 mod mcp_activity;
 mod mcp_attempts;
 mod mcp_source;
@@ -55,9 +56,31 @@ pub(crate) const MIGRATIONS: &[Migration] = &[
         version: 8,
         sql: include_str!("../migrations/0008_delegation_origin.sql"),
     },
+    Migration {
+        version: 9,
+        sql: include_str!("../migrations/0009_builder_messages.sql"),
+    },
 ];
 pub use store::{BuildEvent, Job};
 pub use tools::{contextual_tools, tools};
+
+// BusyError se devuelve antes de enviar nada al navegador; solo ese caso admite espera.
+fn wait_for_browser_delete(
+    mut operation: impl FnMut() -> Result<Value>,
+    stopping: impl Fn() -> bool,
+) -> Result<Value> {
+    loop {
+        if stopping() {
+            return Err("El módulo se está cerrando".into());
+        }
+        match operation() {
+            Err(error) if error.is::<gennie_browser::BusyError>() => {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            result => return result,
+        }
+    }
+}
 
 pub trait BuildJournal: Send + Sync {
     fn origin(&self) -> Result<i64>;
@@ -129,6 +152,8 @@ struct Inner {
     commit: Mutex<()>,
     agent_configuration: Mutex<()>,
     active: Mutex<Option<(i64, BuilderControl)>>,
+    builder_tool_calls: Mutex<()>,
+    feedback_inflight: AtomicBool,
     worker: Mutex<Option<JoinHandle<()>>>,
     assignments: Mutex<Option<AssignmentSource>>,
 }
@@ -164,6 +189,8 @@ impl PluginsModule {
                 commit: Mutex::new(()),
                 agent_configuration: Mutex::new(()),
                 active: Mutex::new(None),
+                builder_tool_calls: Mutex::new(()),
+                feedback_inflight: AtomicBool::new(false),
                 worker: Mutex::new(None),
                 assignments: Mutex::new(None),
             })),
@@ -565,6 +592,9 @@ impl Controller {
             .commit
             .lock()
             .map_err(|_| "Estado de promoción inválido")?;
+        self.cancel_locked(id)
+    }
+    fn cancel_locked(&self, id: i64) -> Result<Job> {
         let job = self.0.store.get(id)?;
         if job.state == "completed" || job.state == "cancelled" {
             return Ok(job);
@@ -587,8 +617,53 @@ impl Controller {
         self.notify();
         self.0.store.get(id)
     }
+    // Solo detener al constructor si no tiene una llamada contextual en vuelo.
+    fn cancel_owned_builder_when_idle(&self, plugin_id: &str) -> Result<()> {
+        let _tool_guard = match self.0.builder_tool_calls.try_lock() {
+            Ok(guard) => guard,
+            Err(std::sync::TryLockError::WouldBlock) => return Ok(()),
+            Err(std::sync::TryLockError::Poisoned(_)) => {
+                return Err("Estado de herramientas del constructor inválido".into());
+            }
+        };
+        let _commit = self
+            .0
+            .commit
+            .lock()
+            .map_err(|_| "Estado de promoción inválido")?;
+        let active_id = self
+            .0
+            .active
+            .lock()
+            .map_err(|_| "Constructor inválido")?
+            .as_ref()
+            .map(|(id, _)| *id);
+        if let Some(id) = active_id {
+            let job = self.0.store.get(id)?;
+            if job.plugin_id == plugin_id && job.state == "running" {
+                self.cancel_locked(id)?;
+            }
+        }
+        Ok(())
+    }
+    fn has_active_builder_for(&self, plugin_id: &str) -> Result<bool> {
+        let active_id = self
+            .0
+            .active
+            .lock()
+            .map_err(|_| "Constructor inválido")?
+            .as_ref()
+            .map(|(id, _)| *id);
+        match active_id {
+            Some(id) => Ok(self.0.store.get(id)?.plugin_id == plugin_id),
+            None => Ok(false),
+        }
+    }
     pub fn resume(&self, id: i64) -> Result<Job> {
         self.permitted()?;
+        if self.0.store.has_uncertain_messages(id)? {
+            return Err("La recepción de una instrucción anterior es incierta; no se puede reanudar automáticamente".into());
+        }
         let job = self.0.store.get(id)?;
         if !matches!(job.state.as_str(), "waiting_user" | "interrupted") {
             return Err(
@@ -692,10 +767,17 @@ impl Controller {
             }
             Some("delete")=>{
                 let id=request["plugin_id"].as_str().ok_or("Falta plugin_id")?;
-                let current=self.0.browser.call(json!({"method":"plugins","action":"get","plugin_id":id}))?;
-                if current["plugin"]["revision"]!=request["expected_revision"] {return Ok(json!({"status":"revision_conflict"}));}
-                for job in self.0.store.list()?.iter().filter(|j|j.plugin_id==id&&matches!(j.state.as_str(),"queued"|"running"|"waiting_user"|"interrupted"|"blocked")) {self.cancel(job.id)?;}
-                let result=self.0.browser.call(json!({"method":"plugins","action":"delete","plugin_id":id,"expected_revision":request["expected_revision"]}))?;
+                let revision=request["expected_revision"].as_i64().filter(|r| *r > 0).ok_or("Falta revisión válida")?;
+                let result=wait_for_browser_delete(|| {
+                    self.cancel_owned_builder_when_idle(id)?;
+                    // El worker libera la pestaña propia antes de dejar de figurar activo.
+                    if self.has_active_builder_for(id)? { return Err(Box::new(gennie_browser::BusyError)); }
+                    let _commit=self.0.commit.lock().map_err(|_| "Estado de promoción inválido")?;
+                    self.0.browser.delete_plugin_from_user(id,revision,|| {
+                        for job in self.0.store.list()?.iter().filter(|j|j.plugin_id==id&&matches!(j.state.as_str(),"queued"|"running"|"waiting_user"|"interrupted"|"blocked")) {self.cancel_locked(job.id)?;}
+                        Ok(())
+                    })
+                }, || self.0.stopping.load(Ordering::Acquire))?;
                 self.touch();Ok(result)
             }
             Some("get_job")=>{
@@ -724,6 +806,11 @@ impl Controller {
             }
             Some("cancel")=>Ok(json!({"job":self.present_job(&self.cancel(request["job_id"].as_i64().ok_or("Falta job_id")?)?)?})),
             Some("resume")=>Ok(json!({"job":self.present_job(&self.resume(request["job_id"].as_i64().ok_or("Falta job_id")?)?)?})),
+            Some("review_builder_message")=>{
+                self.0.store.review_message(request["job_id"].as_i64().ok_or("Falta job_id")?,request["message_id"].as_i64().ok_or("Falta message_id")?,request["resolution"].as_str().ok_or("Falta resolución")?)?;
+                self.notify();
+                Ok(json!({"status":"reviewed"}))
+            },
             _=>Err("Operación de plugins no válida".into()),
         }
     }

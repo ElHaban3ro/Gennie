@@ -52,17 +52,25 @@ pub fn tools(controller: Controller) -> Vec<Tool> {
             }),
         },
         Tool {
-            definition: json!({"name":"plugin_build_jobs","description":"Consulta trabajos de plugins y permite cancelar o continuar un trabajo esperando acceso/interrumpido. Los avances siguen en su chat de origen. action=list/get/cancel/resume; salvo list requiere job_id. Nunca afirma verificación por guardar un encargo.","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["list","get","cancel","resume"]},"job_id":{"type":"integer","minimum":1}},"required":["action"],"additionalProperties":false}}),
+            definition: json!({"name":"plugin_build_jobs","description":"Consulta trabajos y permite cancelar, continuar o transmitir una respuesta o corrección del usuario al constructor de la misma conversación y sesión. Para message incluye job_id, request_key único y message fiel a la petición. Se guarda e intenta entregar al turno activo; si no es posible se entrega en el siguiente. pending no significa aplicado. Si espera al usuario, la respuesta lo vuelve a encolar; si está interrumpido se requiere resume explícito. No cancela operaciones ya iniciadas ni amplía permisos. Si la recepción es incierta, no reenvíes ni afirmes aplicación. action=list/get/cancel/resume/message; salvo list requiere job_id.","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["list","get","cancel","resume","message"]},"job_id":{"type":"integer","minimum":1},"request_key":{"type":"string","minLength":1,"maxLength":200},"message":{"type":"string","minLength":1,"maxLength":4000}},"required":["action"],"additionalProperties":false}}),
             call: Box::new(move |value| match value["action"].as_str() {
                 Some("list") => Ok(json!({"jobs":controller.jobs()?})),
-                Some("get") => Ok(
-                    json!({"job":controller.0.store.get(value["job_id"].as_i64().ok_or("Falta job_id")?)?}),
-                ),
+                Some("get") => {
+                    let job_id = value["job_id"].as_i64().ok_or("Falta job_id")?;
+                    Ok(
+                        json!({"job":controller.0.store.get(job_id)?,"builder_messages":controller.0.store.message_counts(job_id)?}),
+                    )
+                }
                 Some("cancel") => Ok(
                     json!({"job":controller.cancel(value["job_id"].as_i64().ok_or("Falta job_id")?)?}),
                 ),
                 Some("resume") => Ok(
                     json!({"job":controller.resume(value["job_id"].as_i64().ok_or("Falta job_id")?)?}),
+                ),
+                Some("message") => controller.message_builder(
+                    value["job_id"].as_i64().ok_or("Falta job_id")?,
+                    value["request_key"].as_str().ok_or("Falta request_key")?,
+                    value["message"].as_str().ok_or("Falta message")?,
                 ),
                 _ => Err("Operación de trabajo no válida".into()),
             }),

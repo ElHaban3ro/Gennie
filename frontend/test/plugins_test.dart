@@ -727,6 +727,46 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     },
   );
+  testWidgets('una instrucción incierta requiere revisión explícita', (
+    tester,
+  ) async {
+    final backend = PluginsBackend()..records = [];
+    backend.jobs = [
+      {
+        'id': 10,
+        'plugin_id': 'mail',
+        'state': 'interrupted',
+        'summary': 'Recepción incierta',
+        'trigger_conversation_id': 7,
+        'attempts': 1,
+        'max_attempts': 4,
+        'uncertain_builder_messages': [
+          {'id': 22, 'message': 'Usa la vía pública'},
+        ],
+      },
+    ];
+    await mount(tester, backend);
+    await tester.tap(find.text('Plugin en preparación'));
+    await tester.pumpAndSettle();
+    expect(find.text('Reanudar construcción'), findsNothing);
+    await tester.tap(find.text('Revisar instrucción sin confirmar'));
+    await tester.pumpAndSettle();
+    expect(find.text('Usa la vía pública'), findsOneWidget);
+    expect(
+      backend.requests.where((r) => r['action'] == 'review_builder_message'),
+      isEmpty,
+    );
+    await tester.tap(find.text('Reenviar al reanudar'));
+    await tester.pumpAndSettle();
+    final request = backend.requests.singleWhere(
+      (r) => r['action'] == 'review_builder_message',
+    );
+    expect(request['job_id'], 10);
+    expect(request['message_id'], 22);
+    expect(request['resolution'], 'resend');
+    expect(backend.requests.where((r) => r['action'] == 'resume'), isEmpty);
+    await tester.pumpWidget(const SizedBox());
+  });
   testWidgets('los trabajos conservan origen y permiten continuar tras login', (
     tester,
   ) async {

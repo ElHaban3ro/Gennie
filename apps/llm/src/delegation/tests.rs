@@ -112,8 +112,43 @@ fn messages(receiver: &Receiver) -> Vec<String> {
         .unwrap()
 }
 #[test]
+fn builder_progress_is_mediated_by_the_bot_before_delivery() {
+    let (receiver, _, update) = fixture();
+    receiver.accept(&update).unwrap();
+    let calls = AtomicU64::new(0);
+    worker::test_step(&receiver, &|_, prompt| {
+        calls.fetch_add(1, Ordering::AcqRel);
+        assert!(prompt.contains("PRIVATE_HELPER_DETAIL"));
+        assert!(prompt.contains("Petición del chat de origen"));
+        Ok(r#"{"message":"Estoy revisando los resultados de la integración."}"#.into())
+    })
+    .unwrap();
+    assert_eq!(calls.load(Ordering::Acquire), 1);
+    assert_eq!(
+        messages(&receiver),
+        vec!["Estoy revisando los resultados de la integración."]
+    );
+    assert!(!messages(&receiver)[0].contains("PRIVATE_HELPER_DETAIL"));
+}
+
+#[test]
+fn failed_progress_mediation_never_delivers_the_constructor_report() {
+    let (receiver, _, update) = fixture();
+    receiver.accept(&update).unwrap();
+    worker::test_step(&receiver, &|_, _| Err("fallo ficticio".into())).unwrap();
+    let delivered = messages(&receiver);
+    assert_eq!(delivered.len(), 1);
+    assert!(delivered[0].contains("No pude preparar el detalle"));
+    assert!(!delivered[0].contains("PRIVATE_HELPER_DETAIL"));
+    assert_eq!(state(&receiver, &update.event_key), "delivered");
+}
+
+#[test]
 fn routine_bot_status_does_not_forward_helper_text_or_consume_inference() {
     let (receiver, journal, update) = fixture();
+    let mut update = update;
+    update.state = State::Queued;
+    update.kind = Kind::Status;
     receiver.accept(&update).unwrap();
     receiver.accept(&update).unwrap();
     worker::test_step(&receiver, &|_, _| {
@@ -205,7 +240,12 @@ fn message_and_delivery_state_roll_back_together_and_ready_output_is_reused() {
     let (receiver, _, update) = fixture();
     receiver.accept(&update).unwrap();
     receiver.0.store.0.with_connection(|c|{c.execute_batch("CREATE TRIGGER fail_delivery BEFORE UPDATE OF state ON llm_delegation_updates WHEN NEW.state='delivered' BEGIN SELECT RAISE(ABORT,'fixture'); END")?;Ok(())}).unwrap();
-    assert!(worker::test_step(&receiver, &|_, _| panic!()).is_err());
+    assert!(
+        worker::test_step(&receiver, &|_, _| Ok(
+            r#"{"message":"Avance mediado"}"#.into()
+        ))
+        .is_err()
+    );
     assert_eq!(state(&receiver, &update.event_key), "ready");
     assert!(messages(&receiver).is_empty());
     receiver
@@ -218,7 +258,7 @@ fn message_and_delivery_state_roll_back_together_and_ready_output_is_reused() {
         })
         .unwrap();
     worker::test_step(&receiver, &|_, _| panic!("No volver a redactar")).unwrap();
-    assert_eq!(messages(&receiver), vec![update.routine_message()]);
+    assert_eq!(messages(&receiver), vec!["Avance mediado"]);
 }
 #[test]
 fn recovery_or_invalid_model_output_uses_bot_fallback_without_forwarding_observation() {
@@ -268,17 +308,34 @@ fn identities_context_limits_and_shutdown_gate_are_enforced() {
 }
 
 #[test]
-fn repeated_routine_progress_is_audited_without_repeating_the_same_notice() {
+fn bot_progress_deduplicates_equal_messages_but_delivers_distinct_updates() {
     let (receiver, _, mut update) = fixture();
     receiver.accept(&update).unwrap();
-    worker::test_step(&receiver, &|_, _| panic!()).unwrap();
+    worker::test_step(&receiver, &|_, _| {
+        Ok(r#"{"message":"Estoy investigando."}"#.into())
+    })
+    .unwrap();
     update.event_key = "plugin-build:2".into();
     update.sequence = 2;
     update.detail = "Otro paso técnico del helper".into();
     receiver.accept(&update).unwrap();
-    worker::test_step(&receiver, &|_, _| panic!()).unwrap();
+    worker::test_step(&receiver, &|_, _| {
+        Ok(r#"{"message":"Estoy investigando."}"#.into())
+    })
+    .unwrap();
     assert_eq!(messages(&receiver).len(), 1);
     assert_eq!(state(&receiver, &update.event_key), "superseded");
+    update.event_key = "plugin-build:3".into();
+    update.sequence = 3;
+    receiver.accept(&update).unwrap();
+    worker::test_step(&receiver, &|_, _| {
+        Ok(r#"{"message":"Estoy verificando el resultado."}"#.into())
+    })
+    .unwrap();
+    assert_eq!(
+        messages(&receiver),
+        vec!["Estoy investigando.", "Estoy verificando el resultado."]
+    );
 }
 
 #[test]
@@ -374,4 +431,26 @@ fn reopening_recovers_interrupted_work_or_reuses_ready_output_without_another_re
         db.close().unwrap();
         std::fs::remove_file(path).unwrap();
     }
+}
+
+#[test]
+fn routine_message_is_the_assistant_text_without_plugin_sender() {
+    let (_, _, update) = fixture();
+    assert_eq!(
+        update.routine_message(),
+        "La preparación del plugin está en curso."
+    );
+}
+
+#[test]
+fn browser_wait_and_repeated_failure_report_fixed_causes_without_private_detail() {
+    let (_, _, mut update) = fixture();
+    update.state = State::Running;
+    update.detail = "El navegador está ocupado con otra operación. Esperaré a que termine para continuar sin interrumpirla.".into();
+    assert!(update.routine_message().contains("navegador está ocupado"));
+    update.state = State::Interrupted;
+    update.detail = "La misma operación falló repetidamente sin cambios. Detuve la construcción para evitar un bucle; el candidato se conserva y puedes continuar para probar otra alternativa.".into();
+    assert!(update.routine_message().contains("falló repetidamente"));
+    update.detail = "dato privado arbitrario".into();
+    assert!(!update.routine_message().contains("dato privado"));
 }

@@ -26,6 +26,7 @@ class _WebAttemptPanelState extends State<WebAttemptPanel> {
   void initState() {
     super.initState();
     receive(widget.initial);
+    if (widget.initial == null) unawaited(load());
   }
 
   void receive(Map? value) {
@@ -122,7 +123,7 @@ class _WebAttemptPanelState extends State<WebAttemptPanel> {
           Text(
             page?['status'] == 'unavailable'
                 ? 'No se pudo leer el diario web. Recarga antes de ejecutar.'
-                : 'Comprueba el efecto antes de repetir esa función o modificar el plugin. Revisar no repite la operación.',
+                : 'Comprueba el efecto antes de repetir esa función o editar el plugin. Revisar no repite la operación.',
           ),
           for (final attempt in attempts)
             Padding(

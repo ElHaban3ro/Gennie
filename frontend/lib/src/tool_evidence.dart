@@ -22,6 +22,23 @@ String toolStateLabel(ToolCallOutcome state) => switch (state) {
   ToolCallOutcome.unknown => 'Sin confirmar',
 };
 
+String? toolFailureDescription(String? detail) => switch (detail) {
+  'access_denied' => 'El sitio denegó el acceso.',
+  'site_changed' => 'La página o su estructura cambió.',
+  'redirect_blocked' => 'Se bloqueó una redirección.',
+  'redirect_limit' => 'Se superó el límite de redirecciones.',
+  'http_error' => 'El sitio devolvió un error HTTP.',
+  'execution_failed' => 'La ejecución de la función falló.',
+  'revision_conflict' => 'La revisión cambió antes de ejecutar.',
+  'verification_required' => 'La función necesita verificación.',
+  'plugin_not_found' => 'No se encontró el plugin.',
+  'function_not_found' => 'No se encontró la función.',
+  'timeout' => 'Se agotó el tiempo de espera.',
+  'browser_closed' => 'El navegador se cerró durante la llamada.',
+  'response_too_large' => 'La respuesta superó el tamaño permitido.',
+  _ => null,
+};
+
 class ToolEvidence extends StatelessWidget {
   const ToolEvidence({
     super.key,
@@ -77,11 +94,11 @@ class ToolEvidence extends StatelessWidget {
                       .where((c) => c.outcome == ToolCallOutcome.unknown)
                       .length;
                   final label = completed > 0
-                      ? 'Usó: $name${failed > 0 ? ' · $failed ${failed == 1 ? 'fallo' : 'fallos'}' : ''}${unknown > 0 ? ' · $unknown sin confirmar' : ''}${running > 0 ? ' · $running en curso' : ''}'
+                      ? 'Usó: $name${failed > 0 ? ' · $failed ${failed == 1 ? 'intento fallido' : 'intentos fallidos'}' : ''}${unknown > 0 ? ' · $unknown sin confirmar' : ''}${running > 0 ? ' · $running en curso' : ''}'
                       : running > 0
-                      ? 'Usando: $name${failed > 0 ? ' · $failed ${failed == 1 ? 'fallo' : 'fallos'}' : ''}${unknown > 0 ? ' · $unknown sin confirmar' : ''}'
+                      ? 'Usando: $name${failed > 0 ? ' · $failed ${failed == 1 ? 'intento fallido' : 'intentos fallidos'}' : ''}${unknown > 0 ? ' · $unknown sin confirmar' : ''}'
                       : unknown > 0
-                      ? '$name · sin confirmar${failed > 0 ? ' · $failed ${failed == 1 ? 'fallo' : 'fallos'}' : ''}'
+                      ? '$name · sin confirmar${failed > 0 ? ' · $failed ${failed == 1 ? 'intento fallido' : 'intentos fallidos'}' : ''}'
                       : 'Intentó: $name · falló';
                   return AppTooltip(
                     label: 'Ver uso de $name',
@@ -234,6 +251,29 @@ class _ToolEvidenceDialogState extends State<_ToolEvidenceDialog> {
                                     'No se recibió un resultado confirmado para esta llamada.',
                                     style: TextStyle(fontSize: 12),
                                   ),
+                                if (call.outcome == ToolCallOutcome.failed &&
+                                    call.detail == null)
+                                  const Text(
+                                    'No se guardó una causa para esta llamada.',
+                                    style: TextStyle(fontSize: 12),
+                                  ),
+                                if (call.detail?.startsWith('review_cause:') ==
+                                    true)
+                                  Text(
+                                    'Causa: ${call.detail!.substring(13)}',
+                                    style: const TextStyle(fontSize: 12),
+                                  ),
+                                if (call.detail?.startsWith('cause:') == true)
+                                  Text(
+                                    'Causa: ${call.detail!.substring(6)}',
+                                    style: const TextStyle(fontSize: 12),
+                                  ),
+                                if (toolFailureDescription(call.detail)
+                                    case final description?)
+                                  Text(
+                                    'Causa: $description',
+                                    style: const TextStyle(fontSize: 12),
+                                  ),
                                 if (call.detail == 'authentication_required')
                                   const Text(
                                     'La función necesita acceso a la aplicación.',
@@ -244,7 +284,11 @@ class _ToolEvidenceDialogState extends State<_ToolEvidenceDialog> {
                                     'Faltan permisos para esta función.',
                                     style: TextStyle(fontSize: 12),
                                   ),
-                                if (call.detail == 'result_uncertain' &&
+                                if ((call.detail == 'result_uncertain' ||
+                                        call.detail?.startsWith(
+                                              'review_cause:',
+                                            ) ==
+                                            true) &&
                                     call.server.startsWith('mcp:'))
                                   const Text(
                                     'Este intento requirió revisión; consulta su estado en Plugins antes de repetir.',

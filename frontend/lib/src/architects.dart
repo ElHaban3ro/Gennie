@@ -198,7 +198,7 @@ class _ArchitectSettingsPanelState extends State<ArchitectSettingsPanel> {
       // Los validadores también cubren campos avanzados cuando están plegados.
       await WidgetsBinding.instance.endOfFrame;
       if (!mounted || loading || drafts[selected] != draft) return;
-      final focus = _textError(draft.personality.text, 1000) != null
+      final focus = _textError(draft.personality.text, 4000) != null
           ? draft.personalityFocus
           : !draft.isGuide && _modelError(draft.model.text) != null
           ? draft.modelFocus
@@ -612,14 +612,15 @@ class _ArchitectSettingsPanelState extends State<ArchitectSettingsPanel> {
                         maxLines: 4,
                         decoration: const InputDecoration(
                           labelText: 'Personalidad',
-                          helperText: 'Tono y forma de responder. Opcional.',
+                          helperText:
+                              'Tono y forma de trabajar de este arquitecto.',
                         ),
-                        validator: (v) => _textError(v, 1000),
+                        validator: (v) => _textError(v, 4000),
                         onChanged: (_) => setState(() => confirmation = null),
                       ),
                       const SizedBox(height: 12),
                       const Text(
-                        'La personalización respeta el rol, los permisos y lo que hayas autorizado.',
+                        'Estos son los datos que usa este arquitecto. Los permisos se aplican al ejecutar.',
                         style: TextStyle(fontSize: 12),
                       ),
                       ExpansionTile(
@@ -795,14 +796,14 @@ class _ArchitectSettingsPanelState extends State<ArchitectSettingsPanel> {
                             focusNode: d.instructionsFocus,
                             enabled: !saving,
                             minLines: 3,
-                            maxLines: 8,
+                            maxLines: 16,
                             decoration: const InputDecoration(
-                              labelText: 'Instrucciones adicionales',
+                              labelText: 'Instrucciones',
                               helperText:
-                                  'Preferencias para trabajar dentro de este rol.',
+                                  'Instrucciones completas de esta instancia. Se usan tal como las guardes.',
                               helperMaxLines: 2,
                             ),
-                            validator: (v) => _textError(v, 6000),
+                            validator: (v) => _textError(v, 64000),
                             onChanged: (_) =>
                                 setState(() => confirmation = null),
                           ),

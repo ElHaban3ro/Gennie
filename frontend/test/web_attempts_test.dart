@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
@@ -44,6 +45,7 @@ class WebBackend extends PluginsBackend {
   }
 
   void sync() {
+    if (records.isEmpty) return;
     records.first['web_pending'] = page();
     records.first['web_recent_reviews'] = reviewed.toList();
   }
@@ -91,6 +93,17 @@ class WebBackend extends PluginsBackend {
   }
 }
 
+class SlowDeleteBackend extends WebBackend {
+  final deleteGate = Completer<void>();
+  @override
+  Future<String> pluginRequest(String text) async {
+    if ((jsonDecode(text) as Map)['action'] == 'delete') {
+      await deleteGate.future;
+    }
+    return super.pluginRequest(text);
+  }
+}
+
 Future<void> click(WidgetTester t, String text) async {
   final f = find.text(text).last;
   await t.ensureVisible(f);
@@ -101,6 +114,107 @@ Future<void> click(WidgetTester t, String text) async {
 Finder dialogText(String text) =>
     find.descendant(of: find.byType(Dialog), matching: find.text(text));
 void main() {
+  testWidgets('un trabajo cancelado conserva acceso a su revisión pendiente', (
+    t,
+  ) async {
+    final b = WebBackend();
+    b.jobs = [
+      {
+        'id': 9,
+        'plugin_id': 'gmail_test',
+        'origin': 'https://example.com',
+        'state': 'cancelled',
+        'summary': 'Construcción cancelada.',
+        'objective': 'Consultar correo',
+        'trigger_conversation_id': 7,
+        'attempts': 1,
+        'max_attempts': 4,
+        'web_pending': b.page(),
+      },
+    ];
+    b.records = [];
+    await mount(t, b);
+    await t.tap(find.text('example.com').first);
+    await t.pumpAndSettle();
+    expect(find.text('Resultados web pendientes'), findsOneWidget);
+    expect(find.text('Revisar resultado'), findsOneWidget);
+    expect(b.effects, 0);
+  });
+  testWidgets('un candidato sin publicar carga su revisión pendiente', (
+    t,
+  ) async {
+    final b = WebBackend();
+    b.records = [];
+    b.jobs = [
+      {
+        'id': 9,
+        'plugin_id': 'gmail_test',
+        'origin': 'https://example.com',
+        'state': 'waiting_user',
+        'summary': 'Hay una revisión pendiente.',
+        'objective': 'Consultar correo',
+        'trigger_conversation_id': 7,
+        'attempts': 1,
+        'max_attempts': 4,
+      },
+    ];
+    await mount(t, b);
+    await t.tap(find.text('example.com').first);
+    await t.pumpAndSettle();
+    expect(find.text('Resultados web pendientes'), findsOneWidget);
+    expect(find.text('Revisar resultado'), findsOneWidget);
+    expect(b.requests.any((r) => r['action'] == 'web_attempts'), isTrue);
+    expect(b.effects, 0);
+  });
+  testWidgets(
+    'la eliminación en espera muestra progreso y evita otra confirmación',
+    (t) async {
+      final b = SlowDeleteBackend();
+      await mount(t, b);
+      await select(t);
+      await click(t, 'Eliminar');
+      await t.tap(find.text('Eliminar').last);
+      await t.pump();
+      expect(find.text('Eliminando…'), findsOneWidget);
+      final button = t.widget<TextButton>(
+        find.widgetWithText(TextButton, 'Eliminando…'),
+      );
+      expect(button.onPressed, isNull);
+      b.deleteGate.complete();
+      await t.pumpAndSettle();
+      expect(b.records, isEmpty);
+      expect(b.pendingRows, hasLength(1));
+    },
+  );
+  testWidgets('la ficha ofrece acceso directo al resultado pendiente', (
+    t,
+  ) async {
+    final b = WebBackend();
+    await mount(t, b);
+    await select(t);
+    expect(find.text('Ver resultado pendiente'), findsOneWidget);
+    await click(t, 'Ver resultado pendiente');
+    expect(find.text('Revisar resultado').hitTestable(), findsOneWidget);
+    expect(b.pendingRows, hasLength(1));
+    expect(b.effects, 0);
+  });
+  testWidgets('eliminar conserva el intento pendiente sin volver a ejecutar', (
+    t,
+  ) async {
+    final b = WebBackend();
+    await mount(t, b);
+    await select(t);
+    await click(t, 'Eliminar');
+    expect(
+      find.textContaining('Los resultados sin confirmar seguirán registrados'),
+      findsOneWidget,
+    );
+    await click(t, 'Eliminar');
+    expect(b.records, isEmpty);
+    expect(b.pendingRows, hasLength(1));
+    expect(b.requests.where((r) => r['action'] == 'web_reconcile'), isEmpty);
+    expect(b.effects, 0);
+  });
   for (final journalDown in [false, true]) {
     testWidgets(
       'catálogo ocupado conserva bloqueo con diario ${journalDown ? 'no disponible' : 'independiente'}',

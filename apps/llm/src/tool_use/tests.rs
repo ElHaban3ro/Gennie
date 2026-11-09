@@ -154,3 +154,152 @@ fn external_mcp_proxy_keeps_actual_server_tool_and_only_matching_display_metadat
             .is_none()
     );
 }
+
+#[test]
+fn failed_assignment_keeps_the_reported_reason_without_arguments() {
+    let mut value = event("item/completed");
+    value["params"]["item"]["tool"] = json!("assignments_create");
+    value["params"]["item"]["status"] = json!("failed");
+    value["params"]["item"]["error"] = json!({"message":"Un encargo recurrente usa recurrence para la hora local; elimina notify_at o usa null."});
+    let usage = from_notification(&value, "active", "turn")
+        .unwrap()
+        .unwrap();
+    assert!(usage.detail.unwrap().contains("recurrence"));
+}
+
+#[test]
+fn external_errors_keep_a_safe_diagnostic_without_sensitive_values() {
+    let mut value = event("item/completed");
+    value["params"]["item"]["server"] = json!("calendar");
+    value["params"]["item"]["tool"] = json!("events");
+    value["params"]["item"]["status"] = json!("failed");
+    value["params"]["item"]["error"] =
+        json!({"message":"Connection timed out; token=PRIVATE_SECRET; email=private@example.com"});
+    let usage = from_notification(&value, "active", "turn")
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        usage.detail.as_deref(),
+        Some("cause:El servidor informó que se agotó el tiempo de espera.")
+    );
+    assert!(!format!("{usage:?}").contains("PRIVATE_SECRET"));
+}
+
+#[test]
+fn external_proxy_preserves_structured_failure_category_without_remote_content() {
+    let mut value = event("item/completed");
+    value["params"]["item"]["tool"] = json!("plugin_mcp_run");
+    value["params"]["item"]["status"] = json!("completed");
+    value["params"]["item"]["arguments"] = json!({"server_id":"calendar","tool":"events/list"});
+    value["params"]["item"]["result"] = json!({"structuredContent":{"status":"permission_required","result":{"content":[{"type":"text","text":"PRIVATE_SECRET"}]}}});
+    let usage = from_notification(&value, "active", "turn")
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        usage.detail.as_deref(),
+        Some("cause:La herramienta informó que faltan permisos.")
+    );
+    assert!(!format!("{usage:?}").contains("PRIVATE_SECRET"));
+}
+
+#[test]
+fn external_mcp_error_content_never_copies_sensitive_or_unknown_text() {
+    let mut value = event("item/completed");
+    value["params"]["item"]["server"] = json!("calendar");
+    value["params"]["item"]["tool"] = json!("lookup");
+    value["params"]["item"]["status"] = json!("completed");
+    value["params"]["item"]["result"] = json!({"isError":true,"content":[{"type":"text","text":"Unknown failure bearer SECRET_VALUE https://example.com/secret someone@example.com"}]});
+    let usage = from_notification(&value, "active", "turn")
+        .unwrap()
+        .unwrap();
+    assert_eq!(usage.outcome, ToolOutcome::Failed);
+    assert_eq!(
+        usage.detail.as_deref(),
+        Some("cause:La herramienta informó un fallo; no se pudo determinar su causa.")
+    );
+    let diagnostic = format!("{usage:?}");
+    for secret in ["SECRET_VALUE", "example.com", "someone@"] {
+        assert!(!diagnostic.contains(secret));
+    }
+}
+
+#[test]
+fn deepwiki_invalid_repository_format_is_categorized() {
+    let mut event = event("item/completed");
+    event["params"]["item"]["server"] = json!("deepwiki");
+    event["params"]["item"]["tool"] = json!("read_wiki_structure");
+    event["params"]["item"]["status"] = json!("completed");
+    event["params"]["item"]["result"] = json!({"isError":true,"content":[{"type":"text","text":"Invalid repoName format: \"\". Expected format is \"owner/repo\"."}]});
+    let result = from_notification(&event, "active", "turn")
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        result.detail.as_deref(),
+        Some("cause:El servidor informó que el formato de un dato no es válido.")
+    );
+}
+
+#[test]
+#[ignore = "Requiere una respuesta MCP real guardada temporalmente"]
+fn observed_external_error_is_classified_without_echoed_sensitive_marker() {
+    let path = std::env::var("GENNIE_REAL_MCP_RESULT").unwrap();
+    let result: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    assert_eq!(result["isError"], true);
+    assert!(
+        result
+            .to_string()
+            .contains("QA_TOKEN_SYNTHETIC_GENNIE_8721")
+    );
+    let mut event = event("item/completed");
+    event["params"]["item"]["server"] = json!("deepwiki");
+    event["params"]["item"]["tool"] = json!("read_wiki_structure");
+    event["params"]["item"]["status"] = json!("completed");
+    event["params"]["item"]["result"] = result;
+    let usage = from_notification(&event, "active", "turn")
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        usage.detail.as_deref(),
+        Some("cause:El servidor informó que el formato de un dato no es válido.")
+    );
+    assert!(!format!("{usage:?}").contains("QA_TOKEN_SYNTHETIC_GENNIE_8721"));
+    if let Ok(path) = std::env::var("GENNIE_SAFE_CAUSE_OUTPUT") {
+        std::fs::write(path, usage.detail.as_deref().unwrap()).unwrap();
+    }
+}
+
+#[test]
+fn real_proxy_failure_keeps_reason_and_review_without_remote_data() {
+    let mut value = event("item/completed");
+    value["params"]["item"]["tool"] = json!("plugin_mcp_run");
+    value["params"]["item"]["status"] = json!("completed");
+    value["params"]["item"]["arguments"] =
+        json!({"server_id":"deepwiki","tool":"read_wiki_structure"});
+    value["params"]["item"]["result"] = json!({"isError":true,"structuredContent":{"status":"tool_failed","review_required":true,"result":{"content":[{"type":"text","text":"Invalid repoName format: QA_TOKEN_SYNTHETIC_GENNIE_8721"}],"isError":true}}});
+    let usage = from_notification(&value, "active", "turn")
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        usage.detail.as_deref(),
+        Some("review_cause:El servidor informó que el formato de un dato no es válido.")
+    );
+    assert!(!format!("{usage:?}").contains("QA_TOKEN_SYNTHETIC_GENNIE_8721"));
+}
+
+#[test]
+fn native_mcp_error_block_keeps_reason_with_review() {
+    let mut value = event("item/completed");
+    value["params"]["item"]["tool"] = json!("plugin_mcp_run");
+    value["params"]["item"]["status"] = json!("completed");
+    value["params"]["item"]["arguments"] =
+        json!({"server_id":"deepwiki","tool":"read_wiki_structure"});
+    value["params"]["item"]["result"] = json!({"isError":true,"structuredContent":{"status":"tool_failed","review_required":true,"content_delivery":"native","result":{"isError":true}},"content":[{"type":"text","text":"{\\\"status\\\":\\\"tool_failed\\\"}"},{"type":"text","text":"Invalid repoName format: QA_TOKEN_SYNTHETIC_GENNIE_8721"}]});
+    let usage = from_notification(&value, "active", "turn")
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        usage.detail.as_deref(),
+        Some("review_cause:El servidor informó que el formato de un dato no es válido.")
+    );
+    assert!(!format!("{usage:?}").contains("QA_TOKEN_SYNTHETIC_GENNIE_8721"));
+}

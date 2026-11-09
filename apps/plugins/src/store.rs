@@ -222,6 +222,9 @@ impl Store {
     pub fn schedule_page_retry(&self, id: i64) -> Result<bool> {
         self.schedule_retry(id, "La pestaña de exploración se cerró. Conservé el candidato y retomaré la construcción con una pestaña nueva en unos cinco minutos; si cierras Gennie, continuaré al abrirlo. Comprobaré los efectos anteriores antes de repetir operaciones.")
     }
+    pub fn schedule_browser_retry(&self, id: i64) -> Result<bool> {
+        self.schedule_retry(id, "El navegador está ocupado con otra operación. Conservé el trabajo y volveré a intentarlo en unos cinco minutos sin interrumpirla.")
+    }
     fn schedule_retry(&self, id: i64, message: &str) -> Result<bool> {
         self.0.with_connection(|c| {
             let tx = c.transaction()?;
@@ -232,7 +235,11 @@ impl Store {
     }
     pub fn recover(&self) -> Result<()> {
         self.0.with_connection(|c| {
-            c.execute("UPDATE plugin_build_jobs SET state='queued',retry_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE state IN ('running','queued') AND retry_at IS NOT NULL", [])?;
+            let tx = c.transaction()?;
+            tx.execute("UPDATE plugin_builder_messages SET state='uncertain',updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE state='sending'",[])?;
+            tx.execute("UPDATE plugin_build_jobs SET state='interrupted',retry_at=NULL,summary='La recepción de una instrucción quedó sin confirmar. Revisa el trabajo antes de continuar.' WHERE state IN ('running','queued') AND EXISTS(SELECT 1 FROM plugin_builder_messages m WHERE m.job_id=plugin_build_jobs.id AND m.state='uncertain')",[])?;
+            tx.execute("UPDATE plugin_build_jobs SET state='queued',retry_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE state IN ('running','queued') AND retry_at IS NOT NULL", [])?;
+            tx.commit()?;
             Ok(())
         })?;
         let ids = self.0.with_connection(|c| {

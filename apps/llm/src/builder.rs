@@ -9,6 +9,12 @@ impl BuilderControl {
         self.0.cancel();
     }
 }
+pub enum FeedbackEvent {
+    Poll,
+    Accepted,
+    Rejected,
+    Uncertain,
+}
 pub struct BuilderSession(codex::Session);
 impl BuilderSession {
     pub fn connect(
@@ -36,6 +42,13 @@ impl BuilderSession {
     }
     pub fn set_goal_status(&mut self, status: &str) -> Result<()> {
         self.0.builder_goal_status(status)
+    }
+    pub fn turn_with_feedback(
+        &mut self,
+        text: &str,
+        feedback: &mut dyn FnMut(FeedbackEvent) -> Result<Option<String>>,
+    ) -> Result<()> {
+        self.0.build_turn_with_feedback(text, feedback)
     }
     pub fn turn(&mut self, text: &str) -> Result<()> {
         self.0.build_turn(text)

@@ -246,6 +246,87 @@ fn turn_observation_reaches_actual_completed_and_malformed_receive_paths() {
     );
     assert!(!trace.to_string().contains("PRIVATE"));
 }
+
+#[test]
+fn active_conversation_continues_past_the_original_deadline() {
+    let mut session = session_with_tail(
+        Arc::new(Journal::default()),
+        r#"printf '%s\n' '{"method":"item/completed","params":{"threadId":"active","turnId":"turn","item":{"type":"mcpToolCall","id":"call","server":"gennie","tool":"browser_plugin_run","status":"completed","arguments":{},"result":{}}}}'
+i=0
+while [ "$i" -lt 10 ]; do
+ printf '%s\n' '{"method":"item/agentMessage/delta","params":{"threadId":"active","turnId":"turn","itemId":"partial","delta":"x"}}'
+ i=$((i + 1))
+ sleep 0.03
+done
+printf '%s\n' '{"method":"item/completed","params":{"threadId":"active","turnId":"turn","item":{"type":"agentMessage","id":"partial","text":"xxxxxxxxxx"}}}' '{"method":"turn/completed","params":{"turn":{"id":"turn","status":"completed"}}}'
+"#,
+    );
+    let mut deltas = 0;
+    let result = session.run_turn_with_policy(
+        json!({"id":4,"params":{"threadId":"active"}}),
+        Some(Duration::from_millis(150)),
+        true,
+        &mut |event| {
+            if matches!(event, StreamEvent::Delta(_)) {
+                deltas += 1;
+            }
+            Ok(())
+        },
+        None,
+    );
+    assert!(
+        deltas >= 2,
+        "el fixture debe emitir actividad antes del plazo"
+    );
+    assert!(
+        result.is_ok(),
+        "un turno activo no debe vencer por su duración total"
+    );
+}
+
+#[test]
+fn a_silent_inflight_tool_may_outlast_the_idle_timeout() {
+    let mut session = session_with_tail(
+        Arc::new(Journal::default()),
+        r#"
+sleep 0.3
+printf '%s\n' '{"method":"item/completed","params":{"threadId":"active","turnId":"turn","item":{"type":"mcpToolCall","id":"call","server":"gennie","tool":"browser_plugin_run","status":"completed","arguments":{},"result":{}}}}' '{"method":"item/completed","params":{"threadId":"active","turnId":"turn","item":{"type":"agentMessage","id":"reply","text":"Terminado"}}}' '{"method":"turn/completed","params":{"turn":{"id":"turn","status":"completed"}}}'
+"#,
+    );
+    let started = Instant::now();
+    let result = session.run_turn_with_policy(
+        json!({"id":4,"params":{"threadId":"active"}}),
+        Some(Duration::from_millis(150)),
+        true,
+        &mut |_| Ok(()),
+        None,
+    );
+    assert!(started.elapsed() >= Duration::from_millis(250));
+    assert!(result.is_ok());
+}
+
+#[test]
+fn unrelated_events_do_not_reset_a_conversation_idle_timeout() {
+    let mut session = session_with_tail(
+        Arc::new(Journal::default()),
+        r#"
+printf '%s\n' '{"method":"item/completed","params":{"threadId":"active","turnId":"turn","item":{"type":"mcpToolCall","id":"call","server":"gennie","tool":"browser_plugin_run","status":"completed","arguments":{},"result":{}}}}'
+i=0
+while [ "$i" -lt 20 ]; do
+ printf '%s\n' '{"method":"item/agentMessage/delta","params":{"threadId":"foreign","turnId":"turn","itemId":"partial","delta":"x"}}'
+ i=$((i + 1)); sleep 0.03
+done
+"#,
+    );
+    let result = session.run_turn_with_policy(
+        json!({"id":4,"params":{"threadId":"active"}}),
+        Some(Duration::from_millis(150)),
+        true,
+        &mut |_| Ok(()),
+        None,
+    );
+    assert!(result.unwrap_err().is::<RetryableProviderError>());
+}
 #[test]
 fn interruption_closes_the_evidence_scope_without_inventing_a_completed_reply() {
     let journal = Arc::new(Journal::default());
@@ -383,6 +464,14 @@ fi"#
         test_connector: Mutex::new(Some(connector)),
         ..Default::default()
     };
+    let released = Arc::new(Mutex::new(Vec::new()));
+    let finished = released.clone();
+    module
+        .configure_invocation_finished(Arc::new(move |thread| {
+            finished.lock().unwrap().push(thread.to_owned());
+            Ok(())
+        }))
+        .unwrap();
     let state = AppState {
         config: Arc::new(gennie_config::Config {
             database_path: PathBuf::from("unused.sqlite3"),
@@ -437,6 +526,10 @@ fi"#
     module.stop(&state).unwrap();
     assert_eq!(calls.load(Ordering::SeqCst), 3);
     assert_eq!(journal.audit.lock().unwrap().interruptions.len(), 3);
+    assert_eq!(
+        *released.lock().unwrap(),
+        vec!["active", "active", "active", "active"]
+    );
     state.db.close().unwrap();
 }
 

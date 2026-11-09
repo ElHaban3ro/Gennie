@@ -147,6 +147,60 @@ Future<Map<String, double>> measureContrast(
 }
 
 void main() {
+  testWidgets('conserva causa y aviso de revisión en fallo MCP', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ToolEvidence(
+            calls: [
+              call(
+                '1',
+                ToolCallOutcome.failed,
+                server: 'mcp:external',
+                detail: 'review_cause:El formato no es válido.',
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Intentó: Correo · falló'));
+    await tester.pumpAndSettle();
+    expect(find.text('Causa: El formato no es válido.'), findsOneWidget);
+    expect(
+      find.textContaining('Este intento requirió revisión'),
+      findsOneWidget,
+    );
+  });
+  testWidgets('muestra la causa guardada o indica que no quedó registrada', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ToolEvidence(
+            calls: [
+              call(
+                '1',
+                ToolCallOutcome.failed,
+                detail: 'cause:La hora no es válida.',
+              ),
+              call('2', ToolCallOutcome.failed),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Intentó: Correo · falló'));
+    await tester.pumpAndSettle();
+    expect(find.text('Causa: La hora no es válida.'), findsOneWidget);
+    expect(
+      find.text('No se guardó una causa para esta llamada.'),
+      findsOneWidget,
+    );
+  });
   testWidgets(
     'el detalle devuelve el foco al enlace dentro de las acciones del mensaje',
     (tester) async {
@@ -333,7 +387,9 @@ void main() {
           ),
         ),
       );
-      final label = find.text('Usó: Correo · 1 fallo · 1 sin confirmar');
+      final label = find.text(
+        'Usó: Correo · 1 intento fallido · 1 sin confirmar',
+      );
       Focus.of(tester.element(label)).requestFocus();
       await tester.pump();
       await tester.sendKeyEvent(LogicalKeyboardKey.enter);

@@ -101,6 +101,43 @@ Future<void> click(WidgetTester t, String text) async {
 }
 
 void main() {
+  testWidgets('muestra y edita los datos reales recibidos de cada arquitecto', (
+    t,
+  ) async {
+    final b = ArchitectFake();
+    final complete = 'Instrucción propia guardada en el perfil.\n' * 400;
+    b.records[0]['personality'] = 'Cercano y resolutivo';
+    b.records[0]['instructions'] = complete;
+    b.records[1]['personality'] = 'Ingeniero autónomo y metódico';
+    b.records[1]['instructions'] =
+        'Investiga, implementa y verifica el resultado.';
+    await loadFonts();
+    await mount(t, backend: b);
+    expect(find.text('Cercano y resolutivo'), findsOneWidget);
+    await click(t, 'Opciones avanzadas');
+    final instructions = find.byKey(const ValueKey('gennie-instructions'));
+    await t.ensureVisible(instructions);
+    await t.pumpAndSettle();
+    expect(t.widget<TextFormField>(instructions).controller!.text, complete);
+    expect(find.text('Instrucciones adicionales'), findsNothing);
+    await capture(t, 'owned-config-gennie');
+    await t.enterText(instructions, 'Esta es toda mi instrucción nueva.');
+    await click(t, 'Guardar cambios');
+    expect(b.saves.last['instructions'], 'Esta es toda mi instrucción nueva.');
+    expect(b.saves.last['personality'], 'Cercano y resolutivo');
+    await select(t, 'Constructor de plugins');
+    expect(find.text('Ingeniero autónomo y metódico'), findsOneWidget);
+    await click(t, 'Opciones avanzadas');
+    final helper = find.byKey(const ValueKey('plugin_builder-instructions'));
+    await t.ensureVisible(helper);
+    await t.pumpAndSettle();
+    expect(
+      t.widget<TextFormField>(helper).controller!.text,
+      'Investiga, implementa y verifica el resultado.',
+    );
+    await capture(t, 'owned-config-constructor');
+    expect(t.takeException(), isNull);
+  });
   testWidgets('eliminar una instancia adicional conserva las tres bases', (
     t,
   ) async {

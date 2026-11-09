@@ -43,6 +43,33 @@ void main() {
     expect(find.text('Estoy explorando.'), findsOneWidget);
     expect(find.text('Sistema'), findsNothing);
   });
+  testWidgets('un aviso delegado histórico aparece sin remitente técnico', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: ChatMessage(
+            message: Message(
+              speaker: 'assistant',
+              text: 'Plugin · x.com: La preparación está en curso.',
+              createdAt: '2026-10-26T12:00:00Z',
+            ),
+            delegation: DelegationCall(
+              jobId: '7',
+              sourceSequence: '1',
+              pluginId: 'twitter',
+            ),
+          ),
+        ),
+      ),
+    );
+    expect(find.textContaining('Plugin · x.com'), findsNothing);
+    expect(
+      find.textContaining('La preparación está en curso.'),
+      findsOneWidget,
+    );
+  });
   test('Fechas del chat por calendario local y hora sin fecha completa', () {
     final now = DateTime(2026, 10, 25, 0, 1);
     String label(DateTime date) =>
