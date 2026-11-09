@@ -1400,6 +1400,7 @@ fn session_capabilities(settings: &Settings, tool_names: &[String]) -> Value {
         "web_plugins": {
             "available": local_control && ["browser_plugins", "browser_plugin_run"].iter().all(|required| tool_names.iter().any(|name| name == required)),
             "background_builder_available":local_control && tool_names.iter().any(|name| name == "plugin_build_start"),
+            "background_builder_tools": if local_control { tool_names.iter().filter(|name| matches!(name.as_str(), "plugin_build_start" | "plugin_build_jobs")).collect::<Vec<_>>() } else { Vec::new() },
             "builder_schedules_assignments":false,
             "authentication":"solo cuando la operación requiere acceso y la sesión existente no basta"
         },
@@ -1634,6 +1635,28 @@ mod tests {
             assert_eq!(fixture["mcp_plugins"]["available"], false);
             assert!(!fixture.to_string().contains("probe_read"));
         }
+    }
+    #[test]
+    fn builder_capabilities_expose_only_registered_permitted_tools() {
+        let names = vec![
+            "plugin_build_start".to_owned(),
+            "plugin_build_jobs".to_owned(),
+        ];
+        let mut settings = Settings::default();
+        let capabilities = super::session_capabilities(&settings, &names);
+        assert_eq!(
+            capabilities["web_plugins"]["background_builder_tools"],
+            json!(["plugin_build_start", "plugin_build_jobs"])
+        );
+        settings.local_actions = false;
+        assert_eq!(
+            super::session_capabilities(&settings, &names)["web_plugins"]["background_builder_tools"],
+            json!([])
+        );
+        assert_eq!(
+            super::session_capabilities(&Settings::default(), &[])["web_plugins"]["background_builder_tools"],
+            json!([])
+        );
     }
     #[test]
     #[ignore = "Consume una redacción real del bot con contexto ficticio, sin herramientas ni DB personal"]

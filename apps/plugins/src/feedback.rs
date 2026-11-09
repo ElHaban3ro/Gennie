@@ -221,6 +221,53 @@ mod tests {
     }
 
     #[test]
+    fn plugin_tool_exposes_the_identifier_and_consecutive_message_contracts() {
+        let (module, _) = fixture(7);
+        let tools = crate::tools(module.controller());
+        let start = tools
+            .iter()
+            .find(|t| t.definition["name"] == "plugin_build_start")
+            .unwrap();
+        assert_eq!(
+            start.definition["inputSchema"]["properties"]["plugin_id"]["pattern"],
+            "^[a-z][a-z0-9_]*$"
+        );
+        let jobs = tools
+            .iter()
+            .find(|t| t.definition["name"] == "plugin_build_jobs")
+            .unwrap();
+        assert!(
+            jobs.definition["description"]
+                .as_str()
+                .unwrap()
+                .contains("cada corrección nueva")
+        );
+    }
+
+    #[test]
+    fn consecutive_corrections_queue_while_first_is_sending_in_order() {
+        let (module, job) = fixture(7);
+        let c = module.controller();
+        c.0.store.transition(job, "running", "Activo").unwrap();
+        c.message_builder(job, "first", "No iniciar sesión")
+            .unwrap();
+        assert_eq!(
+            c.0.store.reserve_messages(job).unwrap()[0].1,
+            "No iniciar sesión"
+        );
+        c.message_builder(job, "second", "Usa la vía pública")
+            .unwrap();
+        assert!(c.0.store.has_pending_messages(job).unwrap());
+        c.0.store.finish_messages(job, true).unwrap();
+        assert_eq!(
+            c.0.store.reserve_messages(job).unwrap()[0].1,
+            "Usa la vía pública"
+        );
+        c.0.store.finish_messages(job, true).unwrap();
+        assert_eq!(c.0.store.message_counts(job).unwrap()["delivered"], 2);
+    }
+
+    #[test]
     fn wrong_session_cannot_send_and_uncertain_delivery_blocks_resume() {
         let (foreign, job) = fixture(8);
         let c = foreign.controller();

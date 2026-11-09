@@ -5,6 +5,8 @@ use std::path::PathBuf;
 mod assignment_evaluation;
 #[path = "runtime_tests/assignment_overview.rs"]
 mod assignment_overview;
+#[path = "runtime_tests/builder_chat_probe.rs"]
+mod builder_chat_probe;
 #[path = "runtime_tests/chat_cancellation.rs"]
 mod chat_cancellation;
 #[path = "runtime_tests/chat_review_probe.rs"]

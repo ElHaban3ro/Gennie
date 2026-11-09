@@ -754,7 +754,7 @@ fn scoped_tools(
             .clone();
         definition["name"] = json!(name);
         definition["description"] = json!(if name == "plugin_candidate" {
-            "Lee/guarda únicamente el candidato de este trabajo (action get/save). Incluye cobertura en description, capacidades en capabilities y límites en limitations. No modifica el plugin publicado; expected_revision=0 si no existe candidato."
+            "Lee/guarda únicamente el candidato de este trabajo (action get/save). Incluye cobertura en description, capacidades en capabilities y límites en limitations. No modifica el plugin publicado; expected_revision=0 si no existe candidato. El transporte http exige una respuesta JSON y extrae con JSON Pointer; no sirve para HTML o texto sin JSON. Para una página HTML utiliza transport page con selector CSS observado y result_type string o array. Usa program solo si necesitas lógica que page no puede expresar. Comprueba el tipo real de respuesta antes de guardar y verificar."
         } else {
             "Ejecuta y verifica una función del candidato (action verify/run). Solo verify satisfactorio deja evidencia. Usa plugin_id y revisión del candidato. authentication_required necesita acceso humano; no lo confundas con 403 o fallo de transporte."
         });
@@ -1027,6 +1027,13 @@ mod retry_tests {
             Arc::new(AtomicBool::new(false)),
             Arc::new(Mutex::new(strategy::BuildStrategy::default())),
         );
+        let candidate = tools
+            .iter()
+            .find(|t| t.definition["name"] == "plugin_candidate")
+            .unwrap();
+        let description = candidate.definition["description"].as_str().unwrap();
+        assert!(description.contains("http exige una respuesta JSON"));
+        assert!(description.contains("página HTML utiliza transport page"));
         let tool = tools
             .iter()
             .find(|t| t.definition["name"] == "browser_navigate")
