@@ -73,6 +73,8 @@ McpToolProbe reutiliza FunctionProbe para campos simples y conserva acceso a JSO
 
 ## Configuración de arquitectos
 
+Personalidad e Instrucciones muestran los valores completos recibidos por FRB, que son los que consume el arquitecto. No presentarlos como instrucciones adicionales ni sustituir datos reales por campos vacíos. Guardar reemplaza el texto completo; admitir 4000/64000 caracteres y conservar los borradores ante error. Ver D-058.
+
 ArchitectsView/ArchitectSettingsPanel consumen únicamente ArchitectBackend/FRB en su pestaña propia. Reutilizar AppSidebar, SidebarSearch, SidebarTile y AppDetailView; conservar la geometría/materiales de navegación al añadir su RailButton. La lista se identifica por ID, admite múltiples instancias por tipo y tipos libres, sin exigir exactamente tres filas. Las tres bases no se eliminan ni cambian de tipo/proveedor. Borradores por instancia, opciones avanzadas plegadas, errores y conflictos conservan campos. Crear/duplicar no guarda hasta confirmar; las nuevas instancias no sustituyen consumidores base ni activan modelos. Bloquear selección, navegación y doble envío mientras guarda. Configuración ya no contiene el panel; los ajustes históricos del asistente conservan su ruta. Ver D-057.
 
 ## Avisos del bot sobre trabajos
@@ -153,3 +155,7 @@ Textos auxiliares de Encargos: introducción, vacío de aplicaciones, resúmenes
 El focusedBorder de AssignmentEditor conserva grosor/geometría y usa tinta 65 % claro/50 % oscuro. Su contraste no textual se comprueba por separado del texto y del borde inactivo; no modificar campos o fondos para corregirlo. [Evidencia](../verification/assignment-focus-contrast.md).
 
 SidebarSearch: focusedBorder y el icono Limpiar usan tinta 65 % en claro, conservando 50 %/55 % oscuro. La lupa conserva su estilo; no cambiar forma, tamaño, radio, grosor, padding, material, semántica/callback o barra vertical por este ajuste. [Evidencia](../verification/sidebar-control-contrast.md).
+
+La confirmación para eliminar un plugin web indica que los resultados sin confirmar permanecen registrados y los trabajos propios se cancelan. No reconciliar ni repetir el intento automáticamente. Mientras espera, deshabilitar otra eliminación e indicar progreso. Ver [D-044](../decisions/web-attempts.md).
+
+Si la ficha de plugin informa resultados web pendientes, ofrecer acceso a esa sección junto a Eliminar sin resolver ni repetir el intento. Ver [D-044](../decisions/web-attempts.md).

@@ -1,5 +1,7 @@
 # D-057 — Arquitectos ampliables y navegación propia
 
+Actualización: [D-058](architect-owned-configuration.md) convierte personalidad/instrucciones en la configuración completa y visible de cada instancia, migrando los textos anteriores.
+
 2026-10-31. Petición del usuario: Arquitectos tiene su propia pestaña conservando el estilo actual. Mantener los arquitectos base y permitir tantas instancias y tipos como se necesiten, reutilizables desde otros lugares.
 
 ## Catálogo e identidad

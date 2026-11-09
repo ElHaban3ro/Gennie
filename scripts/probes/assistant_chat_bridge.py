@@ -67,6 +67,9 @@ def main():
             expected_version = max(int(path.name.split('_')[0]) for path in (ROOT / 'apps/presence/migrations').glob('*.sql'))
             assert connection.execute('SELECT max(version) FROM _soc_migrations_presence').fetchone()[0] == expected_version
             assert connection.execute('SELECT message_id,outcome FROM presence_tool_uses ORDER BY id').fetchall() == [(77,'completed'),(77,'failed'),(77,'unknown')]
+            assert connection.execute("SELECT failure_reason FROM presence_tool_uses WHERE outcome='failed'").fetchone()[0] == 'cause:El servidor informó que el formato de un dato no es válido.'
+            dump = ''.join(connection.iterdump())
+            assert 'QA_TOKEN_SYNTHETIC_GENNIE_8721' not in dump
             assert connection.execute('SELECT avatar_revision,length(avatar_png)>0 FROM presence_assistants WHERE id="gennie"').fetchone() == (1, 1)
     print('FRB y SQLite comprobados; fixture temporal cerrado y retirado.')
 

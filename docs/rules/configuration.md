@@ -1,10 +1,11 @@
 # Configuración
 
-Propietario: kernel/config. `Config` contiene ruta DB y busy timeout; `Secrets` separado, sin Debug ni AppState; contiene la clave opcional de OpenRouter. Bootstrap consume Secrets al construir clientes futuros. No inventar credenciales. Prefijo GENNIE_. Precedencia: entorno de proceso > `.env` explícito del cwd > defaults. No modificar entorno global mediante unsafe set_var; fusionar valores en memoria. Exportado distinto al archivo genera aviso solo con nombre.
+Propietario: kernel/config. `Config` contiene ruta DB y busy timeout; `Secrets` separado, sin Debug ni AppState; contiene las claves opcionales de OpenRouter y OpenAI. Bootstrap consume Secrets al construir clientes futuros. No inventar credenciales. Prefijo GENNIE_, salvo `OPENAI_API_KEY`, nombre estándar solicitado para la API directa. Precedencia: entorno de proceso > `.env` explícito del cwd > defaults. No modificar entorno global mediante unsafe set_var; fusionar valores en memoria. Exportado distinto al archivo genera aviso solo con nombre.
 
 ## Variables de proceso
 - GENNIE_DATABASE_PATH obligatoria sin default: archivo SQLite, no vacío ni `:memory:`. Instalaciones nuevas usan data/gennie.sqlite3; el .env local conserva la ruta existente al renombrar el producto. Las herramientas CLI resuelven rutas relativas al cwd; el escritorio las resuelve respecto al directorio del `.env` explícito para conservar la DB del checkout aunque Flutter arranque desde `frontend`. Las rutas absolutas se conservan.
 - GENNIE_OPENROUTER_API_KEY opcional: clave privada de OpenRouter, necesaria solo al clasificar; no se registra ni persiste en SQLite.
+- OPENAI_API_KEY opcional: clave privada para la API directa de OpenAI, preparada para el piloto; no se registra ni persiste en SQLite. Añadirla no activa ninguna consulta ni conecta aún la arquitectura experimental al producto.
 - GENNIE_DB_BUSY_TIMEOUT_MS default 500, entero 1..5000. Una conexión, sin parámetros de pool o HTTP.
 
 .env fuera de Git. .env.example lista todas las variables y distingue obligatorias/defaults; test compara declaraciones y defaults. No sobrescribir .env existente. Falta de ruta falla temprano con nombre, no valor. Error de parseo no debe filtrar valores sensibles; cuando se añadan secretos sanitizar mensajes del parser también.
@@ -61,10 +62,13 @@ D-039: la prueba manual MCP consulta el perfil guardado del bot por la interfaz 
 
 ## Perfiles de arquitectos
 
+D-058: la configuración visible es la utilizada por el proveedor. Los textos completos se migran a llm_architect_prompts y sustituyen los antiguos complementos; guardar o vaciar no suma de nuevo instrucciones base ocultas. Se conservan modelos/esfuerzos/permisos existentes. Los límites del transporte y contratos técnicos de operación se aplican por separado.
+
+
 D-057 amplía el catálogo desde Arquitectos en la navegación principal. Mantiene las tres bases y permite instancias adicionales con nombres/tipos repetidos o personalizados. Los consumidores actuales siguen usando sus IDs base; nuevas integraciones pueden cargar una instancia por ID. Proveedor/modelo/permisos conservan su validación real, sin .env o credenciales nuevos. Crear o guardar no inicia modelos.
 
 
-Desde 0005 de llm, llm_architects es la fuente de configuración de bot/helper/guía; llm_preferences es el espejo transaccional de los seis campos históricos del bot. Migrar conserva modelo/esfuerzo/permisos existentes en bot y helper. Guía deshabilitada, proveedor Decisions y sin herramientas; la clave permanece fuera de SQLite. Identidad/rol/proveedor fijos; revisión esperada, personalidad hasta 1000 e instrucciones hasta 6000 caracteres. No añadir parámetros sin consumidor. El helper aplica permisos propios intersectados con el bot; el canal MCP externo sigue usando el límite del bot. Cambios se confirman en el worker y se rechazan durante construcción activa. Guardar una guía habilitada solo permite consultas bajo demanda; no inicia automatizaciones. Ver [D-029](../decisions/architects.md).
+Desde 0005 de llm, llm_architects es la fuente de configuración de bot/helper/guía; llm_preferences es el espejo transaccional de los seis campos históricos del bot. Migrar conserva modelo/esfuerzo/permisos existentes en bot y helper. Guía deshabilitada, proveedor Decisions y sin herramientas; la clave permanece fuera de SQLite. Identidad/rol/proveedor fijos; revisión esperada, desde 0011 personalidad hasta 4000 e instrucciones completas hasta 64000 caracteres, propias y editables en llm_architect_prompts. No añadir parámetros sin consumidor. El helper aplica permisos propios intersectados con el bot; el canal MCP externo sigue usando el límite del bot. Cambios se confirman en el worker y se rechazan durante construcción activa. Guardar una guía habilitada solo permite consultas bajo demanda; no inicia automatizaciones. Ver [D-029](../decisions/architects.md).
 
 
 La habilitación/configuración de la guía no autoriza consultar todos los encargos. D-030 requiere selección y consentimiento remoto por revisión humana, desmarcado por defecto en la interfaz. Usa el perfil/clave existentes sin variables nuevas, configuración global de Codex ni consulta al guardar. Una valoración fallida no se repite automáticamente; registrar configuración de la guía no activa un ejecutor.

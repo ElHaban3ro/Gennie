@@ -93,3 +93,5 @@ Requisitos confirmados tienen prioridad sobre supuestos gráficos delegados. Las
 - [Teclado de revisiones D-056](review-keyboard.md): Escape protegido durante guardado, foco de vuelta a propuestas y controlador de scroll explícito en macOS.
 
 - [Arquitectos ampliables D-057](expandable-architects.md): pestaña propia, tres bases preservadas y catálogo reutilizable de múltiples instancias/tipos.
+
+- [Configuración propia D-058](architect-owned-configuration.md): personalidad/instrucciones completas y editables, migración conservadora y mismo perfil en UI/proveedor.
