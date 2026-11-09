@@ -903,7 +903,7 @@ async function runWorker() {
   async function stop() {
     if (stopping) return;
     stopping = true;
-    setTimeout(() => process.exit(1), 3500).unref();
+    setTimeout(() => process.exit(1), 30000).unref();
     try { await session.close(); } finally { process.exit(0); }
   }
   const input = createInterface({ input: process.stdin, crlfDelay: Infinity });

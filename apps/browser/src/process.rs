@@ -350,7 +350,8 @@ impl Session {
             .lock()
             .map_err(|_| "Canal de navegador inválido")?
             .take();
-        let deadline = Instant::now() + Duration::from_secs(5);
+        // El worker concede hasta 30 s a Chromium para cerrar el perfil.
+        let deadline = Instant::now() + Duration::from_secs(35);
         while !self.exited() && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(20));
         }
