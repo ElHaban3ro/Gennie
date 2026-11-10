@@ -10,7 +10,7 @@ void main() {
   const library = String.fromEnvironment('GENNIE_WEB_REVIEW_LIBRARY');
   const helper = String.fromEnvironment('GENNIE_WEB_REVIEW_HELPER');
   const env = String.fromEnvironment('GENNIE_WEB_REVIEW_ENV');
-  for (final resolution in ['applied', 'not_applied']) {
+  for (final resolution in ['applied', 'not_applied', 'unknown']) {
     testWidgets('revisión web $resolution por controles y FRB sin operación', (
       t,
     ) async {
@@ -23,7 +23,11 @@ void main() {
       final calls = <String>[];
       Future<Map<String, dynamic>> call(Map<String, dynamic> request) async {
         final action = request['action'] as String;
-        if (!['web_attempts', 'web_reconcile'].contains(action)) {
+        if (![
+          'web_attempts',
+          'web_reconcile',
+          'web_close_unconfirmed',
+        ].contains(action)) {
           throw StateError(
             'La sonda no puede ejecutar o consultar el navegador',
           );
@@ -61,11 +65,11 @@ void main() {
         await t.ensureVisible(review);
         await t.tap(review);
         await t.pumpAndSettle();
-        final option = find.text(
-          resolution == 'applied'
-              ? 'La acción se aplicó'
-              : 'Comprobé que no se aplicó',
-        );
+        final option = find.text(switch (resolution) {
+          'applied' => 'La acción se aplicó',
+          'not_applied' => 'Comprobé que no se aplicó',
+          _ => 'El resultado sigue sin conocerse',
+        });
         await t.ensureVisible(option);
         await t.tap(option);
         await t.pumpAndSettle();
@@ -84,7 +88,18 @@ void main() {
           ),
           true,
         );
-        expect(calls.where((c) => c == 'web_reconcile').length, 1);
+        expect(
+          calls
+              .where(
+                (c) =>
+                    c ==
+                    (resolution == 'unknown'
+                        ? 'web_close_unconfirmed'
+                        : 'web_reconcile'),
+              )
+              .length,
+          1,
+        );
         expect(t.takeException(), isNull);
       } finally {
         await t.pumpWidget(const SizedBox());

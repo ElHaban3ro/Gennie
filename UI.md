@@ -298,3 +298,9 @@ La introducción, el vacío de aplicaciones, los resúmenes plegados y la nota d
 La línea inferior de foco del editor de Encargos conserva un píxel y su geometría; usa tinta 65 % en claro y el 50 % existente en oscuro. El borde inactivo conserva su estilo. [Regresión y comprobación](docs/verification/assignment-focus-contrast.md).
 
 SidebarSearch usa 65 % de tinta clara para el borde de foco y Limpiar búsqueda; oscuro conserva 50 %/55 %. Mantener lupa, borde inactivo, radio 8, grosor, dimensiones, tipografía y material. [Regresión y comparación visual](docs/verification/sidebar-control-contrast.md).
+
+La ficha de una función `observe` identifica «Lectura de pestaña» junto a su ruta. Usa el formulario existente: esta vía solo extrae texto de una pestaña ya abierta y no añade controles ni modifica estilos.
+
+La función `gmail_inbox` se presenta como «Lectura de Recibidos». Una ejecución controlada fallida se muestra como «Lectura fallida» en la actividad del encargo, conservando los controles y estilos existentes.
+
+Cuando una construcción esperaba una revisión web y el diario confirma que ya no hay pendientes, la ficha indica «Revisión resuelta · construcción pausada» y aclara que la revisión se resolvió. El mensaje anterior del bot se conserva como historial; el botón de continuación y las demás acciones mantienen su comportamiento.

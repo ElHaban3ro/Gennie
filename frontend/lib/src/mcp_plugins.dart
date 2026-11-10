@@ -1244,9 +1244,11 @@ class McpAttemptReviewDialog extends StatefulWidget {
     super.key,
     required this.attempt,
     required this.onConfirm,
+    this.allowUnknown = false,
   });
   final Map<String, dynamic> attempt;
   final Future<void> Function(String) onConfirm;
+  final bool allowUnknown;
   @override
   State<McpAttemptReviewDialog> createState() => _McpAttemptReviewDialogState();
 }
@@ -1358,6 +1360,18 @@ class _McpAttemptReviewDialogState extends State<McpAttemptReviewDialog> {
                                       'Cerrar el intento. Gennie no debe repetirlo.',
                                     ),
                                   ),
+                                  if (widget.allowUnknown)
+                                    RadioListTile<String>(
+                                      contentPadding: EdgeInsets.zero,
+                                      value: 'unknown',
+                                      enabled: !saving,
+                                      title: const Text(
+                                        'El resultado sigue sin conocerse',
+                                      ),
+                                      subtitle: const Text(
+                                        'Continuar con lecturas controladas; el programa anterior permanecerá bloqueado.',
+                                      ),
+                                    ),
                                   RadioListTile<String>(
                                     contentPadding: EdgeInsets.zero,
                                     value: 'not_applied',

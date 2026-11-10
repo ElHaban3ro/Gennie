@@ -303,7 +303,18 @@ void main() {
           '1': [call('one', ToolCallOutcome.unknown)],
         };
       final (_, state) = await mount(tester, backend: fake);
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('1')),
+          matching: find.text('Actividad del asistente'),
+        ),
+        findsNothing,
+      );
       expect(find.text('Actividad del asistente'), findsOneWidget);
+      expect(
+        tester.getTopLeft(find.text('Actividad del asistente')).dx,
+        lessThan(tester.getTopLeft(find.text('Consulta el correo')).dx),
+      );
       fake.evidence = {
         '2': [call('one', ToolCallOutcome.completed)],
       };

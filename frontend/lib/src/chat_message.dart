@@ -349,7 +349,7 @@ class ChatMessage extends StatelessWidget {
                             switch (execution!.state) {
                               'succeeded' => 'La función informó éxito',
                               'uncertain' => 'Resultado sin confirmar',
-                              'rejected' => 'Operación no enviada',
+                              'rejected' => 'Operación no completada',
                               'skipped' => 'Ocurrencia omitida',
                               _ => 'Ocurrencia cancelada',
                             },

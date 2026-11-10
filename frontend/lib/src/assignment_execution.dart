@@ -33,7 +33,7 @@ const _states = {
   'reserved': 'Preparando',
   'running': 'En curso',
   'succeeded': 'La función informó éxito',
-  'rejected': 'No se envió la operación',
+  'rejected': 'Operación no completada',
   'uncertain': 'Resultado sin confirmar',
   'cancelled': 'Omitida antes del envío',
   'skipped': 'Omitida por retraso o vencimiento',
@@ -1149,7 +1149,7 @@ class _RunsDialogState extends State<_RunsDialog> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '${_date(run['scheduled_at'])} · ${_states[run['state']] ?? run['state']}',
+                  '${_date(run['scheduled_at'])} · ${run['code'] == 'controlled_read_failed' ? 'Lectura fallida' : (_states[run['state']] ?? run['state'])}',
                 ),
                 TextButton(
                   onPressed: busy ? null : () => review(run),
@@ -1316,7 +1316,9 @@ class _ExecutionRunDialogState extends State<_ExecutionRunDialog> {
               'Ocurrencia: ${_date(current['scheduled_at'])} · hora de este equipo',
             ),
             Text(
-              _states[current['state']] ?? current['state'].toString(),
+              current['code'] == 'controlled_read_failed'
+                  ? 'Lectura fallida'
+                  : (_states[current['state']] ?? current['state'].toString()),
               style: const TextStyle(fontWeight: FontWeight.w600),
             ),
             Text(

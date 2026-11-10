@@ -25,6 +25,19 @@ const pluginJobStates = {
   'cancelled': 'Cancelado',
   'interrupted': 'Interrumpido',
 };
+bool _webReviewResolved(Map job) {
+  final pending = job['web_pending'];
+  return job['state'] == 'waiting_user' &&
+      job['waiting_reason'] == 'web_review' &&
+      pending is Map &&
+      pending['status'] == 'ready' &&
+      pending['total'] == 0;
+}
+
+String _jobStateLabel(Map job) => _webReviewResolved(job)
+    ? 'Revisión resuelta · construcción pausada'
+    : (pluginJobStates[job['state']] ?? '${job['state']}');
+
 typedef PluginCall =
     Future<Map<String, dynamic>> Function(Map<String, dynamic>);
 
@@ -110,7 +123,7 @@ class _JobStatus extends StatelessWidget {
             children: [
               if (running) ...[const _BuildSpinner(), const SizedBox(width: 7)],
               Text(
-                pluginJobStates[job['state']] ?? '${job['state']}',
+                _jobStateLabel(job),
                 style: TextStyle(
                   fontFamily: 'Inter',
                   fontSize: 11,
@@ -735,9 +748,7 @@ class _PluginsViewState extends State<PluginsView> {
                                     subtitle: entry['mcp'] != null
                                         ? 'MCP · ${entry['mcp']['enabled'] == true ? '${entry['mcp']['allowed_count']} con permiso' : 'Deshabilitado'}'
                                         : entry['job'] != null
-                                        ? pluginJobStates[(entry['job']
-                                                  as Map)['state']] ??
-                                              'En preparación'
+                                        ? _jobStateLabel(entry['job'] as Map)
                                         : '${(((entry['record'] as Map)['manifest'] as Map)['functions'] as List).length} funciones · revisión ${(entry['record'] as Map)['revision']}',
                                     selected: entry['id'] == selected,
                                     onSelect: () => setState(() {
@@ -967,6 +978,13 @@ class _PluginsViewState extends State<PluginsView> {
                                     ),
                                   ),
                                   const SizedBox(height: 4),
+                                  if (_webReviewResolved(job))
+                                    const Padding(
+                                      padding: EdgeInsets.only(bottom: 8),
+                                      child: Text(
+                                        'La revisión web pendiente ya se resolvió. La construcción sigue pausada.',
+                                      ),
+                                    ),
                                   SelectableText(
                                     _JobPresentation.read(job).summary(job),
                                     style: body,
@@ -1038,13 +1056,20 @@ class _PluginsViewState extends State<PluginsView> {
                                   Text(
                                     record == null && jobIndex == 0
                                         ? 'Trabajo actual'
-                                        : '${(entries[job['plugin_id']]?['name'] as String?) ?? _jobName(job)} · ${pluginJobStates[job['state']] ?? job['state']}',
+                                        : '${(entries[job['plugin_id']]?['name'] as String?) ?? _jobName(job)} · ${_jobStateLabel(job)}',
                                     style: const TextStyle(
                                       fontSize: 13,
                                       fontWeight: FontWeight.w600,
                                     ),
                                   ),
                                   const SizedBox(height: 6),
+                                  if (record != null && _webReviewResolved(job))
+                                    const Padding(
+                                      padding: EdgeInsets.only(bottom: 8),
+                                      child: Text(
+                                        'La revisión web pendiente ya se resolvió. La construcción sigue pausada.',
+                                      ),
+                                    ),
                                   if (!(record == null &&
                                       selected != null &&
                                       identical(job, associated.first)))
@@ -1425,8 +1450,21 @@ class FunctionProbe extends StatefulWidget {
 class _FunctionProbeState extends State<FunctionProbe> {
   int? pendingWebAttempt;
   bool webReviewRequired = false;
+  bool get quarantined =>
+      ![
+        'observe',
+        'gmail_inbox',
+        'gmail_print',
+      ].contains(widget.function['transport']) &&
+      (widget.record['web_recent_reviews'] as List? ?? []).any(
+        (r) =>
+            r is Map &&
+            r['tool'] == widget.function['name'] &&
+            r['resolution'] == 'unknown',
+      );
   bool get blocked =>
       !widget.enabled ||
+      quarantined ||
       (webReviewRequired &&
           (pendingWebAttempt == null ||
               !(widget.record['web_recent_reviews'] as List? ?? []).any(
@@ -1574,6 +1612,8 @@ class _FunctionProbeState extends State<FunctionProbe> {
             '${switch (fn['transport']) {
               'http' => 'GET',
               'program' => 'Programa',
+              'observe' => 'Lectura de pestaña',
+              'gmail_inbox' => 'Lectura de Recibidos',
               'mcp' => 'MCP',
               _ => 'Página',
             }} ${fn['path']}',
@@ -1634,6 +1674,13 @@ class _FunctionProbeState extends State<FunctionProbe> {
                     ),
             ),
           const SizedBox(height: 16),
+          if (quarantined)
+            const Padding(
+              padding: EdgeInsets.only(bottom: 12),
+              child: Text(
+                'El resultado anterior sigue sin conocerse. Esta función necesita una lectura controlada antes de poder ejecutarse.',
+              ),
+            ),
           Align(
             alignment: Alignment.centerLeft,
             child: FilledButton(

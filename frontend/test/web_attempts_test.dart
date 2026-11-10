@@ -59,7 +59,8 @@ class WebBackend extends PluginsBackend {
       requests.add(r);
       return jsonEncode(page(after: r['after'] as int? ?? 0));
     }
-    if (r['action'] == 'web_reconcile') {
+    if (r['action'] == 'web_reconcile' ||
+        r['action'] == 'web_close_unconfirmed') {
       requests.add(r);
       if (failReview) throw StateError('No se guardó la comprobación.');
       final original = pendingRows.singleWhere(
@@ -69,7 +70,9 @@ class WebBackend extends PluginsBackend {
       reviewed.add({
         ...original,
         'state': 'reviewed',
-        'resolution': r['resolution'],
+        'resolution': r['action'] == 'web_close_unconfirmed'
+            ? 'unknown'
+            : r['resolution'],
       });
       pendingRows.remove(original);
       sync();
@@ -115,6 +118,62 @@ Future<void> click(WidgetTester t, String text) async {
 Finder dialogText(String text) =>
     find.descendant(of: find.byType(Dialog), matching: find.text(text));
 void main() {
+  testWidgets('explica el resultado de tipo incorrecto', (t) async {
+    final b = WebBackend();
+    b.pendingRows[0]['failure_code'] = 'result_type_mismatch';
+    b.pendingRows[0]['failure_phase'] = 'execute';
+    b.sync();
+    await mount(t, b);
+    await select(t);
+    expect(
+      find.text('La función devolvió un tipo distinto del declarado.'),
+      findsOneWidget,
+    );
+    expect(b.effects, 0);
+  });
+  testWidgets('explica el tiempo agotado sin inventar un efecto', (t) async {
+    final b = WebBackend();
+    b.pendingRows[0]['failure_code'] = 'timeout';
+    b.pendingRows[0]['failure_phase'] = 'read';
+    b.sync();
+    await mount(t, b);
+    await select(t);
+    expect(
+      find.text('La prueba agotó el tiempo de espera durante una lectura.'),
+      findsOneWidget,
+    );
+    expect(b.effects, 0);
+  });
+  testWidgets('una revisión ya resuelta no pide volver a comprobar', (t) async {
+    final b = WebBackend();
+    b.pendingRows = [];
+    b.sync();
+    b.jobs = [
+      {
+        'id': 9,
+        'plugin_id': 'gmail_test',
+        'origin': 'https://example.com',
+        'state': 'waiting_user',
+        'waiting_reason': 'web_review',
+        'summary': 'Anterior',
+        'objective': 'Consultar correo',
+        'trigger_conversation_id': 7,
+        'attempts': 1,
+        'max_attempts': 4,
+        'web_pending': b.page(),
+      },
+    ];
+    await mount(t, b);
+    await select(t);
+    expect(find.text('Revisión resuelta · construcción pausada'), findsWidgets);
+    expect(
+      find.text(
+        'La revisión web pendiente ya se resolvió. La construcción sigue pausada.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Necesita tu intervención'), findsNothing);
+  });
   testWidgets('un trabajo cancelado conserva acceso a su revisión pendiente', (
     t,
   ) async {
@@ -326,7 +385,7 @@ void main() {
       expect(t.takeException(), isNull);
     },
   );
-  for (final resolution in ['applied', 'not_applied']) {
+  for (final resolution in ['applied', 'not_applied', 'unknown']) {
     testWidgets('comprobación $resolution sin reenvío y con origen exacto', (
       t,
     ) async {
@@ -334,12 +393,11 @@ void main() {
       await mount(t, b);
       await select(t);
       await click(t, 'Revisar resultado');
-      await click(
-        t,
-        resolution == 'applied'
-            ? 'La acción se aplicó'
-            : 'Comprobé que no se aplicó',
-      );
+      await click(t, switch (resolution) {
+        'applied' => 'La acción se aplicó',
+        'not_applied' => 'Comprobé que no se aplicó',
+        _ => 'El resultado sigue sin conocerse',
+      });
       await click(t, 'Guardar revisión');
       expect(find.byType(Dialog), findsNothing);
       expect(b.reviewed.single['resolution'], resolution);
@@ -350,7 +408,7 @@ void main() {
               find.widgetWithText(FilledButton, 'Ejecutar función'),
             )
             .onPressed,
-        isNotNull,
+        resolution == 'unknown' ? isNull : isNotNull,
       );
       expect(t.takeException(), isNull);
     });

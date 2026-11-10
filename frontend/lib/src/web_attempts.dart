@@ -85,13 +85,16 @@ class _WebAttemptPanelState extends State<WebAttemptPanel> {
       barrierDismissible: false,
       builder: (_) => McpAttemptReviewDialog(
         attempt: attempt,
+        allowUnknown: true,
         onConfirm: (resolution) async {
           await widget.call({
-            'action': 'web_reconcile',
+            'action': resolution == 'unknown'
+                ? 'web_close_unconfirmed'
+                : 'web_reconcile',
             'plugin_id': widget.pluginId,
             'attempt_id': attempt['id'],
             'expected_revision': attempt['source_revision'],
-            'resolution': resolution,
+            if (resolution != 'unknown') 'resolution': resolution,
           });
         },
       ),
@@ -123,7 +126,7 @@ class _WebAttemptPanelState extends State<WebAttemptPanel> {
           Text(
             page?['status'] == 'unavailable'
                 ? 'No se pudo leer el diario web. Recarga antes de ejecutar.'
-                : 'Comprueba el efecto antes de repetir esa función o editar el plugin. Revisar no repite la operación.',
+                : 'Estos intentos no tienen resultado confirmado. Revisarlos no repite la operación.',
           ),
           for (final attempt in attempts)
             Padding(
@@ -140,6 +143,8 @@ class _WebAttemptPanelState extends State<WebAttemptPanel> {
                   ),
                   if (attempt['candidate_id'] != null)
                     const Text('Intento de un candidato del constructor.'),
+                  if (webAttemptFailure(attempt) case final String cause)
+                    Text(cause),
                   Text(
                     attempt['active'] == true
                         ? 'La operación sigue en curso.'
@@ -178,3 +183,18 @@ class _WebAttemptPanelState extends State<WebAttemptPanel> {
     );
   }
 }
+
+String? webAttemptFailure(Map<String, dynamic> attempt) =>
+    switch ((attempt['failure_code'], attempt['failure_phase'])) {
+      ('timeout', 'read') =>
+        'La prueba agotó el tiempo de espera durante una lectura.',
+      ('timeout', _) => 'La prueba agotó el tiempo de espera.',
+      ('connection_failed', _) => 'La prueba perdió la conexión.',
+      ('postcondition_failed', _) =>
+        'La prueba no pudo comprobar el resultado de una acción.',
+      ('result_type_mismatch', _) =>
+        'La función devolvió un tipo distinto del declarado.',
+      ('type_error' || 'reference_error' || 'program_error', _) =>
+        'La función encontró un error al ejecutarse.',
+      _ => null,
+    };

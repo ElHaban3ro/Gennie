@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'backend.dart';
 import 'chat_message.dart';
 import 'sidebar.dart';
+import 'tool_evidence.dart';
 
 /// Historial visual del asistente. Leerlo nunca activa una sesión del proveedor.
 class ChatTimeline extends StatefulWidget {
@@ -392,40 +393,60 @@ class _ChatTimelineState extends State<ChatTimeline> {
                   ? null
                   : entries[chronological - 1];
               final day = messageLocalDay(entry.message.createdAt);
-              return KeyedSubtree(
-                key: ValueKey(entry.id),
-                child: Column(
-                  key: keys.putIfAbsent(entry.id, () => GlobalKey()),
-                  children: [
-                    if (day != null &&
-                        day !=
-                            messageLocalDay(previous?.message.createdAt ?? ''))
-                      ChatDayBadge(
-                        label: chatDayLabel(
-                          entry.message.createdAt,
-                          now: DateTime.now(),
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  KeyedSubtree(
+                    key: ValueKey(entry.id),
+                    child: Column(
+                      key: keys.putIfAbsent(entry.id, () => GlobalKey()),
+                      children: [
+                        if (day != null &&
+                            day !=
+                                messageLocalDay(
+                                  previous?.message.createdAt ?? '',
+                                ))
+                          ChatDayBadge(
+                            label: chatDayLabel(
+                              entry.message.createdAt,
+                              now: DateTime.now(),
+                            ),
+                          ),
+                        if (entry.startsSession)
+                          ChatDayBadge(
+                            label: sessionLabel(entry.sessionStartedAt),
+                          ),
+                        ChatMessage(
+                          focusNode: sourceFocus[entry.id],
+                          message: entry.message,
+                          delegation: entry.delegation,
+                          execution: entry.execution,
+                          tools: entry.message.speaker == 'user'
+                              ? const []
+                              : entry.tools,
+                          quote: entry.quote,
+                          onReply: () => widget.onReply(entry),
+                          onOpenQuote:
+                              entry.quote?.sourceMessageId == null || loading
+                              ? null
+                              : () => openSource(entry.quote!.sourceMessageId!),
+                          state: state,
+                          conversationId: entry.conversationId,
+                          onOpenPlugin: widget.onOpenPlugin,
                         ),
-                      ),
-                    if (entry.startsSession)
-                      ChatDayBadge(label: sessionLabel(entry.sessionStartedAt)),
-                    ChatMessage(
-                      focusNode: sourceFocus[entry.id],
-                      message: entry.message,
-                      delegation: entry.delegation,
-                      execution: entry.execution,
-                      tools: entry.tools,
-                      quote: entry.quote,
-                      onReply: () => widget.onReply(entry),
-                      onOpenQuote:
-                          entry.quote?.sourceMessageId == null || loading
-                          ? null
-                          : () => openSource(entry.quote!.sourceMessageId!),
-                      state: state,
-                      conversationId: entry.conversationId,
-                      onOpenPlugin: widget.onOpenPlugin,
+                      ],
                     ),
-                  ],
-                ),
+                  ),
+                  if (entry.message.speaker == 'user' && entry.tools.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: ToolEvidence(
+                        calls: entry.tools,
+                        onOpenPlugin: widget.onOpenPlugin,
+                        onRequest: true,
+                      ),
+                    ),
+                ],
               );
             },
           ),
