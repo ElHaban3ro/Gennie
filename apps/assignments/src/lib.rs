@@ -50,6 +50,7 @@ pub enum AppKind {
 #[serde(deny_unknown_fields)]
 pub struct Application {
     pub name: String,
+    #[serde(alias = "type")]
     pub kind: AppKind,
     pub url: Option<String>,
     #[serde(default)]

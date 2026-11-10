@@ -168,6 +168,28 @@ fn failed_assignment_keeps_the_reported_reason_without_arguments() {
 }
 
 #[test]
+fn assignment_validation_failures_keep_safe_specific_causes() {
+    for (error, expected) in [
+        (
+            "unknown field `type`, expected one of `name`, `kind`, `url`, `plugin_available`, `manual_required`",
+            "campo type",
+        ),
+        ("missing field `timezone`", "zona horaria"),
+        ("Selecciona vías autorizadas únicas", "vías autorizadas"),
+    ] {
+        let mut value = event("item/completed");
+        value["params"]["item"]["tool"] = json!("assignments_create");
+        value["params"]["item"]["status"] = json!("failed");
+        value["params"]["item"]["result"] =
+            json!({"isError":true,"content":[{"type":"text","text":error}]});
+        let usage = from_notification(&value, "active", "turn")
+            .unwrap()
+            .unwrap();
+        assert!(usage.detail.unwrap().contains(expected), "{error}");
+    }
+}
+
+#[test]
 fn external_errors_keep_a_safe_diagnostic_without_sensitive_values() {
     let mut value = event("item/completed");
     value["params"]["item"]["server"] = json!("calendar");

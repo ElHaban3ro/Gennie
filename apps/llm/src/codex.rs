@@ -76,6 +76,9 @@ impl ScopedOutput {
 pub mod mcp_client;
 
 #[cfg(test)]
+#[path = "assignment_live_tests.rs"]
+mod assignment_live_tests;
+#[cfg(test)]
 #[path = "browser_tests.rs"]
 mod browser_tests;
 #[cfg(test)]

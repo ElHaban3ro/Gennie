@@ -71,6 +71,21 @@ fn local_failure_reason(item: &Value, server: &str, tool: &str) -> Option<String
             item.pointer("/result/content/0/text")
                 .and_then(Value::as_str)
         })?;
+    // Serde incluye nombres de campo, pero solo se traducen patrones exactos
+    // conocidos: nunca se conserva texto arbitrario de la solicitud.
+    let schema_reason = match reason {
+        "unknown field `type`, expected one of `name`, `kind`, `url`, `plugin_available`, `manual_required`" => {
+            Some("La aplicación incluyó el campo type; debe usar kind.")
+        }
+        "missing field `timezone`" => Some("Falta la zona horaria del encargo."),
+        "Selecciona vías autorizadas únicas" => {
+            Some("Las vías autorizadas no deben repetirse ni superar el máximo permitido.")
+        }
+        _ => None,
+    };
+    if let Some(reason) = schema_reason {
+        return Some(format!("cause:{reason}"));
+    }
     const SAFE: &[&str] = &[
         "Un encargo recurrente usa recurrence para la hora local; elimina notify_at o usa null. No conviertas esa hora en una fecha UTC",
         "Un encargo recurrente usa recurrence para la hora local; elimina notify_at o usa null.",

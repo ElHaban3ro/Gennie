@@ -884,6 +884,7 @@ dependencies = [
 name = "gennie-llm"
 version = "0.1.0"
 dependencies = [
+ "gennie-assignments",
  "gennie-config",
  "gennie-core",
  "gennie-db",
