@@ -791,7 +791,7 @@ fn scoped_tools(
                 definition["description"].as_str().unwrap_or_default()
             ));
             definition["description"] = json!(format!(
-                "{} Investiga si la cuenta o perfil activo importa para las funciones solicitadas. Si corresponde, identifica y verifica mediante la interfaz oficial una identidad estable del perfil y documenta la capacidad y sus límites; no uses la posición de la cuenta ni el nombre visible como identidad estable. Si no puedes comprobarla, indícalo en limitations sin inventarla. Si no corresponde, documenta ese hecho y su motivo. No guardes credenciales, cookies ni tokens.",
+                "{} Investiga si la cuenta o perfil activo importa para las funciones solicitadas. Si corresponde y el servicio lo permite, implementa y verifica una función reutilizable de lectura que identifique el perfil activo mediante la interfaz oficial; documenta su identidad, evidencia y límites. No uses la posición de la cuenta ni el nombre visible como identidad estable. Si no puedes comprobarla, indícalo en limitations sin inventarla. Si no corresponde, documenta ese hecho y su motivo. No guardes credenciales, cookies ni tokens.",
                 definition["description"].as_str().unwrap_or_default()
             ));
         }

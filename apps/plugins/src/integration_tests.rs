@@ -844,6 +844,290 @@ fn real_builder_recovers_a_failed_controlled_observation() {
 }
 
 #[test]
+#[ignore = "Consume una construcción breve con Codex real, Chromium headless y un sitio local; sin cuentas web personales"]
+fn real_builder_discovers_and_verifies_active_profile() {
+    let root = std::env::temp_dir().join(format!(
+        "gennie-builder-smoke-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(root.join("browser")).unwrap();
+    let installed = PathBuf::from(std::env::var_os("HOME").unwrap())
+        .join("Library/Application Support/Gennie/browser");
+    for name in ["runtime-patchright-1.64.2", "browsers"] {
+        std::os::unix::fs::symlink(installed.join(name), root.join("browser").join(name)).unwrap();
+    }
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    listener.set_nonblocking(true).unwrap();
+    let stop = Arc::new(AtomicBool::new(false));
+    let server_stop = stop.clone();
+    let server = std::thread::spawn(move || {
+        while !server_stop.load(Ordering::Acquire) {
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    let _ = stream.set_read_timeout(Some(Duration::from_secs(1)));
+                    let mut buffer = [0; 4096];
+                    let _ = stream.read(&mut buffer);
+                    let body = r#"<html><body><h1>Panel de tareas</h1><div>Cuenta activa: <span id="profile-id">perfil-aurora-123</span></div><ul><li class="item">Tarea de prueba</li></ul></body></html>"#;
+                    let response = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        body.len(),
+                        body
+                    );
+                    let _ = stream.write_all(response.as_bytes());
+                }
+                Err(_) => std::thread::sleep(Duration::from_millis(10)),
+            }
+        }
+    });
+    let db = Database::open(&root.join("fixture.sqlite3"), 500).unwrap();
+    let state = AppState {
+        db: db.clone(),
+        config: Arc::new(gennie_config::Config {
+            database_path: root.join("fixture.sqlite3"),
+            db_busy_timeout_ms: 500,
+        }),
+        shutdown: Default::default(),
+    };
+    let browser = gennie_browser::BrowserModule::new(root.join("browser"));
+    db.migrate(browser.name(), browser.migrations()).unwrap();
+    browser.start(&state).unwrap();
+    browser.controller().set_automation_allowed(true);
+    let helper = std::env::var_os("GENNIE_TEST_HELPER")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/flutter/debug/gennie")
+        });
+    let journal = Arc::new(Journal::default());
+    let plugins = PluginsModule::new(
+        db.clone(),
+        browser.controller(),
+        journal.clone(),
+        crate::AgentSettings::shared(Arc::new(|| Ok(Settings::default()))),
+        helper,
+        root.join("builds"),
+    );
+    db.migrate(plugins.name(), plugins.migrations()).unwrap();
+    plugins.start(&state).unwrap();
+    let fixture = Fixture {
+        root,
+        stop,
+        server: Some(server),
+        plugins,
+        browser,
+        state,
+    };
+    let controller = fixture.plugins.controller();
+    let objective = format!(
+        "Sonda sintética autorizada: crea un plugin de solo lectura para consultar las tareas de {origin}/items. El contenido depende del perfil activo: investiga su identidad estable en la interfaz, añade una función reutilizable perfil_actual que devuelva esa identidad y otra función list_items que liste las tareas. Verifica ambas funciones y publica el candidato fixture. No uses otras cuentas o sitios."
+    );
+    let job = controller
+        .submit(
+            BuildRequest {
+                request_key: "smoke".into(),
+                plugin_id: "fixture".into(),
+                origin,
+                objective,
+                max_attempts: 2,
+                max_seconds: 120,
+                retry_of: None,
+            },
+            Some(7),
+        )
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(150);
+    let finished = loop {
+        let current = controller.0.store.get(job.id).unwrap();
+        if !matches!(current.state.as_str(), "queued" | "running") {
+            break current;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "El trabajo no terminó dentro del límite de la sonda"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    assert_eq!(finished.state, "completed", "{}", finished.summary);
+    let published = controller.catalogue().unwrap();
+    assert_eq!(published["plugins"][0]["manifest"]["id"], "fixture");
+    let manifest = &published["plugins"][0]["manifest"];
+    assert!(
+        manifest["functions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|f| f["name"] == "perfil_actual"),
+        "No se generó la función de perfil"
+    );
+    let result = fixture
+        .browser
+        .controller()
+        .run_web_plugin("fixture", "perfil_actual", 1, json!({}))
+        .unwrap();
+    assert_eq!(result["status"], "ok", "{result}");
+    assert!(
+        result["data"].to_string().contains("perfil-aurora-123"),
+        "La función no identificó el perfil de la fixture: {result}"
+    );
+    assert_eq!(
+        fixture
+            .browser
+            .controller()
+            .web_attempts("fixture", None)
+            .unwrap()["total"],
+        0
+    );
+}
+
+#[test]
+#[ignore = "Consume una construcción breve con Codex real, Chromium headless y un sitio local; sin cuentas web personales"]
+fn real_builder_reports_when_profile_does_not_apply() {
+    let root = std::env::temp_dir().join(format!(
+        "gennie-builder-smoke-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(root.join("browser")).unwrap();
+    let installed = PathBuf::from(std::env::var_os("HOME").unwrap())
+        .join("Library/Application Support/Gennie/browser");
+    for name in ["runtime-patchright-1.64.2", "browsers"] {
+        std::os::unix::fs::symlink(installed.join(name), root.join("browser").join(name)).unwrap();
+    }
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    listener.set_nonblocking(true).unwrap();
+    let stop = Arc::new(AtomicBool::new(false));
+    let server_stop = stop.clone();
+    let server = std::thread::spawn(move || {
+        while !server_stop.load(Ordering::Acquire) {
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    let _ = stream.set_read_timeout(Some(Duration::from_secs(1)));
+                    let mut buffer = [0; 4096];
+                    let _ = stream.read(&mut buffer);
+                    let body = r#"<html><body><h1>Panel de tareas</h1><p>Esta es una página pública sin cuentas ni sesiones.</p><ul><li class="item">Tarea de prueba</li></ul></body></html>"#;
+                    let response = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        body.len(),
+                        body
+                    );
+                    let _ = stream.write_all(response.as_bytes());
+                }
+                Err(_) => std::thread::sleep(Duration::from_millis(10)),
+            }
+        }
+    });
+    let db = Database::open(&root.join("fixture.sqlite3"), 500).unwrap();
+    let state = AppState {
+        db: db.clone(),
+        config: Arc::new(gennie_config::Config {
+            database_path: root.join("fixture.sqlite3"),
+            db_busy_timeout_ms: 500,
+        }),
+        shutdown: Default::default(),
+    };
+    let browser = gennie_browser::BrowserModule::new(root.join("browser"));
+    db.migrate(browser.name(), browser.migrations()).unwrap();
+    browser.start(&state).unwrap();
+    browser.controller().set_automation_allowed(true);
+    let helper = std::env::var_os("GENNIE_TEST_HELPER")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/flutter/debug/gennie")
+        });
+    let journal = Arc::new(Journal::default());
+    let plugins = PluginsModule::new(
+        db.clone(),
+        browser.controller(),
+        journal.clone(),
+        crate::AgentSettings::shared(Arc::new(|| Ok(Settings::default()))),
+        helper,
+        root.join("builds"),
+    );
+    db.migrate(plugins.name(), plugins.migrations()).unwrap();
+    plugins.start(&state).unwrap();
+    let fixture = Fixture {
+        root,
+        stop,
+        server: Some(server),
+        plugins,
+        browser,
+        state,
+    };
+    let controller = fixture.plugins.controller();
+    let objective = format!(
+        "Sonda sintética autorizada: crea un plugin de solo lectura para consultar las tareas de {origin}/items. Investiga si el sitio tiene perfil o cuenta activa; documenta en limitations cuando no corresponda. Crea una función list_items con transport=page, path=/items, parameters={{}} y result_type=array para listar las tareas, verifícala y publica el candidato fixture. No uses otras cuentas o sitios."
+    );
+    let job = controller
+        .submit(
+            BuildRequest {
+                request_key: "smoke".into(),
+                plugin_id: "fixture".into(),
+                origin,
+                objective,
+                max_attempts: 2,
+                max_seconds: 120,
+                retry_of: None,
+            },
+            Some(7),
+        )
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(150);
+    let finished = loop {
+        let current = controller.0.store.get(job.id).unwrap();
+        if !matches!(current.state.as_str(), "queued" | "running") {
+            break current;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "El trabajo no terminó dentro del límite de la sonda"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    assert_eq!(finished.state, "completed", "{}", finished.summary);
+    let published = controller.catalogue().unwrap();
+    assert_eq!(published["plugins"][0]["manifest"]["id"], "fixture");
+    let manifest = &published["plugins"][0]["manifest"];
+    let limits = manifest["limitations"].to_string().to_lowercase();
+    assert!(
+        limits.contains("perfil")
+            || limits.contains("cuenta")
+            || limits.contains("sesión")
+            || limits.contains("sesion"),
+        "No documentó que no hay perfil: {limits}"
+    );
+    assert!(
+        limits.contains("no ")
+            || limits.contains("sin ")
+            || limits.contains("no hay")
+            || limits.contains("inexistente"),
+        "No explicó la ausencia de perfil: {limits}"
+    );
+    let result = fixture
+        .browser
+        .controller()
+        .run_web_plugin("fixture", "list_items", 1, json!({}))
+        .unwrap();
+    assert_eq!(result["status"], "ok", "{result}");
+    assert!(result["data"].to_string().contains("Tarea de prueba"));
+    assert_eq!(
+        fixture
+            .browser
+            .controller()
+            .web_attempts("fixture", None)
+            .unwrap()["total"],
+        0
+    );
+}
+
+#[test]
 #[ignore = "Consume una construcción real sobre una página pública sin autenticación y Chromium headless aislado"]
 fn real_builder_generates_and_reuses_a_public_page_plugin() {
     let root = std::env::temp_dir().join(format!(
