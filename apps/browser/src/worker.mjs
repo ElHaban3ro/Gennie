@@ -9,6 +9,19 @@ import { createWebPlugins } from './plugins.mjs';
 const TEXT_LIMIT = 20000;
 const RESPONSE_LIMIT = 4 * 1024 * 1024;
 const SESSION_LIMIT = 64 * 1024 * 1024;
+const WINDOW_EXTENSION_MANIFEST = JSON.stringify({ manifest_version: 3, name: 'Gennie Web - ventana', version: '1.0', background: { service_worker: 'window.js' } });
+// La restauración nativa prevalece sobre --window-size. No accede a pestañas ni sitios.
+const WINDOW_EXTENSION_SCRIPT = `
+async function adjust() {
+  for (const window of await chrome.windows.getAll()) {
+    if (window.type === 'normal' && window.state === 'normal' && (window.width < 1000 || window.height < 700)) {
+      await chrome.windows.update(window.id, { width: 1280, height: 800 });
+    }
+  }
+}
+chrome.runtime.onStartup.addListener(() => { for (const delay of [0, 500, 1500]) setTimeout(() => adjust().catch(() => {}), delay); });
+for (const delay of [0, 500, 1500]) setTimeout(() => adjust().catch(() => {}), delay);
+`;
 const INTERACTIVE = 'a[href],button,input:not([type=hidden]),textarea,select,summary,[role=button],[role=link],[role=checkbox],[role=radio],[role=combobox],[role=tab],[contenteditable=true]';
 function fail(code) { const error = new Error(code); error.code = code; throw error; }
 function httpUrl(value) {
@@ -33,6 +46,7 @@ export function createBrowserSession({ runtime, profile, headless = false, homep
   const { chromium } = require('patchright');
   const artifacts = path.join(path.dirname(profile), 'artifacts');
   const recoveryDirectory = path.join(profile, '.gennie-visible-restore');
+  const windowExtension = path.join(profile, '.gennie-window-extension-v1');
   const managerId = randomUUID();
   const pages = new Map();
   const taskPages = new Set();
@@ -330,12 +344,23 @@ export function createBrowserSession({ runtime, profile, headless = false, homep
       await mkdir(profile, { recursive: true, mode: 0o700 });
       await chmod(profile, 0o700);
       backgroundMode = headless || options.background === true;
+      if (!backgroundMode) {
+        await mkdir(windowExtension, { recursive: true, mode: 0o700 });
+        if (!(await lstat(windowExtension)).isDirectory()) throw new Error('Extensión de ventana inválida');
+        for (const [name, expected] of [['manifest.json', WINDOW_EXTENSION_MANIFEST], ['window.js', WINDOW_EXTENSION_SCRIPT]]) {
+          const filename = path.join(windowExtension, name);
+          try { await writeFile(filename, expected, { flag: 'wx', mode: 0o600 }); }
+          catch (error) {
+            if (error.code !== 'EEXIST' || !(await lstat(filename)).isFile() || await readFile(filename, 'utf8') !== expected) throw error;
+          }
+        }
+      }
       const launched = await chromium.launchPersistentContext(profile, {
         headless: backgroundMode, viewport: backgroundMode ? { width: 1280, height: 800 } : null, timeout: 9000,
         executablePath: path.join(runtime, 'Gennie Web.app/Contents/MacOS/Google Chrome for Testing'),
         chromiumSandbox: true, acceptDownloads: true,
         ignoreDefaultArgs: ['--unsafely-disable-devtools-self-xss-warnings'],
-        args: backgroundMode ? [] : ['--restore-last-session', '--window-size=1280,800'],
+        args: backgroundMode ? [] : ['--restore-last-session', '--window-size=1280,800', `--load-extension=${windowExtension}`],
       });
       context = launched;
       context.setDefaultTimeout(6000);
