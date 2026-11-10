@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'backend.dart';
 import 'chat_message.dart';
@@ -27,6 +28,7 @@ class _ChatTimelineState extends State<ChatTimeline> {
   ChatCursor? before;
   bool loading = false, loaded = false, refreshPending = false;
   String? error, revision;
+  List<VoiceDebugMessage> voiceDebugMessages = const [];
   final keys = <String, GlobalKey>{};
   final sourceFocus = <String, FocusNode>{};
   int sourceNavigation = 0;
@@ -57,6 +59,10 @@ class _ChatTimelineState extends State<ChatTimeline> {
   void changed() {
     final snapshot = state.snapshot;
     if (snapshot == null) return;
+    if (!listEquals(voiceDebugMessages, snapshot.voiceDebugMessages)) {
+      voiceDebugMessages = snapshot.voiceDebugMessages;
+      setState(() {});
+    }
     if (revision != snapshot.historyRevision) {
       revision = snapshot.historyRevision;
       if (loading) {
@@ -419,6 +425,10 @@ class _ChatTimelineState extends State<ChatTimeline> {
                         ChatMessage(
                           focusNode: sourceFocus[entry.id],
                           message: entry.message,
+                          voiceDebug: snapshot?.voiceDebugMessages
+                              .where((debug) => debug.messageId == entry.id)
+                              .firstOrNull
+                              ?.text,
                           delegation: entry.delegation,
                           execution: entry.execution,
                           tools: entry.message.speaker == 'user'

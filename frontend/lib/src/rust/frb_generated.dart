@@ -1704,6 +1704,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<VoiceDebugMessage> dco_decode_list_voice_debug_message(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_voice_debug_message).toList();
+  }
+
+  @protected
   LocalModel dco_decode_local_model(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return LocalModel.values[raw as int];
@@ -1860,8 +1866,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   Snapshot dco_decode_snapshot(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 28)
-      throw Exception('unexpected arr length: expect 28 but see ${arr.length}');
+    if (arr.length != 29)
+      throw Exception('unexpected arr length: expect 29 but see ${arr.length}');
     return Snapshot(
       turn: dco_decode_opt_box_autoadd_turn_progress(arr[0]),
       replyInterruption: dco_decode_opt_box_autoadd_message_interruption(
@@ -1889,10 +1895,11 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       acknowledgement: dco_decode_u_32(arr[21]),
       dictationStatus: dco_decode_String(arr[22]),
       voiceStatus: dco_decode_String(arr[23]),
-      assistant: dco_decode_opt_box_autoadd_assistant_settings(arr[24]),
-      dictation: dco_decode_opt_box_autoadd_dictation_settings(arr[25]),
-      voice: dco_decode_opt_box_autoadd_voice_settings(arr[26]),
-      reducedMotion: dco_decode_bool(arr[27]),
+      voiceDebugMessages: dco_decode_list_voice_debug_message(arr[24]),
+      assistant: dco_decode_opt_box_autoadd_assistant_settings(arr[25]),
+      dictation: dco_decode_opt_box_autoadd_dictation_settings(arr[26]),
+      voice: dco_decode_opt_box_autoadd_voice_settings(arr[27]),
+      reducedMotion: dco_decode_bool(arr[28]),
     );
   }
 
@@ -1960,16 +1967,34 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  VoiceDebugMessage dco_decode_voice_debug_message(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return VoiceDebugMessage(
+      messageId: dco_decode_String(arr[0]),
+      text: dco_decode_String(arr[1]),
+    );
+  }
+
+  @protected
   VoiceSettings dco_decode_voice_settings(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 4)
-      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    if (arr.length != 10)
+      throw Exception('unexpected arr length: expect 10 but see ${arr.length}');
     return VoiceSettings(
-      enabled: dco_decode_bool(arr[0]),
-      voice: dco_decode_String(arr[1]),
-      speedPercent: dco_decode_u_32(arr[2]),
-      unloadMinutes: dco_decode_opt_box_autoadd_u_32(arr[3]),
+      provider: dco_decode_String(arr[0]),
+      inworldVoice: dco_decode_String(arr[1]),
+      inworldModel: dco_decode_String(arr[2]),
+      inworldLanguage: dco_decode_String(arr[3]),
+      inworldDelivery: dco_decode_String(arr[4]),
+      inworldNormalization: dco_decode_String(arr[5]),
+      enabled: dco_decode_bool(arr[6]),
+      voice: dco_decode_String(arr[7]),
+      speedPercent: dco_decode_u_32(arr[8]),
+      unloadMinutes: dco_decode_opt_box_autoadd_u_32(arr[9]),
     );
   }
 
@@ -2364,6 +2389,20 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<VoiceDebugMessage> sse_decode_list_voice_debug_message(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <VoiceDebugMessage>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_voice_debug_message(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
   LocalModel sse_decode_local_model(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var inner = sse_decode_i_32(deserializer);
@@ -2640,6 +2679,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_acknowledgement = sse_decode_u_32(deserializer);
     var var_dictationStatus = sse_decode_String(deserializer);
     var var_voiceStatus = sse_decode_String(deserializer);
+    var var_voiceDebugMessages = sse_decode_list_voice_debug_message(
+      deserializer,
+    );
     var var_assistant = sse_decode_opt_box_autoadd_assistant_settings(
       deserializer,
     );
@@ -2673,6 +2715,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       acknowledgement: var_acknowledgement,
       dictationStatus: var_dictationStatus,
       voiceStatus: var_voiceStatus,
+      voiceDebugMessages: var_voiceDebugMessages,
       assistant: var_assistant,
       dictation: var_dictation,
       voice: var_voice,
@@ -2748,13 +2791,35 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  VoiceDebugMessage sse_decode_voice_debug_message(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_messageId = sse_decode_String(deserializer);
+    var var_text = sse_decode_String(deserializer);
+    return VoiceDebugMessage(messageId: var_messageId, text: var_text);
+  }
+
+  @protected
   VoiceSettings sse_decode_voice_settings(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_provider = sse_decode_String(deserializer);
+    var var_inworldVoice = sse_decode_String(deserializer);
+    var var_inworldModel = sse_decode_String(deserializer);
+    var var_inworldLanguage = sse_decode_String(deserializer);
+    var var_inworldDelivery = sse_decode_String(deserializer);
+    var var_inworldNormalization = sse_decode_String(deserializer);
     var var_enabled = sse_decode_bool(deserializer);
     var var_voice = sse_decode_String(deserializer);
     var var_speedPercent = sse_decode_u_32(deserializer);
     var var_unloadMinutes = sse_decode_opt_box_autoadd_u_32(deserializer);
     return VoiceSettings(
+      provider: var_provider,
+      inworldVoice: var_inworldVoice,
+      inworldModel: var_inworldModel,
+      inworldLanguage: var_inworldLanguage,
+      inworldDelivery: var_inworldDelivery,
+      inworldNormalization: var_inworldNormalization,
       enabled: var_enabled,
       voice: var_voice,
       speedPercent: var_speedPercent,
@@ -3122,6 +3187,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_list_voice_debug_message(
+    List<VoiceDebugMessage> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_voice_debug_message(item, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_local_model(LocalModel self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_i_32(self.index, serializer);
@@ -3379,6 +3456,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_u_32(self.acknowledgement, serializer);
     sse_encode_String(self.dictationStatus, serializer);
     sse_encode_String(self.voiceStatus, serializer);
+    sse_encode_list_voice_debug_message(self.voiceDebugMessages, serializer);
     sse_encode_opt_box_autoadd_assistant_settings(self.assistant, serializer);
     sse_encode_opt_box_autoadd_dictation_settings(self.dictation, serializer);
     sse_encode_opt_box_autoadd_voice_settings(self.voice, serializer);
@@ -3441,8 +3519,24 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_voice_debug_message(
+    VoiceDebugMessage self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.messageId, serializer);
+    sse_encode_String(self.text, serializer);
+  }
+
+  @protected
   void sse_encode_voice_settings(VoiceSettings self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.provider, serializer);
+    sse_encode_String(self.inworldVoice, serializer);
+    sse_encode_String(self.inworldModel, serializer);
+    sse_encode_String(self.inworldLanguage, serializer);
+    sse_encode_String(self.inworldDelivery, serializer);
+    sse_encode_String(self.inworldNormalization, serializer);
     sse_encode_bool(self.enabled, serializer);
     sse_encode_String(self.voice, serializer);
     sse_encode_u_32(self.speedPercent, serializer);

@@ -6,7 +6,7 @@
 import 'frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
 
 Future<Snapshot> initialize({
   required String envFile,
@@ -629,6 +629,7 @@ class Snapshot {
   final int acknowledgement;
   final String dictationStatus;
   final String voiceStatus;
+  final List<VoiceDebugMessage> voiceDebugMessages;
   final AssistantSettings? assistant;
   final DictationSettings? dictation;
   final VoiceSettings? voice;
@@ -659,6 +660,7 @@ class Snapshot {
     required this.acknowledgement,
     required this.dictationStatus,
     required this.voiceStatus,
+    required this.voiceDebugMessages,
     this.assistant,
     this.dictation,
     this.voice,
@@ -694,6 +696,7 @@ class Snapshot {
       acknowledgement.hashCode ^
       dictationStatus.hashCode ^
       voiceStatus.hashCode ^
+      voiceDebugMessages.hashCode ^
       assistant.hashCode ^
       dictation.hashCode ^
       voice.hashCode ^
@@ -728,6 +731,7 @@ class Snapshot {
           acknowledgement == other.acknowledgement &&
           dictationStatus == other.dictationStatus &&
           voiceStatus == other.voiceStatus &&
+          voiceDebugMessages == other.voiceDebugMessages &&
           assistant == other.assistant &&
           dictation == other.dictation &&
           voice == other.voice &&
@@ -813,13 +817,43 @@ class TurnProgress {
           stopping == other.stopping;
 }
 
+class VoiceDebugMessage {
+  final String messageId;
+  final String text;
+
+  const VoiceDebugMessage({required this.messageId, required this.text});
+
+  @override
+  int get hashCode => messageId.hashCode ^ text.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is VoiceDebugMessage &&
+          runtimeType == other.runtimeType &&
+          messageId == other.messageId &&
+          text == other.text;
+}
+
 class VoiceSettings {
+  final String provider;
+  final String inworldVoice;
+  final String inworldModel;
+  final String inworldLanguage;
+  final String inworldDelivery;
+  final String inworldNormalization;
   final bool enabled;
   final String voice;
   final int speedPercent;
   final int? unloadMinutes;
 
   const VoiceSettings({
+    required this.provider,
+    required this.inworldVoice,
+    required this.inworldModel,
+    required this.inworldLanguage,
+    required this.inworldDelivery,
+    required this.inworldNormalization,
     required this.enabled,
     required this.voice,
     required this.speedPercent,
@@ -831,6 +865,12 @@ class VoiceSettings {
 
   @override
   int get hashCode =>
+      provider.hashCode ^
+      inworldVoice.hashCode ^
+      inworldModel.hashCode ^
+      inworldLanguage.hashCode ^
+      inworldDelivery.hashCode ^
+      inworldNormalization.hashCode ^
       enabled.hashCode ^
       voice.hashCode ^
       speedPercent.hashCode ^
@@ -841,6 +881,12 @@ class VoiceSettings {
       identical(this, other) ||
       other is VoiceSettings &&
           runtimeType == other.runtimeType &&
+          provider == other.provider &&
+          inworldVoice == other.inworldVoice &&
+          inworldModel == other.inworldModel &&
+          inworldLanguage == other.inworldLanguage &&
+          inworldDelivery == other.inworldDelivery &&
+          inworldNormalization == other.inworldNormalization &&
           enabled == other.enabled &&
           voice == other.voice &&
           speedPercent == other.speedPercent &&

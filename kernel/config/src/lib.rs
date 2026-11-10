@@ -16,11 +16,13 @@ pub struct Config {
 pub struct Secrets {
     pub openrouter_api_key: Option<String>,
     pub openai_api_key: Option<String>,
+    pub inworld_api_key: Option<String>,
 }
 impl Secrets {
     pub fn load(env_file: &Path) -> Result<Self> {
         let mut key = None;
         let mut openai_key = None;
+        let mut inworld_key = None;
         if env_file.exists() {
             for entry in dotenvy::from_path_iter(env_file).map_err(|_| "No se pudo leer .env")? {
                 let (name, value) = entry.map_err(|_| "Sintaxis inválida en .env")?;
@@ -28,6 +30,8 @@ impl Secrets {
                     key = Some(value);
                 } else if name == "OPENAI_API_KEY" {
                     openai_key = Some(value);
+                } else if name == "INWORLD_API_KEY" {
+                    inworld_key = Some(value);
                 }
             }
         }
@@ -37,9 +41,13 @@ impl Secrets {
         if let Ok(value) = std::env::var("OPENAI_API_KEY") {
             openai_key = Some(value);
         }
+        if let Ok(value) = std::env::var("INWORLD_API_KEY") {
+            inworld_key = Some(value);
+        }
         Ok(Self {
             openrouter_api_key: key.filter(|s| !s.trim().is_empty()),
             openai_api_key: openai_key.filter(|s| !s.trim().is_empty()),
+            inworld_api_key: inworld_key.filter(|s| !s.trim().is_empty()),
         })
     }
 }
@@ -49,6 +57,7 @@ pub const VARIABLES: &[(&str, Option<&str>)] = &[
     ("GENNIE_DB_BUSY_TIMEOUT_MS", Some("500")),
     ("GENNIE_OPENROUTER_API_KEY", None),
     ("OPENAI_API_KEY", None),
+    ("INWORLD_API_KEY", None),
 ];
 
 impl Config {
@@ -86,6 +95,10 @@ impl Config {
                     .cloned(),
                 openai_api_key: values
                     .get("OPENAI_API_KEY")
+                    .filter(|s| !s.trim().is_empty())
+                    .cloned(),
+                inworld_api_key: values
+                    .get("INWORLD_API_KEY")
                     .filter(|s| !s.trim().is_empty())
                     .cloned(),
             },
@@ -160,6 +173,27 @@ mod tests {
         })
         .unwrap();
         assert_eq!(secrets.openrouter_api_key.as_deref(), Some("env-key"));
+        std::fs::remove_file(path).unwrap();
+    }
+    #[test]
+    fn optional_inworld_secret_obeys_environment_precedence() {
+        let path =
+            std::env::temp_dir().join(format!("gennie-inworld-secret-test-{}", std::process::id()));
+        std::fs::write(
+            &path,
+            "GENNIE_DATABASE_PATH=file.sqlite3\nINWORLD_API_KEY=file-key\n",
+        )
+        .unwrap();
+        let (_, secrets) = Config::load_with(&path, |_| None).unwrap();
+        assert_eq!(secrets.inworld_api_key.as_deref(), Some("file-key"));
+        let (_, secrets) = Config::load_with(&path, |key| {
+            (key == "INWORLD_API_KEY").then(|| "env-key".into())
+        })
+        .unwrap();
+        assert_eq!(secrets.inworld_api_key.as_deref(), Some("env-key"));
+        let (_, secrets) =
+            Config::load_with(&path, |key| (key == "INWORLD_API_KEY").then(|| " ".into())).unwrap();
+        assert!(secrets.inworld_api_key.is_none());
         std::fs::remove_file(path).unwrap();
     }
     #[test]

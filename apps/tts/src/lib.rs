@@ -17,6 +17,7 @@ use std::{
 
 pub struct TtsModule {
     worker: Mutex<Option<Worker>>,
+    inworld_api_key: Option<String>,
 }
 struct Worker {
     sender: SyncSender<CommandMessage>,
@@ -26,6 +27,7 @@ struct Worker {
     generation: Arc<AtomicU64>,
     child: Arc<Mutex<Option<Child>>>,
     model_status: Arc<AtomicU8>,
+    active: Arc<AtomicBool>,
     stopping: Arc<AtomicBool>,
     handle: JoinHandle<()>,
 }
@@ -38,6 +40,38 @@ pub struct Controller {
     generation: Arc<AtomicU64>,
     child: Arc<Mutex<Option<Child>>>,
     model_status: Arc<AtomicU8>,
+    active: Arc<AtomicBool>,
+}
+// El bloqueo del hijo serializa la reserva de una operación con la interrupción.
+struct ActivityGuard {
+    child: Arc<Mutex<Option<Child>>>,
+    active: Arc<AtomicBool>,
+}
+impl ActivityGuard {
+    fn begin(
+        child: &Arc<Mutex<Option<Child>>>,
+        active: &Arc<AtomicBool>,
+        generation: &AtomicU64,
+        expected: u64,
+    ) -> Option<Self> {
+        let lock = child.lock().ok()?;
+        if generation.load(Ordering::SeqCst) != expected {
+            return None;
+        }
+        active.store(true, Ordering::SeqCst);
+        drop(lock);
+        Some(Self {
+            child: child.clone(),
+            active: active.clone(),
+        })
+    }
+}
+impl Drop for ActivityGuard {
+    fn drop(&mut self) {
+        if let Ok(_lock) = self.child.lock() {
+            self.active.store(false, Ordering::SeqCst);
+        }
+    }
 }
 enum CommandMessage {
     Preload(u64),
@@ -87,6 +121,11 @@ struct SpeakRequest<'a> {
     text: &'a str,
     voice: &'a str,
     speed: f32,
+    provider: &'a str,
+    inworld_model: &'a str,
+    inworld_language: &'a str,
+    inworld_delivery: &'a str,
+    inworld_normalization: &'a str,
 }
 #[derive(Deserialize)]
 struct SpeakResponse {
@@ -103,6 +142,7 @@ impl Default for TtsModule {
     fn default() -> Self {
         Self {
             worker: Mutex::new(None),
+            inworld_api_key: None,
         }
     }
 }
@@ -119,6 +159,18 @@ impl AppModule for TtsModule {
             Migration {
                 version: 2,
                 sql: include_str!("../migrations/0002_unload_timeout.sql"),
+            },
+            Migration {
+                version: 3,
+                sql: include_str!("../migrations/0003_inworld.sql"),
+            },
+            Migration {
+                version: 4,
+                sql: include_str!("../migrations/0004_inworld_options.sql"),
+            },
+            Migration {
+                version: 5,
+                sql: include_str!("../migrations/0005_voice_speed.sql"),
             },
         ]
     }
@@ -137,12 +189,19 @@ impl AppModule for TtsModule {
         let generation = Arc::new(AtomicU64::new(0));
         let child = Arc::new(Mutex::new(None::<Child>));
         let model_status = Arc::new(AtomicU8::new(ModelStatus::Unloaded.atomic()));
+        let active = Arc::new(AtomicBool::new(false));
         let stopping = Arc::new(AtomicBool::new(false));
+        let startup_inworld = current
+            .lock()
+            .is_ok_and(|s| s.enabled && s.provider == "inworld");
+        let worker_sender = sender.clone();
         let worker_settings = current.clone();
         let worker_child = child.clone();
         let worker_model_status = model_status.clone();
+        let worker_active = active.clone();
         let worker_stopping = stopping.clone();
         let worker_generation = generation.clone();
+        let inworld_api_key = self.inworld_api_key.clone();
         let handle = std::thread::Builder::new()
             .name("tts-playback".into())
             .spawn(move || {
@@ -155,6 +214,7 @@ impl AppModule for TtsModule {
                     &worker_model_status,
                     &worker_settings,
                     &mut idle_since,
+                    &worker_generation,
                 ) {
                     if worker_stopping.load(Ordering::SeqCst)
                         || matches!(command, CommandMessage::Shutdown)
@@ -166,16 +226,28 @@ impl AppModule for TtsModule {
                             if worker_generation.load(Ordering::SeqCst) != request_generation {
                                 continue;
                             }
-                            let enabled = worker_settings.lock().is_ok_and(|s| s.enabled);
-                            if !enabled {
+                            let Ok(current_settings) = worker_settings.lock().map(|s| s.clone())
+                            else {
+                                continue;
+                            };
+                            if !current_settings.enabled {
                                 continue;
                             }
+                            let Some(_activity) = ActivityGuard::begin(
+                                &worker_child,
+                                &worker_active,
+                                &worker_generation,
+                                request_generation,
+                            ) else {
+                                continue;
+                            };
                             let prepared = ensure_process(
                                 &mut process,
                                 &worker_child,
                                 &worker_model_status,
                                 &worker_generation,
                                 request_generation,
+                                inworld_api_key.as_deref(),
                             );
                             if prepared.is_ok()
                                 && process.is_some()
@@ -192,6 +264,8 @@ impl AppModule for TtsModule {
                                     &worker_model_status,
                                     &worker_generation,
                                     request_generation,
+                                    inworld_api_key.as_deref(),
+                                    &current_settings,
                                 )
                             });
                             if worker_generation.load(Ordering::SeqCst) != request_generation {
@@ -232,6 +306,15 @@ impl AppModule for TtsModule {
                                 let _ = event_sender.send(Event::Finished(id));
                                 continue;
                             }
+                            let Some(_activity) = ActivityGuard::begin(
+                                &worker_child,
+                                &worker_active,
+                                &worker_generation,
+                                request_generation,
+                            ) else {
+                                let _ = event_sender.send(Event::Interrupted(id));
+                                continue;
+                            };
                             let _ = event_sender.send(Event::Started(id));
                             let result = speak(
                                 &mut process,
@@ -239,8 +322,8 @@ impl AppModule for TtsModule {
                                 &worker_model_status,
                                 &worker_generation,
                                 request_generation,
-                                &text,
-                                &current,
+                                (&text, &current),
+                                inworld_api_key.as_deref(),
                             );
                             if worker_generation.load(Ordering::SeqCst) != request_generation {
                                 close_process(&mut process, &worker_child, &worker_model_status);
@@ -270,6 +353,15 @@ impl AppModule for TtsModule {
                                 let _ = event_sender.send(Event::Interrupted(id));
                                 continue;
                             }
+                            let Some(_activity) = ActivityGuard::begin(
+                                &worker_child,
+                                &worker_active,
+                                &worker_generation,
+                                request_generation,
+                            ) else {
+                                let _ = event_sender.send(Event::Interrupted(id));
+                                continue;
+                            };
                             let _ = event_sender.send(Event::Started(id));
                             let result = speak(
                                 &mut process,
@@ -277,8 +369,8 @@ impl AppModule for TtsModule {
                                 &worker_model_status,
                                 &worker_generation,
                                 request_generation,
-                                "Hola, soy Gennie. Así suena mi voz.",
-                                &settings,
+                                ("Hola, soy Gennie. Así suena mi voz.", &settings),
+                                inworld_api_key.as_deref(),
                             );
                             if worker_generation.load(Ordering::SeqCst) != request_generation {
                                 close_process(&mut process, &worker_child, &worker_model_status);
@@ -305,16 +397,23 @@ impl AppModule for TtsModule {
                         }
                         CommandMessage::Save(next) => match settings::save(&db, &next) {
                             Ok(()) => {
+                                let provider_changed =
+                                    worker_settings.lock().is_ok_and(|saved| *saved != next);
                                 if let Ok(mut saved) = worker_settings.lock() {
                                     *saved = next.clone();
                                 }
-                                if !next.enabled {
+                                if !next.enabled || provider_changed {
                                     close_process(
                                         &mut process,
                                         &worker_child,
                                         &worker_model_status,
                                     );
                                     idle_since = None;
+                                }
+                                if next.enabled && next.provider == "inworld" && provider_changed {
+                                    let _ = worker_sender.try_send(CommandMessage::Preload(
+                                        worker_generation.load(Ordering::SeqCst),
+                                    ));
                                 }
                                 let _ = event_sender.send(Event::Saved(next));
                             }
@@ -327,6 +426,9 @@ impl AppModule for TtsModule {
                 }
                 close_process(&mut process, &worker_child, &worker_model_status);
             })?;
+        if startup_inworld {
+            let _ = sender.try_send(CommandMessage::Preload(0));
+        }
         *guard = Some(Worker {
             sender,
             events,
@@ -335,6 +437,7 @@ impl AppModule for TtsModule {
             generation,
             child,
             model_status,
+            active,
             stopping,
             handle,
         });
@@ -371,11 +474,15 @@ fn receive_command(
     model_status: &AtomicU8,
     settings: &Arc<Mutex<Settings>>,
     idle_since: &mut Option<Instant>,
+    generation: &AtomicU64,
 ) -> Option<CommandMessage> {
     loop {
         if process.is_some() {
-            let timeout = match settings.lock() {
-                Ok(settings) => settings.unload_seconds.map(Duration::from_secs),
+            let (timeout, remote) = match settings.lock() {
+                Ok(settings) if settings.provider == "inworld" => {
+                    (Some(Duration::from_secs(480)), true)
+                }
+                Ok(settings) => (settings.unload_seconds.map(Duration::from_secs), false),
                 Err(_) => return None,
             };
             if let Some(timeout) = timeout {
@@ -384,6 +491,9 @@ fn receive_command(
                 if remaining.is_zero() {
                     close_process(process, child, model_status);
                     *idle_since = None;
+                    if remote {
+                        return Some(CommandMessage::Preload(generation.load(Ordering::SeqCst)));
+                    }
                     continue;
                 }
                 match receiver.recv_timeout(remaining) {
@@ -391,6 +501,11 @@ fn receive_command(
                     Err(RecvTimeoutError::Timeout) => {
                         close_process(process, child, model_status);
                         *idle_since = None;
+                        if remote {
+                            return Some(CommandMessage::Preload(
+                                generation.load(Ordering::SeqCst),
+                            ));
+                        }
                     }
                     Err(RecvTimeoutError::Disconnected) => return None,
                 }
@@ -403,6 +518,12 @@ fn receive_command(
     }
 }
 impl TtsModule {
+    pub fn with_inworld_api_key(key: Option<String>) -> Self {
+        Self {
+            worker: Mutex::new(None),
+            inworld_api_key: key,
+        }
+    }
     pub fn controller(&self) -> Result<Controller> {
         let guard = self.worker.lock().map_err(|_| "Worker TTS inválido")?;
         let worker = guard.as_ref().ok_or("TTS no iniciado")?;
@@ -414,6 +535,7 @@ impl TtsModule {
             generation: worker.generation.clone(),
             child: worker.child.clone(),
             model_status: worker.model_status.clone(),
+            active: worker.active.clone(),
         })
     }
 }
@@ -498,12 +620,14 @@ impl Controller {
     pub fn interrupt(&self) -> Result<()> {
         let mut guard = self.child.lock().map_err(|_| "Proceso TTS inválido")?;
         self.generation.fetch_add(1, Ordering::SeqCst);
-        if let Some(mut child) = guard.take() {
-            let _ = child.kill();
-            let _ = child.wait();
+        if self.active.load(Ordering::SeqCst) {
+            if let Some(mut child) = guard.take() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+            self.model_status
+                .store(ModelStatus::Unloaded.atomic(), Ordering::SeqCst);
         }
-        self.model_status
-            .store(ModelStatus::Unloaded.atomic(), Ordering::SeqCst);
         Ok(())
     }
     pub fn poll(&self) -> Vec<Event> {
@@ -533,16 +657,36 @@ fn speak(
     model_status: &AtomicU8,
     generation: &AtomicU64,
     request_generation: u64,
-    text: &str,
-    settings: &Settings,
+    request: (&str, &Settings),
+    inworld_api_key: Option<&str>,
 ) -> Result<()> {
-    ensure_process(process, child, model_status, generation, request_generation)?;
+    let (text, settings) = request;
+    if settings.provider == "inworld" && inworld_api_key.is_none() {
+        return Err("Falta INWORLD_API_KEY para usar Inworld".into());
+    }
+    ensure_process(
+        process,
+        child,
+        model_status,
+        generation,
+        request_generation,
+        inworld_api_key,
+    )?;
     let process = process.as_mut().ok_or("Proceso TTS no disponible")?;
     serde_json::to_writer(
         &mut process.stdin,
         &SpeakRequest {
             text,
-            voice: &settings.voice,
+            voice: if settings.provider == "inworld" {
+                &settings.inworld_voice
+            } else {
+                &settings.voice
+            },
+            provider: &settings.provider,
+            inworld_model: &settings.inworld_model,
+            inworld_language: &settings.inworld_language,
+            inworld_delivery: &settings.inworld_delivery,
+            inworld_normalization: &settings.inworld_normalization,
             speed: settings.speed_percent as f32 / 100.0,
         },
     )?;
@@ -562,10 +706,31 @@ fn preload(
     model_status: &AtomicU8,
     generation: &AtomicU64,
     request_generation: u64,
+    inworld_api_key: Option<&str>,
+    settings: &Settings,
 ) -> Result<()> {
-    ensure_process(process, child, model_status, generation, request_generation)?;
+    if settings.provider == "inworld" && inworld_api_key.is_none() {
+        return Err("Falta INWORLD_API_KEY para usar Inworld".into());
+    }
+    ensure_process(
+        process,
+        child,
+        model_status,
+        generation,
+        request_generation,
+        inworld_api_key,
+    )?;
     let process = process.as_mut().ok_or("Proceso TTS no disponible")?;
-    process.stdin.write_all(b"{\"command\":\"load\"}\n")?;
+    let request = if settings.provider == "kokoro" {
+        serde_json::json!({"command":"load"})
+    } else {
+        serde_json::json!({"command":"load", "provider":settings.provider,
+        "voice": settings.inworld_voice, "speed": settings.speed_percent as f32 / 100.0,
+        "inworld_model": settings.inworld_model, "inworld_language": settings.inworld_language,
+        "inworld_delivery": settings.inworld_delivery, "inworld_normalization": settings.inworld_normalization})
+    };
+    serde_json::to_writer(&mut process.stdin, &request)?;
+    process.stdin.write_all(b"\n")?;
     process.stdin.flush()?;
     read_speak_response(
         &mut process.stdout,
@@ -581,6 +746,7 @@ fn ensure_process(
     model_status: &AtomicU8,
     generation: &AtomicU64,
     request_generation: u64,
+    inworld_api_key: Option<&str>,
 ) -> Result<()> {
     ensure_process_with(
         process,
@@ -594,6 +760,7 @@ fn ensure_process(
                 .arg("-c")
                 .arg(include_str!("../python/worker.py"))
                 .env("HF_HOME", model_cache()?)
+                .env("INWORLD_API_KEY", inworld_api_key.unwrap_or(""))
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::null())
@@ -648,10 +815,17 @@ fn read_speak_response(
     loop {
         let mut response = String::new();
         if reader.read_line(&mut response)? == 0 {
-            return Err("El proceso Kokoro terminó sin respuesta".into());
+            return Err("El proceso de voz terminó sin respuesta".into());
         }
-        let response: SpeakResponse =
-            serde_json::from_str(&response).map_err(|_| "Respuesta inválida de Kokoro")?;
+        let response: SpeakResponse = serde_json::from_str(&response).map_err(|error| {
+            let category = match error.classify() {
+                serde_json::error::Category::Io => "entrada/salida",
+                serde_json::error::Category::Syntax => "sintaxis JSON",
+                serde_json::error::Category::Data => "estructura JSON",
+                serde_json::error::Category::Eof => "JSON incompleto",
+            };
+            format!("Respuesta inválida del proceso de voz ({category})")
+        })?;
         if generation.load(Ordering::SeqCst) != request_generation {
             return Err("Reproducción interrumpida".into());
         }
@@ -662,13 +836,13 @@ fn read_speak_response(
         return match response.ok {
             Some(true) => Ok(()),
             Some(false) => Err(format!(
-                "Kokoro: {}",
+                "Voz: {}",
                 response
                     .error
                     .unwrap_or_else(|| "error de reproducción".into())
             )
             .into()),
-            None => Err("Respuesta inválida de Kokoro".into()),
+            None => Err("Respuesta inválida del proceso de voz (sin estado)".into()),
         };
     }
 }
@@ -719,6 +893,24 @@ mod tests {
             ModelStatus::Ready
         );
     }
+    #[test]
+    fn invalid_worker_responses_report_only_a_safe_category() {
+        let status = AtomicU8::new(ModelStatus::Loading.atomic());
+        let generation = AtomicU64::new(0);
+        for (line, category) in [
+            ("PRIVATE TEXT\n", "sintaxis JSON"),
+            ("{\"ok\":\"PRIVATE TEXT\"}\n", "estructura JSON"),
+            ("{\"ok\":\n", "JSON incompleto"),
+            ("{\"secret\":\"PRIVATE TEXT\"}\n", "sin estado"),
+        ] {
+            let error =
+                read_speak_response(&mut std::io::Cursor::new(line), &status, &generation, 0)
+                    .unwrap_err()
+                    .to_string();
+            assert!(error.contains(category), "{error}");
+            assert!(!error.contains("PRIVATE TEXT"));
+        }
+    }
     #[cfg(unix)]
     #[test]
     fn preload_confirms_model_without_sending_speech() {
@@ -736,7 +928,16 @@ mod tests {
         let child = Arc::new(Mutex::new(Some(spawned)));
         let status = AtomicU8::new(ModelStatus::Loading.atomic());
         let generation = AtomicU64::new(0);
-        preload(&mut process, &child, &status, &generation, 0).unwrap();
+        preload(
+            &mut process,
+            &child,
+            &status,
+            &generation,
+            0,
+            None,
+            &Settings::default(),
+        )
+        .unwrap();
         assert_eq!(
             ModelStatus::from_atomic(status.load(Ordering::SeqCst)),
             ModelStatus::Ready
@@ -802,6 +1003,12 @@ mod tests {
         let controller = module.controller().unwrap();
         assert_eq!(controller.settings(), Settings::default());
         let next = Settings {
+            provider: "kokoro".into(),
+            inworld_voice: "Ashley".into(),
+            inworld_model: "inworld-tts-2-flash".into(),
+            inworld_language: "es-CO".into(),
+            inworld_delivery: "BALANCED".into(),
+            inworld_normalization: "AUTO".into(),
             enabled: false,
             voice: "em_alex".into(),
             speed_percent: 115,
@@ -854,6 +1061,12 @@ mod tests {
         assert_eq!(
             settings::load(&state.db).unwrap(),
             Settings {
+                provider: "kokoro".into(),
+                inworld_voice: "Ashley".into(),
+                inworld_model: "inworld-tts-2-flash".into(),
+                inworld_language: "es-CO".into(),
+                inworld_delivery: "BALANCED".into(),
+                inworld_normalization: "AUTO".into(),
                 enabled: false,
                 voice: "em_santa".into(),
                 speed_percent: 120,
@@ -878,6 +1091,70 @@ mod tests {
                 .is_err()
             );
         }
+    }
+    #[test]
+    fn inworld_settings_survive_restart_and_require_a_key_for_speech() {
+        let state = state();
+        let module = TtsModule::default();
+        state
+            .db
+            .migrate(module.name(), module.migrations())
+            .unwrap();
+        let selected = Settings {
+            provider: "inworld".into(),
+            inworld_voice: "Olivia".into(),
+            ..Settings::default()
+        };
+        settings::save(&state.db, &selected).unwrap();
+        module.start(&state).unwrap();
+        let controller = module.controller().unwrap();
+        assert_eq!(controller.settings(), selected);
+        let id = controller.preview(selected).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            for event in controller.poll() {
+                if let Event::Failed(actual, message) = event {
+                    assert_eq!(actual, id);
+                    assert!(message.contains("INWORLD_API_KEY"));
+                    module.stop(&state).unwrap();
+                    return;
+                }
+            }
+            assert!(Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+    #[test]
+    fn inworld_options_and_speed_survive_migration_and_reopen() {
+        let state = state();
+        let module = TtsModule::default();
+        state
+            .db
+            .migrate(module.name(), &module.migrations()[..3])
+            .unwrap();
+        state
+            .db
+            .migrate(module.name(), module.migrations())
+            .unwrap();
+        let selected = Settings {
+            provider: "inworld".into(),
+            inworld_model: "inworld-tts-2".into(),
+            inworld_language: "es-CO".into(),
+            inworld_delivery: "CREATIVE".into(),
+            inworld_normalization: "OFF".into(),
+            speed_percent: 150,
+            ..Settings::default()
+        };
+        settings::save(&state.db, &selected).unwrap();
+        assert_eq!(settings::load(&state.db).unwrap(), selected);
+        assert!(
+            Settings {
+                provider: "kokoro".into(),
+                ..selected
+            }
+            .validate()
+            .is_err()
+        );
     }
     #[test]
     fn interrupt_discards_queued_audio_without_loading_kokoro() {
@@ -940,7 +1217,8 @@ mod tests {
                 &child,
                 &model_status,
                 &settings,
-                &mut idle_since
+                &mut idle_since,
+                &AtomicU64::new(0)
             ),
             Some(CommandMessage::Shutdown)
         ));
@@ -980,12 +1258,89 @@ mod tests {
                 &child,
                 &model_status,
                 &settings,
-                &mut idle_since
+                &mut idle_since,
+                &AtomicU64::new(0)
             ),
             Some(CommandMessage::Shutdown)
         ));
         assert!(process.is_some());
         close_process(&mut process, &child, &model_status);
+    }
+    #[cfg(unix)]
+    #[test]
+    fn remote_idle_connection_is_refreshed_with_current_generation() {
+        let mut spawned = Command::new("/bin/cat")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut process = Some(Process {
+            stdin: spawned.stdin.take().unwrap(),
+            stdout: BufReader::new(spawned.stdout.take().unwrap()),
+        });
+        let child = Arc::new(Mutex::new(Some(spawned)));
+        let settings = Arc::new(Mutex::new(Settings {
+            provider: "inworld".into(),
+            ..Settings::default()
+        }));
+        let status = AtomicU8::new(ModelStatus::Ready.atomic());
+        let generation = AtomicU64::new(7);
+        let (_sender, receiver) = mpsc::sync_channel(1);
+        let mut idle_since = Some(Instant::now() - Duration::from_secs(480));
+        assert!(matches!(
+            receive_command(
+                &receiver,
+                &mut process,
+                &child,
+                &status,
+                &settings,
+                &mut idle_since,
+                &generation
+            ),
+            Some(CommandMessage::Preload(7))
+        ));
+        assert!(process.is_none());
+        assert!(child.lock().unwrap().is_none());
+    }
+    #[cfg(unix)]
+    #[test]
+    fn interrupt_keeps_ready_idle_voice_process_and_invalidates_queued_speech() {
+        let state = state();
+        let module = TtsModule::default();
+        state
+            .db
+            .migrate(module.name(), module.migrations())
+            .unwrap();
+        module.start(&state).unwrap();
+        let controller = module.controller().unwrap();
+        let child = Command::new("/bin/sleep").arg("30").spawn().unwrap();
+        let pid = child.id();
+        *controller.child.lock().unwrap() = Some(child);
+        controller
+            .model_status
+            .store(ModelStatus::Ready.atomic(), Ordering::SeqCst);
+        let generation = controller.generation.load(Ordering::SeqCst);
+        controller.interrupt().unwrap();
+        assert_eq!(controller.generation.load(Ordering::SeqCst), generation + 1);
+        assert_eq!(controller.model_status(), ModelStatus::Ready);
+        assert_eq!(
+            controller.child.lock().unwrap().as_ref().map(Child::id),
+            Some(pid)
+        );
+        module.stop(&state).unwrap();
+    }
+
+    #[test]
+    fn activity_reservation_rejects_a_generation_interrupted_before_start() {
+        let child = Arc::new(Mutex::new(None));
+        let active = Arc::new(AtomicBool::new(false));
+        let generation = AtomicU64::new(4);
+        assert!(ActivityGuard::begin(&child, &active, &generation, 3).is_none());
+        assert!(!active.load(Ordering::SeqCst));
+        let activity = ActivityGuard::begin(&child, &active, &generation, 4).unwrap();
+        assert!(active.load(Ordering::SeqCst));
+        drop(activity);
+        assert!(!active.load(Ordering::SeqCst));
     }
     #[cfg(unix)]
     #[test]
@@ -1000,6 +1355,7 @@ mod tests {
         let controller = module.controller().unwrap();
         *controller.child.lock().unwrap() =
             Some(Command::new("/bin/sleep").arg("30").spawn().unwrap());
+        controller.active.store(true, Ordering::SeqCst);
         controller.interrupt().unwrap();
         assert!(controller.child.lock().unwrap().is_none());
         module.stop(&state).unwrap();

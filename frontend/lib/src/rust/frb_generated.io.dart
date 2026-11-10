@@ -127,6 +127,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<ToolCall> dco_decode_list_tool_call(dynamic raw);
 
   @protected
+  List<VoiceDebugMessage> dco_decode_list_voice_debug_message(dynamic raw);
+
+  @protected
   LocalModel dco_decode_local_model(dynamic raw);
 
   @protected
@@ -211,6 +214,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void dco_decode_unit(dynamic raw);
+
+  @protected
+  VoiceDebugMessage dco_decode_voice_debug_message(dynamic raw);
 
   @protected
   VoiceSettings dco_decode_voice_settings(dynamic raw);
@@ -344,6 +350,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<ToolCall> sse_decode_list_tool_call(SseDeserializer deserializer);
 
   @protected
+  List<VoiceDebugMessage> sse_decode_list_voice_debug_message(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   LocalModel sse_decode_local_model(SseDeserializer deserializer);
 
   @protected
@@ -448,6 +459,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_decode_unit(SseDeserializer deserializer);
+
+  @protected
+  VoiceDebugMessage sse_decode_voice_debug_message(
+    SseDeserializer deserializer,
+  );
 
   @protected
   VoiceSettings sse_decode_voice_settings(SseDeserializer deserializer);
@@ -627,6 +643,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_list_tool_call(List<ToolCall> self, SseSerializer serializer);
 
   @protected
+  void sse_encode_list_voice_debug_message(
+    List<VoiceDebugMessage> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_local_model(LocalModel self, SseSerializer serializer);
 
   @protected
@@ -748,6 +770,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_unit(void self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_voice_debug_message(
+    VoiceDebugMessage self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_voice_settings(VoiceSettings self, SseSerializer serializer);

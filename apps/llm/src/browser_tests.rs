@@ -62,6 +62,84 @@ fn capabilities_distinguish_missing_tools_from_disabled_permissions() {
 }
 
 #[test]
+#[ignore = "Consulta real de Codex con una herramienta MCP simulada y datos ficticios"]
+fn real_progress_and_final_both_include_voice_format() {
+    let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let observed = calls.clone();
+    let mut registry = gennie_mcp::Registry::default();
+    registry.register([gennie_mcp::Tool {
+        definition: json!({"name":"browser_snapshot","description":"Lee el resultado ficticio de la prueba.","inputSchema":{"type":"object","properties":{}}}),
+        call: Box::new(move |_| { observed.fetch_add(1, Ordering::SeqCst); Ok(json!({"resultado":"El cargador está disponible, todavía no entrega energía y conviene revisar la conexión antes de contactar al operador."})) }),
+    }]).unwrap();
+    let helper = std::env::var_os("GENNIE_TEST_HELPER")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/flutter/debug/gennie")
+        });
+    let mut server = gennie_mcp::Server::start(registry, &helper).unwrap();
+    let base = std::env::temp_dir().join(format!("gennie-voice-progress-{}", std::process::id()));
+    let db = Database::memory().unwrap();
+    let module = crate::LlmModule::default();
+    db.migrate(module.name(), module.migrations()).unwrap();
+    let process = ProcessHandle::default();
+    let timeout_process = process.clone();
+    let (finished, finish) = mpsc::channel();
+    let watchdog = std::thread::spawn(move || {
+        if finish.recv_timeout(Duration::from_secs(30)).is_err() {
+            timeout_process.kill();
+        }
+    });
+    let result = (|| -> Result<Vec<String>> {
+        let mut session = Session::connect_in_with_mode(
+            &db,
+            process,
+            base.clone(),
+            true,
+            &Settings::default(),
+            None,
+            Some(server.launch()),
+        )?;
+        let mut messages = Vec::new();
+        session.speak_stream_reply_with_deferred_title("Antes de usar la herramienta browser_snapshot, emite al usuario un mensaje breve indicando que vas a comprobar el resultado. Después usa esa herramienta ficticia y comunica el resultado en varias frases. No ejecutes comandos ni accedas a cuentas.", None, true, |event| {
+            if let StreamEvent::Completed(text) = event { messages.push(text); }
+        })?;
+        Ok(messages)
+    })();
+    let _ = finished.send(());
+    watchdog.join().unwrap();
+    server.stop().unwrap();
+    db.close().unwrap();
+    let _ = std::fs::remove_dir_all(&base);
+    let messages = result.unwrap();
+    if let Some(voice) = messages.first().and_then(|text| crate::spoken::voice(text)) {
+        eprintln!("Voz de progreso ficticio: {voice}");
+    }
+    if let Some(voice) = messages.last().and_then(|text| crate::spoken::voice(text)) {
+        eprintln!("Voz de respuesta ficticia: {voice}");
+    }
+    eprintln!(
+        "Herramientas: {}; mensajes: {}; con voz y texto: {}",
+        calls.load(Ordering::SeqCst),
+        messages.len(),
+        messages
+            .iter()
+            .filter(|text| crate::spoken::voice(text).is_some())
+            .count()
+    );
+    assert!(calls.load(Ordering::SeqCst) > 0);
+    assert!(
+        messages.len() >= 2,
+        "No se observó un mensaje de progreso separado"
+    );
+    assert!(
+        messages
+            .iter()
+            .all(|text| crate::spoken::voice(text).is_some()),
+        "Un mensaje no incluyó el formato de voz"
+    );
+}
+
+#[test]
 #[ignore = "Consume una respuesta real de ChatGPT; MCP simulado sin navegador ni acceso a cuentas"]
 fn real_model_uses_browser_api_after_direct_access_failure() {
     let calls = Arc::new(Mutex::new(Vec::<String>::new()));

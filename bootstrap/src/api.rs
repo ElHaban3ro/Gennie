@@ -15,6 +15,12 @@ pub struct AssistantSettings {
 }
 #[derive(Clone, Debug, Default)]
 pub struct VoiceSettings {
+    pub provider: String,
+    pub inworld_voice: String,
+    pub inworld_model: String,
+    pub inworld_language: String,
+    pub inworld_delivery: String,
+    pub inworld_normalization: String,
     pub enabled: bool,
     pub voice: String,
     pub speed_percent: u32,
@@ -189,10 +195,17 @@ pub struct Snapshot {
     pub acknowledgement: u32,
     pub dictation_status: String,
     pub voice_status: String,
+    pub voice_debug_messages: Vec<VoiceDebugMessage>,
     pub assistant: Option<AssistantSettings>,
     pub dictation: Option<DictationSettings>,
     pub voice: Option<VoiceSettings>,
     pub reduced_motion: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct VoiceDebugMessage {
+    pub message_id: String,
+    pub text: String,
 }
 
 pub fn initialize(env_file: String, helper_path: String) -> Result<Snapshot, String> {

@@ -11,7 +11,7 @@
 | gennie-proactivity | Cliente de decisiones OpenRouter bajo demanda para Jev y OpenAI, sin rutinas automáticas |
 | gennie-decisions | Catálogo, intención, disponibilidad, Laya y ejecutores locales comprobados |
 | gennie-llm | Preferencias, worker de conversación, proceso Codex app-server y thread_id |
-| gennie-tts | Preferencias y worker Kokoro MLX; audio no persistido |
+| gennie-tts | Preferencias y worker de voz: Kokoro local o Inworld remoto; audio no persistido |
 | gennie-mcp | Biblioteca MCP reutilizable, registro/contexto de cancelación y transporte privado sin datos de negocio |
 | gennie-browser | Contexto Patchright persistente y proceso Node propios; apertura FRB y 24 herramientas MCP comparten el controlador; referencias, imágenes, HTTP de sesión, artifacts y recetas verificadas; diario SQLite de intentos web (D-044) |
 | gennie-plugins | Constructor Codex aislado bajo demanda, candidatos y trabajos/outbox entregados al bot para el chat de origen; sin scheduler |

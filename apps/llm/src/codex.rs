@@ -117,6 +117,10 @@ pub(crate) enum StreamEvent {
     UserSaved(String),
     Delta(String),
     Completed(String),
+    VoiceDebug {
+        message_id: i64,
+        text: String,
+    },
     Interrupted {
         text: String,
         saved: bool,
@@ -859,10 +863,21 @@ impl Session {
     pub fn speak_stream(&mut self, text: &str, on_message: impl FnMut(StreamEvent)) -> Result<()> {
         self.speak_stream_reply(text, None, on_message)
     }
+    #[cfg(test)]
     pub fn speak_stream_reply(
         &mut self,
         text: &str,
         reply_to: Option<i64>,
+        on_message: impl FnMut(StreamEvent),
+    ) -> Result<()> {
+        self.speak_stream_reply_with_deferred_title(text, reply_to, false, on_message)
+    }
+
+    pub(crate) fn speak_stream_reply_with_deferred_title(
+        &mut self,
+        text: &str,
+        reply_to: Option<i64>,
+        defer_title: bool,
         mut on_message: impl FnMut(StreamEvent),
     ) -> Result<()> {
         let prepared = self.observe(|| {
@@ -904,10 +919,22 @@ impl Session {
             }
         }
         let prompt = crate::reply::prompt(text, prepared.quote.as_ref());
-        self.turn(&prompt, &mut |event| {
+        let prompt = if defer_title {
+            crate::spoken::turn_prompt(&prompt)
+        } else {
+            prompt
+        };
+        self.turn(&prompt, defer_title, &mut |event| {
             on_message(event);
             Ok(())
         })?;
+        if !defer_title {
+            self.finish_optional_title()?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn finish_optional_title(&mut self) -> Result<()> {
         // El título es opcional: sus fallos no interrumpen ni ensucian el chat.
         self.check_cancelled()?;
         let _ = self.refresh_title();
@@ -927,6 +954,42 @@ impl Session {
             return Err("El proveedor no confirmó la incorporación de contexto".into());
         }
         Ok(())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn render_spoken(&mut self, answer: &str, expressive: bool) -> Result<String> {
+        let prompt = crate::spoken::prompt(answer, expressive)?;
+        let effort = self
+            .title_effort
+            .clone()
+            .ok_or("Modelo sin esfuerzo compatible para voz")?;
+        let mut start = crate::title::start_request(&self.cwd, &self.model, self.has_mcp);
+        start["params"]["baseInstructions"] = json!(crate::spoken::INSTRUCTIONS);
+        start["params"]["developerInstructions"] = json!(crate::spoken::INSTRUCTIONS);
+        self.send(start)?;
+        let response = self.response(8, Duration::from_secs(10))?;
+        let thread = response
+            .pointer("/thread/id")
+            .and_then(Value::as_str)
+            .filter(|id| *id != self.thread_id)
+            .ok_or("No se creó sesión de voz aislada")?
+            .to_owned();
+        let result = (|| -> Result<String> {
+            let mut output = String::new();
+            let mut turn =
+                crate::title::turn_request(&thread, &self.cwd, &self.model, &effort, "", "");
+            turn["params"]["input"][0]["text"] = json!(prompt);
+            self.run_turn(turn, Some(Duration::from_secs(15)), &mut |event| {
+                if let StreamEvent::Completed(text) = event {
+                    output.push_str(&text);
+                }
+                Ok(())
+            })?;
+            crate::spoken::validate(&output)
+        })();
+        self.send(json!({"jsonrpc":"2.0","id":10,"method":"thread/unsubscribe","params":{"threadId":thread}}))?;
+        self.response(10, Duration::from_secs(3))?;
+        result
     }
 
     fn generate_title(&mut self) -> Result<()> {
@@ -989,15 +1052,13 @@ impl Session {
     fn turn(
         &mut self,
         text: &str,
+        inline_voice: bool,
         on_message: &mut impl FnMut(StreamEvent) -> Result<()>,
     ) -> Result<()> {
-        self.run_turn_with_policy(
-            turn_start_request(&self.thread_id, &self.cwd, &self.model, &self.effort, text),
-            Some(TURN_IDLE_TIMEOUT),
-            true,
-            on_message,
-            None,
-        )
+        let mut request =
+            turn_start_request(&self.thread_id, &self.cwd, &self.model, &self.effort, text);
+        request["gennie_inline_voice"] = json!(inline_voice);
+        self.run_turn_with_policy(request, Some(TURN_IDLE_TIMEOUT), true, on_message, None)
     }
 
     fn run_turn(
@@ -1011,12 +1072,17 @@ impl Session {
 
     fn run_turn_with_policy(
         &mut self,
-        request: Value,
+        mut request: Value,
         timeout: Option<Duration>,
         idle_timeout: bool,
         on_message: &mut impl FnMut(StreamEvent) -> Result<()>,
         feedback: Option<&mut dyn FnMut(crate::builder::FeedbackEvent) -> Result<Option<String>>>,
     ) -> Result<()> {
+        let inline_voice = request
+            .as_object_mut()
+            .and_then(|object| object.remove("gennie_inline_voice"))
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false);
         let id = request["id"]
             .as_i64()
             .ok_or("Falta identificador de petición")?;
@@ -1037,7 +1103,7 @@ impl Session {
             &thread_id,
             turn_id,
             timeout,
-            idle_timeout,
+            (idle_timeout, inline_voice),
             on_message,
             feedback,
         );
@@ -1054,7 +1120,7 @@ impl Session {
         thread_id: &str,
         turn_id: &str,
         timeout: Option<Duration>,
-        idle_timeout: bool,
+        (idle_timeout, inline_voice): (bool, bool),
         on_message: &mut impl FnMut(StreamEvent) -> Result<()>,
         mut feedback: Option<
             &mut dyn FnMut(crate::builder::FeedbackEvent) -> Result<Option<String>>,
@@ -1071,11 +1137,39 @@ impl Session {
         }
         let mut deliver = |message: StreamEvent, item: Option<&str>| -> Result<()> {
             if let StreamEvent::Completed(text) = &message
+                && !(inline_voice && crate::spoken::visible(text).trim().is_empty())
                 && let Some(journal) = &journal
-                && let Err(error) = journal.append_response("codex", thread_id, turn_id, item, text)
+                && let Err(error) = journal.append_response(
+                    "codex",
+                    thread_id,
+                    turn_id,
+                    item,
+                    if inline_voice {
+                        crate::spoken::visible(text)
+                    } else {
+                        text
+                    },
+                )
             {
                 on_message(message)?;
                 return Err(error);
+            }
+            if inline_voice
+                && let StreamEvent::Completed(text) = &message
+                && let Some(journal) = &journal
+                && let Some(voice) = crate::spoken::voice(text)
+                && let Ok(Some(message_id)) = journal.response_message_id(
+                    "codex",
+                    thread_id,
+                    turn_id,
+                    item,
+                    crate::spoken::visible(text),
+                )
+            {
+                on_message(StreamEvent::VoiceDebug {
+                    message_id,
+                    text: voice.to_owned(),
+                })?;
             }
             on_message(message)
         };
@@ -1224,8 +1318,19 @@ impl Session {
             callback(crate::builder::FeedbackEvent::Uncertain)?;
         }
         // Solo terminar un fragmento ya observado; nunca consumir eventos tardíos al cancelar.
-        if result.is_err() && !messages.current_text.trim().is_empty() {
+        if result.is_err()
+            && !messages.current_text.trim().is_empty()
+            && (!inline_voice
+                || !crate::spoken::visible(&messages.current_text)
+                    .trim()
+                    .is_empty())
+        {
             let text = std::mem::take(&mut messages.current_text);
+            let text = if inline_voice {
+                crate::spoken::visible(&text).to_owned()
+            } else {
+                text
+            };
             let reason = if self.cancellation.as_ref().is_some_and(|c| c.is_cancelled()) {
                 crate::ReplyInterruption::Cancelled
             } else {
@@ -2096,6 +2201,67 @@ mod journal_tests {
 
     #[cfg(unix)]
     #[test]
+    fn spoken_render_uses_ephemeral_thread_without_touching_conversation() {
+        let script = r#"
+while IFS= read -r request; do
+ case "$request" in
+  *'"id":8,'*)
+   case "$request" in *'"ephemeral":true'*'"gennie_title"'*) ;; *) exit 1 ;; esac
+   printf '%s\n' '{"id":8,"result":{"thread":{"id":"spoken-temp"}}}' ;;
+  *'"id":9,'*)
+   case "$request" in *'"spoken-temp"'*) ;; *) exit 1 ;; esac
+   printf '%s\n' '{"id":9,"result":{"turn":{"id":"spoken"}}}' '{"method":"item/completed","params":{"turnId":"spoken","item":{"type":"agentMessage","text":"[calmly] Resultado breve."}}}' '{"method":"turn/completed","params":{"turn":{"id":"spoken","status":"completed"}}}' ;;
+  *'"id":10,'*) printf '%s\n' '{"id":10,"result":{}}' ;;
+  *) exit 1 ;;
+ esac
+done
+"#;
+        let mut child = Command::new("sh")
+            .args(["-c", script])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let stdin = child.stdin.take().unwrap();
+        let stdout = child.stdout.take().unwrap();
+        let process = ProcessHandle::default();
+        *process.0.lock().unwrap() = Some(child);
+        let (sender, lines) = mpsc::channel();
+        let reader = std::thread::spawn(move || {
+            for line in BufReader::new(stdout).lines() {
+                if sender.send(line.unwrap()).is_err() {
+                    break;
+                }
+            }
+        });
+        let journal = Arc::new(TitleJournal::default());
+        let mut session = Session {
+            stdin,
+            lines,
+            reader: Some(reader),
+            process,
+            thread_id: "active".into(),
+            journal: Some(journal.clone()),
+            cwd: PathBuf::from("/tmp"),
+            model: "chosen-model".into(),
+            effort: "high".into(),
+            title_effort: Some("none".into()),
+            settings: Settings::default(),
+            tool_names: Vec::new(),
+            has_mcp: false,
+            cancellation: None,
+            ticket: None,
+        };
+        assert_eq!(
+            session.render_spoken("Resultado completo.", true).unwrap(),
+            "[calmly] Resultado breve."
+        );
+        assert!(journal.messages.lock().unwrap().is_empty());
+        assert_eq!(session.thread_id, "active");
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn optional_title_failure_is_silent_and_uses_minimum_effort_without_changing_chat_effort() {
         for fail in [false, true] {
             // Proveedor IPC aislado: reproduce el flujo completo sin red ni modelos.
@@ -2230,6 +2396,120 @@ done
                 Some(title.as_str())
             );
             session.generate_title()?;
+            Ok(())
+        })();
+        db.close().unwrap();
+        let _ = std::fs::remove_dir_all(&base);
+        result.unwrap();
+    }
+
+    #[test]
+    #[ignore = "consulta real acotada para comprobar adaptación hablada aislada"]
+    fn real_spoken_render_preserves_active_thread() {
+        let db = Database::memory().unwrap();
+        let module = crate::LlmModule::default();
+        db.migrate(module.name(), module.migrations()).unwrap();
+        let base = std::env::temp_dir().join(format!("gennie-spoken-probe-{}", std::process::id()));
+        let result = (|| -> Result<()> {
+            let mut session = Session::connect_in_with_mode(
+                &db,
+                ProcessHandle::default(),
+                base.clone(),
+                true,
+                &Settings::default(),
+                None,
+                None,
+            )?;
+            let active = session.thread_id.clone();
+            let started = Instant::now();
+            let text = session.render_spoken("El cargador está disponible y entrega cero kilovatios. La comprobación es provisional.", true)?;
+            eprintln!(
+                "Adaptación real: {:.2} s; {} caracteres",
+                started.elapsed().as_secs_f64(),
+                text.chars().count()
+            );
+            assert_eq!(session.thread_id, active);
+            assert!(!text.is_empty());
+            Ok(())
+        })();
+        db.close().unwrap();
+        let _ = std::fs::remove_dir_all(&base);
+        result.unwrap();
+    }
+
+    #[test]
+    #[ignore = "consulta Codex real aislada con texto ficticio"]
+    fn real_single_turn_contains_written_and_expressive_voice() {
+        let db = Database::memory().unwrap();
+        let module = crate::LlmModule::default();
+        db.migrate(module.name(), module.migrations()).unwrap();
+        let base = std::env::temp_dir().join(format!("gennie-inline-voice-{}", std::process::id()));
+        let result = (|| -> Result<()> {
+            let journal = Arc::new(TitleJournal::default());
+            let mut session = Session::connect_in_with_mode(
+                &db,
+                ProcessHandle::default(),
+                base.clone(),
+                true,
+                &Settings::default(),
+                Some(journal.clone()),
+                None,
+            )?;
+            let started = Instant::now();
+            let mut reply = String::new();
+            let mut parser = crate::spoken::InlineVoice::default();
+            let mut first_voice = None;
+            let mut first_written = None;
+            session.speak_stream_reply_with_deferred_title(
+                "Explica de forma conversacional que el cargador está disponible, pero aún no entrega energía; sugiere revisar la conexión y después consultar al operador si persiste.",
+                None,
+                true,
+                |event| match event {
+                    StreamEvent::Delta(text) => {
+                        let (written, chunks) = parser.push(&text, false);
+                        if !chunks.is_empty() && first_voice.is_none() {
+                            first_voice = Some(started.elapsed());
+                        }
+                        if !written.is_empty() && first_written.is_none() {
+                            first_written = Some(started.elapsed());
+                        }
+                    }
+                    StreamEvent::Completed(text) => reply.push_str(&text),
+                    _ => {}
+                },
+            )?;
+            let (voice, written) = reply
+                .strip_prefix(crate::spoken::OPEN)
+                .ok_or("Falta el inicio de voz")?
+                .split_once(crate::spoken::MARKER)
+                .ok_or("Falta el separador de voz")?;
+            assert!(!written.trim().is_empty());
+            assert!(voice.contains('[') && voice.contains(']'));
+            eprintln!(
+                "Guías y sonidos entre corchetes: {}; pausas explícitas: {}",
+                voice.matches('[').count(),
+                voice.matches("<break").count()
+            );
+            assert!(
+                first_voice
+                    .zip(first_written)
+                    .is_some_and(|(voice, written)| voice <= written)
+            );
+            let messages = journal.messages.lock().unwrap();
+            let saved = messages
+                .iter()
+                .filter(|(speaker, _)| speaker == "assistant")
+                .map(|(_, text)| text.as_str())
+                .collect::<Vec<_>>();
+            assert_eq!(saved, [written]);
+            eprintln!(
+                "Turno: {:.2} s; primera frase de voz: {:.2} s; primer texto: {:.2} s; texto {} caracteres; voz {} caracteres",
+                started.elapsed().as_secs_f64(),
+                first_voice.unwrap().as_secs_f64(),
+                first_written.unwrap().as_secs_f64(),
+                written.chars().count(),
+                voice.chars().count()
+            );
             Ok(())
         })();
         db.close().unwrap();

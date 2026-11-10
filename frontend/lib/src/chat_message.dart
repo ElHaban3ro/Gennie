@@ -9,6 +9,7 @@ import 'message_quote.dart';
 import 'message_actions.dart';
 import 'tool_evidence.dart';
 import 'assignment_execution.dart';
+import 'glass.dart';
 
 DateTime? messageLocalDay(String timestamp) {
   final date = DateTime.tryParse(timestamp)?.toLocal();
@@ -110,6 +111,7 @@ class ChatMessage extends StatelessWidget {
     this.tools = const [],
     this.delegation,
     this.execution,
+    this.voiceDebug,
   });
   final VoidCallback? onReply, onOpenQuote;
   final FocusNode? focusNode;
@@ -117,6 +119,7 @@ class ChatMessage extends StatelessWidget {
   final List<ToolCall> tools;
   final DelegationCall? delegation;
   final ExecutionCall? execution;
+  final String? voiceDebug;
   final Message message;
   final DesktopState? state;
   final String? conversationId;
@@ -158,166 +161,169 @@ class ChatMessage extends StatelessWidget {
                   ? CrossAxisAlignment.end
                   : CrossAxisAlignment.start,
               children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(16),
-                  child: BackdropFilter(
-                    filter: ui.ImageFilter.blur(sigmaX: 4, sigmaY: 4),
-                    // Sustituir el fondo filtrado: srcOver conserva el patrón nítido
-                    // al componer sobre el canvas transparente de macOS.
-                    blendMode: BlendMode.src,
-                    child: Container(
-                      constraints: BoxConstraints(
-                        minWidth: constraints.maxWidth * .4,
-                        maxWidth: constraints.maxWidth * .7,
-                      ),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 12,
-                      ),
-                      decoration: BoxDecoration(
-                        color: user
-                            ? const Color(0x24D6AD42)
-                            : const Color(0x14808080),
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Flexible(
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                if (quote != null)
-                                  Padding(
-                                    padding: const EdgeInsets.only(bottom: 8),
-                                    child: MessageQuote(
-                                      quote: quote!,
-                                      assistantName:
-                                          state
-                                              ?.snapshot
-                                              ?.assistantProfile
-                                              ?.name ??
-                                          'Gennie',
-                                      onOpen: onOpenQuote,
+                _VoiceDebugHover(
+                  text: voiceDebug,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: BackdropFilter(
+                      filter: ui.ImageFilter.blur(sigmaX: 4, sigmaY: 4),
+                      // Sustituir el fondo filtrado: srcOver conserva el patrón nítido
+                      // al componer sobre el canvas transparente de macOS.
+                      blendMode: BlendMode.src,
+                      child: Container(
+                        constraints: BoxConstraints(
+                          minWidth: constraints.maxWidth * .4,
+                          maxWidth: constraints.maxWidth * .7,
+                        ),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 12,
+                        ),
+                        decoration: BoxDecoration(
+                          color: user
+                              ? const Color(0x24D6AD42)
+                              : const Color(0x14808080),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Flexible(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (quote != null)
+                                    Padding(
+                                      padding: const EdgeInsets.only(bottom: 8),
+                                      child: MessageQuote(
+                                        quote: quote!,
+                                        assistantName:
+                                            state
+                                                ?.snapshot
+                                                ?.assistantProfile
+                                                ?.name ??
+                                            'Gennie',
+                                        onOpen: onOpenQuote,
+                                      ),
                                     ),
-                                  ),
-                                if (system)
-                                  Padding(
-                                    padding: const EdgeInsets.only(bottom: 6),
-                                    child:
-                                        pluginLabel != null &&
-                                            state != null &&
-                                            conversationId != null &&
-                                            onOpenPlugin != null
-                                        ? _PluginSender(
-                                            label: pluginLabel,
-                                            message: message,
-                                            state: state!,
-                                            conversationId: conversationId!,
-                                            onOpen: onOpenPlugin!,
-                                          )
-                                        : Text(
-                                            pluginLabel ??
-                                                (message.createdAt.isEmpty
-                                                    ? 'Sistema · sin guardar'
-                                                    : 'Sistema'),
-                                            style: const TextStyle(
-                                              fontSize: 11,
-                                              fontWeight: FontWeight.w600,
+                                  if (system)
+                                    Padding(
+                                      padding: const EdgeInsets.only(bottom: 6),
+                                      child:
+                                          pluginLabel != null &&
+                                              state != null &&
+                                              conversationId != null &&
+                                              onOpenPlugin != null
+                                          ? _PluginSender(
+                                              label: pluginLabel,
+                                              message: message,
+                                              state: state!,
+                                              conversationId: conversationId!,
+                                              onOpen: onOpenPlugin!,
+                                            )
+                                          : Text(
+                                              pluginLabel ??
+                                                  (message.createdAt.isEmpty
+                                                      ? 'Sistema · sin guardar'
+                                                      : 'Sistema'),
+                                              style: const TextStyle(
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.w600,
+                                              ),
                                             ),
-                                          ),
-                                  ),
-                                if (((system && pluginPrefix != null) ||
-                                        delegation != null) &&
-                                    state != null &&
-                                    conversationId != null)
-                                  _PluginActions(
-                                    delegation: delegation,
-                                    onOpenPlugin: onOpenPlugin,
-                                    message: message,
-                                    state: state!,
-                                    conversationId: conversationId!,
-                                    displayText: displayText,
-                                  )
-                                else if (user || system)
-                                  Text(
-                                    displayText,
-                                    style: const TextStyle(
-                                      fontSize: 14,
-                                      height: 1.65,
                                     ),
-                                  )
-                                else
-                                  MarkdownBody(
-                                    data: displayText,
-                                    selectable: false,
-                                    styleSheet: MarkdownStyleSheet(
-                                      p: const TextStyle(
-                                        fontFamily: 'Inter',
+                                  if (((system && pluginPrefix != null) ||
+                                          delegation != null) &&
+                                      state != null &&
+                                      conversationId != null)
+                                    _PluginActions(
+                                      delegation: delegation,
+                                      onOpenPlugin: onOpenPlugin,
+                                      message: message,
+                                      state: state!,
+                                      conversationId: conversationId!,
+                                      displayText: displayText,
+                                    )
+                                  else if (user || system)
+                                    Text(
+                                      displayText,
+                                      style: const TextStyle(
                                         fontSize: 14,
                                         height: 1.65,
                                       ),
-                                    ),
-                                    onTapLink: (text, href, title) {
-                                      final uri = Uri.tryParse(href ?? '');
-                                      if (uri != null &&
-                                          [
-                                            'https',
-                                            'http',
-                                          ].contains(uri.scheme)) {
-                                        unawaited(
-                                          launchUrl(
-                                            uri,
-                                            mode:
-                                                LaunchMode.externalApplication,
-                                          ),
-                                        );
-                                      }
-                                    },
-                                  ),
-                                if (message.interruption != null)
-                                  Padding(
-                                    padding: const EdgeInsets.only(top: 6),
-                                    child: Semantics(
-                                      liveRegion: true,
-                                      child: Text(
-                                        '${message.interruption == MessageInterruption.cancelled ? 'Respuesta detenida' : 'Respuesta interrumpida'}${message.createdAt.isEmpty ? ' · sin guardar' : ''}',
-                                        key: const ValueKey(
-                                          'message-interruption',
+                                    )
+                                  else
+                                    MarkdownBody(
+                                      data: displayText,
+                                      selectable: false,
+                                      styleSheet: MarkdownStyleSheet(
+                                        p: const TextStyle(
+                                          fontFamily: 'Inter',
+                                          fontSize: 14,
+                                          height: 1.65,
                                         ),
-                                        style: TextStyle(
-                                          fontSize: 11,
-                                          color: Theme.of(
-                                            context,
-                                          ).colorScheme.onSurfaceVariant,
+                                      ),
+                                      onTapLink: (text, href, title) {
+                                        final uri = Uri.tryParse(href ?? '');
+                                        if (uri != null &&
+                                            [
+                                              'https',
+                                              'http',
+                                            ].contains(uri.scheme)) {
+                                          unawaited(
+                                            launchUrl(
+                                              uri,
+                                              mode: LaunchMode
+                                                  .externalApplication,
+                                            ),
+                                          );
+                                        }
+                                      },
+                                    ),
+                                  if (message.interruption != null)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 6),
+                                      child: Semantics(
+                                        liveRegion: true,
+                                        child: Text(
+                                          '${message.interruption == MessageInterruption.cancelled ? 'Respuesta detenida' : 'Respuesta interrumpida'}${message.createdAt.isEmpty ? ' · sin guardar' : ''}',
+                                          key: const ValueKey(
+                                            'message-interruption',
+                                          ),
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            color: Theme.of(
+                                              context,
+                                            ).colorScheme.onSurfaceVariant,
+                                          ),
                                         ),
                                       ),
                                     ),
-                                  ),
-                              ],
+                                ],
+                              ),
                             ),
-                          ),
-                          if (time.isNotEmpty)
-                            Padding(
-                              padding: const EdgeInsets.only(left: 12),
-                              child: Transform.translate(
-                                offset: const Offset(0, 6),
-                                child: Text(
-                                  time,
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    color: Theme.of(context)
-                                        .colorScheme
-                                        .onSurface
-                                        .withValues(alpha: .5),
+                            if (time.isNotEmpty)
+                              Padding(
+                                padding: const EdgeInsets.only(left: 12),
+                                child: Transform.translate(
+                                  offset: const Offset(0, 6),
+                                  child: Text(
+                                    time,
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurface
+                                          .withValues(alpha: .5),
+                                    ),
                                   ),
                                 ),
                               ),
-                            ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -394,6 +400,74 @@ class ChatMessage extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _VoiceDebugHover extends StatefulWidget {
+  const _VoiceDebugHover({required this.text, required this.child});
+  final String? text;
+  final Widget child;
+  @override
+  State<_VoiceDebugHover> createState() => _VoiceDebugHoverState();
+}
+
+class _VoiceDebugHoverState extends State<_VoiceDebugHover> {
+  bool hovering = false;
+  @override
+  Widget build(BuildContext context) {
+    final text = widget.text;
+    if (text == null || text.isEmpty) return widget.child;
+    final preview = String.fromCharCodes(text.runes.take(200));
+    return MouseRegion(
+      onEnter: (_) => setState(() => hovering = true),
+      onExit: (_) => setState(() => hovering = false),
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          widget.child,
+          if (hovering)
+            Positioned(
+              top: 0,
+              right: 0,
+              child: AppTooltip(
+                label:
+                    'Texto de voz generado:\n$preview${text.runes.length > 200 ? '…' : ''}\nPulsa para ver completo.',
+                child: IconButton(
+                  key: const ValueKey('message-voice-debug'),
+                  tooltip: null,
+                  constraints: const BoxConstraints.tightFor(
+                    width: 28,
+                    height: 28,
+                  ),
+                  padding: EdgeInsets.zero,
+                  icon: const Icon(Icons.record_voice_over_outlined, size: 18),
+                  onPressed: () => showDialog<void>(
+                    context: context,
+                    builder: (context) => AlertDialog(
+                      title: const Text('Texto de voz generado'),
+                      content: SizedBox(
+                        width: 520,
+                        child: SingleChildScrollView(
+                          child: SelectableText(
+                            text,
+                            key: const ValueKey('message-voice-debug-text'),
+                          ),
+                        ),
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(context),
+                          child: const Text('Cerrar'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }

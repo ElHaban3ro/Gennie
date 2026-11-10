@@ -26,7 +26,8 @@ export 'rust/api.dart'
         TurnProgress,
         AssistantSettings,
         DictationSettings,
-        VoiceSettings;
+        VoiceSettings,
+        VoiceDebugMessage;
 
 abstract class DesktopBackend {
   Future<api.Snapshot> initialize();

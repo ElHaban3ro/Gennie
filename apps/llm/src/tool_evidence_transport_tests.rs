@@ -439,6 +439,124 @@ printf '%s\n' '{"method":"turn/completed","params":{"threadId":"active","turn":{
 }
 
 #[test]
+fn voice_fallback_waits_for_final_response_after_intermediate_message() {
+    use gennie_core::{AppModule, AppState};
+    use std::time::{Duration, Instant};
+    for (progress_text, final_text, expected_fallback, formatted_progress) in [
+        (
+            "Voy a comprobarlo.",
+            r#"<gennie_voice>\n[warmly] Ya revisé.\n<gennie_text>\nYa revisé."#,
+            false,
+            false,
+        ),
+        (
+            "Voy a comprobarlo.",
+            "No pude preparar la respuesta hablada.",
+            true,
+            false,
+        ),
+        (
+            r#"<gennie_voice>\n[curious] Voy a revisar.\n<gennie_text>\nVoy a comprobarlo."#,
+            r#"<gennie_voice>\n[warmly] Ya revisé.\n<gennie_text>\nYa revisé."#,
+            false,
+            true,
+        ),
+    ] {
+        let journal = Arc::new(Journal::default());
+        let source = journal.clone();
+        let progress_text = progress_text.to_owned();
+        let final_text = final_text.to_owned();
+        let connector: crate::TestConnector = Arc::new(move |process| {
+            let tail = format!(
+                r#"printf '%s\n' '{{"method":"item/completed","params":{{"threadId":"active","turnId":"turn","item":{{"type":"agentMessage","id":"progress","text":"{progress_text}"}}}}}}' '{{"method":"item/completed","params":{{"threadId":"active","turnId":"turn","item":{{"type":"agentMessage","id":"final","text":"{final_text}"}}}}}}' '{{"method":"turn/completed","params":{{"turn":{{"id":"turn","status":"completed"}}}}}}'"#
+            );
+            Ok(session_with_process(source.clone(), &tail, process))
+        });
+        let module = crate::LlmModule {
+            test_connector: Mutex::new(Some(connector)),
+            ..Default::default()
+        };
+        let state = AppState {
+            config: Arc::new(gennie_config::Config {
+                database_path: PathBuf::from("unused.sqlite3"),
+                db_busy_timeout_ms: 50,
+            }),
+            db: Database::memory().unwrap(),
+            shutdown: Default::default(),
+        };
+        state
+            .db
+            .migrate(module.name(), module.migrations())
+            .unwrap();
+        module.start(&state).unwrap();
+        let controller = module.controller().unwrap();
+        controller
+            .speak_turn_for_voice("Entrada", None, Some(true))
+            .unwrap();
+        let mut events = Vec::new();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline {
+            events.extend(controller.poll());
+            if events.iter().any(|e| {
+                matches!(
+                    e,
+                    crate::Event::Speech {
+                        event: crate::SpeechEvent::Finished { .. },
+                        ..
+                    }
+                )
+            }) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        module.stop(&state).unwrap();
+        let fallbacks: Vec<_> = events
+            .iter()
+            .filter_map(|e| match e {
+                crate::Event::Speech {
+                    event:
+                        crate::SpeechEvent::Spoken {
+                            text,
+                            adapted: false,
+                        },
+                    ..
+                } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            fallbacks,
+            if formatted_progress {
+                vec![]
+            } else if expected_fallback {
+                vec![
+                    "Voy a comprobarlo.",
+                    "No pude preparar la respuesta hablada.",
+                ]
+            } else {
+                vec!["Voy a comprobarlo."]
+            }
+        );
+        if formatted_progress {
+            assert!(events.iter().any(|e| matches!(e, crate::Event::Speech { event: crate::SpeechEvent::Spoken { text, adapted: true }, .. } if text == "[curious] Voy a revisar.")));
+        }
+        assert_eq!(events.iter().filter(|e| matches!(e, crate::Event::Speech { event: crate::SpeechEvent::HistoryWarning(text), .. } if text.contains("versión hablada"))).count(), usize::from(expected_fallback));
+        if !expected_fallback {
+            assert!(events.iter().any(|e| matches!(e, crate::Event::Speech { event: crate::SpeechEvent::Spoken { text, adapted: true }, .. } if text == "[warmly] Ya revisé.")));
+        }
+        assert!(events.iter().any(|e| matches!(
+            e,
+            crate::Event::Speech {
+                event: crate::SpeechEvent::Finished { error: None, .. },
+                ..
+            }
+        )));
+        state.db.close().unwrap();
+    }
+}
+
+#[test]
 fn actual_worker_cancels_exact_generation_recovers_next_input_and_drains_on_shutdown() {
     use gennie_core::{AppModule, AppState};
     use std::time::{Duration, Instant};

@@ -47,6 +47,38 @@ fn page(db: &Database) -> Vec<assistants::ChatEntry> {
 }
 
 #[test]
+fn voice_debug_identity_uses_thread_turn_and_item_even_for_equal_text() {
+    let db = Database::memory().unwrap();
+    let journal = setup(&db);
+    activate(&journal, "active");
+    journal
+        .append("codex", "active", "user", "Pregunta")
+        .unwrap();
+    journal.begin_turn("codex", "active", "turn").unwrap();
+    journal
+        .append_response("codex", "active", "turn", Some("first"), "Igual")
+        .unwrap();
+    journal
+        .append_response("codex", "active", "turn", Some("second"), "Igual")
+        .unwrap();
+    let first = journal
+        .response_message_id("codex", "active", "turn", Some("first"), "Igual")
+        .unwrap()
+        .unwrap();
+    let second = journal
+        .response_message_id("codex", "active", "turn", Some("second"), "Igual")
+        .unwrap()
+        .unwrap();
+    assert_ne!(first, second);
+    assert!(
+        journal
+            .response_message_id("codex", "wrong", "turn", Some("first"), "Igual")
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[test]
 fn interrupted_fragment_and_tool_state_commit_once_without_downgrading_complete_items() {
     use gennie_llm::ReplyInterruption::{Cancelled, Failed};
     let db = Database::memory().unwrap();

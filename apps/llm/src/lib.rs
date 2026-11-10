@@ -6,6 +6,7 @@ pub mod delegation;
 pub mod notices;
 mod reply;
 mod settings;
+mod spoken;
 mod title;
 mod tool_use;
 mod turn;
@@ -112,6 +113,17 @@ pub trait ConversationJournal: Send + Sync {
         text: &str,
     ) -> Result<()> {
         self.append(provider, thread, "assistant", text)
+    }
+    /// Identifica la respuesta recién confirmada, si el diario admite esta consulta.
+    fn response_message_id(
+        &self,
+        _provider: &str,
+        _thread: &str,
+        _turn: &str,
+        _item: Option<&str>,
+        _text: &str,
+    ) -> Result<Option<i64>> {
+        Ok(None)
     }
     fn append_interrupted_response(
         &self,
@@ -229,7 +241,7 @@ pub struct Controller {
 }
 enum Command {
     Connect,
-    Speak(String, Option<i64>, turn::Ticket),
+    Speak(String, Option<i64>, turn::Ticket, Option<bool>),
     NewChat,
     SaveSettings(Settings),
     SaveArchitect(
@@ -258,6 +270,14 @@ pub enum SpeechEvent {
     UserSaved(String),
     Delta(String),
     Complete(String),
+    Spoken {
+        text: String,
+        adapted: bool,
+    },
+    VoiceDebug {
+        message_id: i64,
+        text: String,
+    },
     Interrupted {
         text: String,
         saved: bool,
@@ -499,7 +519,7 @@ impl AppModule for LlmModule {
                         continue;
                     }
                     let ticket = match &command {
-                        Command::Speak(_, _, ticket) => Some(ticket.clone()),
+                        Command::Speak(_, _, ticket, _) => Some(ticket.clone()),
                         _ => None,
                     };
                     let emit_connection = |connecting: bool| {
@@ -576,7 +596,9 @@ impl AppModule for LlmModule {
                             }
                         }
                         match command {
-                            Command::Speak(text, reply_to, ticket) => {
+                            Command::Speak(text, reply_to, ticket, spoken_style) => {
+                                let mut inline = spoken::InlineVoice::default();
+                                let mut last_unadapted = None;
                                 session
                                     .as_mut()
                                     .expect("sesión creada")
@@ -593,16 +615,41 @@ impl AppModule for LlmModule {
                                 session
                                     .as_mut()
                                     .expect("sesión creada")
-                                    .speak_stream_reply(&text, reply_to, |event| {
+                                    .speak_stream_reply_with_deferred_title(&text, reply_to, spoken_style.is_some(), |event| {
                                         let event = match event {
                                             codex::StreamEvent::UserSaved(text) => {
                                                 SpeechEvent::UserSaved(text)
                                             }
                                             codex::StreamEvent::Delta(text) => {
-                                                SpeechEvent::Delta(text)
+                                                if spoken_style.is_some() {
+                                                    inline.saw_delta = true;
+                                                    let (written, chunks) = inline.push(&text, false);
+                                                    for text in chunks { let _ = event_sender.send(Event::Speech { id: ticket.id.clone(), event: SpeechEvent::Spoken { text, adapted: true } }); }
+                                                    if written.is_empty() { return; }
+                                                    SpeechEvent::Delta(written)
+                                                } else { SpeechEvent::Delta(text) }
                                             }
                                             codex::StreamEvent::Completed(text) => {
-                                                SpeechEvent::Complete(text)
+                                                if spoken_style.is_some() {
+                                                    let (written_delta, chunks) = if inline.saw_delta { inline.push("", true) } else { inline.push(&text, true) };
+                                                    if !written_delta.is_empty() { let _ = event_sender.send(Event::Speech { id: ticket.id.clone(), event: SpeechEvent::Delta(written_delta) }); }
+                                                    for text in chunks { let _ = event_sender.send(Event::Speech { id: ticket.id.clone(), event: SpeechEvent::Spoken { text, adapted: true } }); }
+                                                    let written = spoken::visible(&text).to_owned();
+                                                    if written.trim().is_empty() {
+                                                        let _ = event_sender.send(Event::Speech { id: ticket.id.clone(), event: SpeechEvent::HistoryWarning("El modelo no entregó la respuesta escrita".into()) });
+                                                    }
+                                                    if !inline.had_voice && !written.trim().is_empty() {
+                                                        let _ = event_sender.send(Event::Speech { id: ticket.id.clone(), event: SpeechEvent::Spoken { text: written.clone(), adapted: false } });
+                                                        last_unadapted = Some(written.clone());
+                                                    } else if inline.invalid_voice {
+                                                        last_unadapted = None;
+                                                        let _ = event_sender.send(Event::Speech { id: ticket.id.clone(), event: SpeechEvent::HistoryWarning("La versión hablada quedó incompleta por formato no válido".into()) });
+                                                    } else {
+                                                        last_unadapted = None;
+                                                    }
+                                                    inline = spoken::InlineVoice::default();
+                                                    SpeechEvent::Complete(written)
+                                                } else { SpeechEvent::Complete(text) }
                                             }
                                             codex::StreamEvent::Interrupted {
                                                 text,
@@ -616,12 +663,19 @@ impl AppModule for LlmModule {
                                             codex::StreamEvent::PersistenceWarning(text) => {
                                                 SpeechEvent::HistoryWarning(text)
                                             }
+                                            codex::StreamEvent::VoiceDebug { message_id, text } => SpeechEvent::VoiceDebug { message_id, text },
                                         };
                                         let _ = event_sender.send(Event::Speech {
                                             id: ticket.id.clone(),
                                             event,
                                         });
                                     })?;
+                                if !ticket.context.is_cancelled() && last_unadapted.is_some() {
+                                    let _ = event_sender.send(Event::Speech { id: ticket.id.clone(), event: SpeechEvent::HistoryWarning("No se pudo preparar la versión hablada; se usará la respuesta original".into()) });
+                                }
+                                if spoken_style.is_some() && !ticket.context.is_cancelled() {
+                                    session.as_mut().expect("sesión creada").finish_optional_title()?;
+                                }
                                 Ok(None)
                             }
                             Command::NewChat => {
@@ -800,6 +854,14 @@ impl Controller {
         self.speak_turn(text, Some(reply_to)).map(|_| ())
     }
     pub fn speak_turn(&self, text: &str, reply_to: Option<i64>) -> Result<String> {
+        self.speak_turn_for_voice(text, reply_to, None)
+    }
+    pub fn speak_turn_for_voice(
+        &self,
+        text: &str,
+        reply_to: Option<i64>,
+        spoken_style: Option<bool>,
+    ) -> Result<String> {
         if text.trim().is_empty()
             || text.chars().count() > 1200
             || reply_to.is_some_and(|id| id <= 0)
@@ -819,7 +881,7 @@ impl Controller {
         let id = ticket.id.clone();
         if self
             .sender
-            .try_send(Command::Speak(text.into(), reply_to, ticket))
+            .try_send(Command::Speak(text.into(), reply_to, ticket, spoken_style))
             .is_err()
         {
             self.turns.finish(&id);
@@ -1238,7 +1300,7 @@ mod reply_input_tests {
                 controller.speak(text).unwrap();
             }
             match commands.recv().unwrap() {
-                Command::Speak(saved, source, _) => {
+                Command::Speak(saved, source, _, _) => {
                     assert_eq!(saved, text);
                     assert_eq!(source, if quoted { Some(42) } else { None });
                 }

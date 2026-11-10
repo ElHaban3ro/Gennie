@@ -12,6 +12,12 @@ class SettingsDialog extends StatefulWidget {
 class _SettingsDialogState extends State<SettingsDialog> {
   final _model = TextEditingController();
   final _shortcut = TextEditingController();
+  final _inworldVoice = TextEditingController();
+  final _inworldLanguage = TextEditingController();
+  String inworldModel = "inworld-tts-2-flash",
+      inworldDelivery = "BALANCED",
+      inworldNormalization = "AUTO";
+  String voiceProvider = "kokoro";
   String effort = 'low', voice = 'ef_dora';
   bool read = true, write = true, commands = true, actions = true;
   bool enabledVoice = true,
@@ -40,6 +46,12 @@ class _SettingsDialogState extends State<SettingsDialog> {
     final v = s.voice;
     if (v != null) {
       voice = v.voice;
+      voiceProvider = v.provider;
+      _inworldVoice.text = v.inworldVoice;
+      _inworldLanguage.text = v.inworldLanguage;
+      inworldModel = v.inworldModel;
+      inworldDelivery = v.inworldDelivery;
+      inworldNormalization = v.inworldNormalization;
       enabledVoice = v.enabled;
       speed = v.speedPercent.toDouble();
       keepVoice = v.unloadMinutes == null;
@@ -82,10 +94,18 @@ class _SettingsDialogState extends State<SettingsDialog> {
     state.removeListener(_updated);
     _model.dispose();
     _shortcut.dispose();
+    _inworldVoice.dispose();
+    _inworldLanguage.dispose();
     super.dispose();
   }
 
   VoiceSettings _voice() => VoiceSettings(
+    provider: voiceProvider,
+    inworldVoice: _inworldVoice.text.trim(),
+    inworldModel: inworldModel,
+    inworldLanguage: _inworldLanguage.text.trim(),
+    inworldDelivery: inworldDelivery,
+    inworldNormalization: inworldNormalization,
     enabled: enabledVoice,
     voice: voice,
     speedPercent: speed.round(),
@@ -378,41 +398,157 @@ class _SettingsDialogState extends State<SettingsDialog> {
                                   (v) => enabledVoice = v,
                                 ),
                                 DropdownButtonFormField<String>(
-                                  initialValue: voice,
+                                  initialValue: voiceProvider,
                                   decoration: const InputDecoration(
-                                    labelText: 'Voz',
+                                    labelText: 'Proveedor de voz',
                                   ),
                                   items: const [
                                     DropdownMenuItem(
-                                      value: 'ef_dora',
-                                      child: Text('Dora'),
+                                      value: 'kokoro',
+                                      child: Text('Kokoro · local'),
                                     ),
                                     DropdownMenuItem(
-                                      value: 'em_alex',
-                                      child: Text('Alex'),
-                                    ),
-                                    DropdownMenuItem(
-                                      value: 'em_santa',
-                                      child: Text('Santa'),
+                                      value: 'inworld',
+                                      child: Text('Inworld · remoto'),
                                     ),
                                   ],
-                                  onChanged: (v) => setState(() => voice = v!),
+                                  onChanged: (v) => setState(() {
+                                    voiceProvider = v!;
+                                    if (v == 'kokoro') {
+                                      speed = speed.clamp(70, 130).toDouble();
+                                    }
+                                  }),
                                 ),
+                                if (voiceProvider == 'inworld') ...[
+                                  const Text(
+                                    'El texto de las respuestas se enviará a Inworld y puede generar cargos.',
+                                  ),
+                                  TextField(
+                                    controller: _inworldVoice,
+                                    decoration: const InputDecoration(
+                                      labelText: 'ID de voz de Inworld',
+                                    ),
+                                  ),
+                                  TextField(
+                                    controller: _inworldLanguage,
+                                    decoration: const InputDecoration(
+                                      labelText:
+                                          'Idioma (BCP-47, vacío: automático)',
+                                      hintText: 'es-CO',
+                                    ),
+                                  ),
+                                  DropdownButtonFormField<String>(
+                                    initialValue: inworldModel,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Modelo Inworld',
+                                    ),
+                                    items: const [
+                                      DropdownMenuItem(
+                                        value: 'inworld-tts-2',
+                                        child: Text('TTS-2 · expresivo'),
+                                      ),
+                                      DropdownMenuItem(
+                                        value: 'inworld-tts-2-flash',
+                                        child: Text(
+                                          'TTS-2 Flash · menor latencia',
+                                        ),
+                                      ),
+                                    ],
+                                    onChanged: (v) =>
+                                        setState(() => inworldModel = v!),
+                                  ),
+                                  if (inworldModel == 'inworld-tts-2-flash')
+                                    const Text(
+                                      'Flash prioriza velocidad; para controlar la interpretación elige TTS-2 expresivo.',
+                                    )
+                                  else
+                                    DropdownButtonFormField<String>(
+                                      initialValue: inworldDelivery,
+                                      decoration: const InputDecoration(
+                                        labelText: 'Interpretación',
+                                      ),
+                                      items: const [
+                                        DropdownMenuItem(
+                                          value: 'STABLE',
+                                          child: Text('Estable'),
+                                        ),
+                                        DropdownMenuItem(
+                                          value: 'BALANCED',
+                                          child: Text('Equilibrada'),
+                                        ),
+                                        DropdownMenuItem(
+                                          value: 'CREATIVE',
+                                          child: Text('Expresiva'),
+                                        ),
+                                      ],
+                                      onChanged: (v) =>
+                                          setState(() => inworldDelivery = v!),
+                                    ),
+                                  DropdownButtonFormField<String>(
+                                    initialValue: inworldNormalization,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Normalización del texto',
+                                    ),
+                                    items: const [
+                                      DropdownMenuItem(
+                                        value: 'AUTO',
+                                        child: Text('Automática'),
+                                      ),
+                                      DropdownMenuItem(
+                                        value: 'ON',
+                                        child: Text('Activada'),
+                                      ),
+                                      DropdownMenuItem(
+                                        value: 'OFF',
+                                        child: Text('Desactivada'),
+                                      ),
+                                    ],
+                                    onChanged: (v) => setState(
+                                      () => inworldNormalization = v!,
+                                    ),
+                                  ),
+                                ] else
+                                  DropdownButtonFormField<String>(
+                                    initialValue: voice,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Voz',
+                                    ),
+                                    items: const [
+                                      DropdownMenuItem(
+                                        value: 'ef_dora',
+                                        child: Text('Dora'),
+                                      ),
+                                      DropdownMenuItem(
+                                        value: 'em_alex',
+                                        child: Text('Alex'),
+                                      ),
+                                      DropdownMenuItem(
+                                        value: 'em_santa',
+                                        child: Text('Santa'),
+                                      ),
+                                    ],
+                                    onChanged: (v) =>
+                                        setState(() => voice = v!),
+                                  ),
                                 const SizedBox(height: 16),
                                 Text('Velocidad: ${speed.round()} %'),
                                 Slider(
                                   value: speed,
-                                  min: 70,
-                                  max: 130,
-                                  divisions: 60,
+                                  min: voiceProvider == 'inworld' ? 50 : 70,
+                                  max: voiceProvider == 'inworld' ? 150 : 130,
+                                  divisions: voiceProvider == 'inworld'
+                                      ? 100
+                                      : 60,
                                   onChanged: (v) => setState(() => speed = v),
                                 ),
-                                _toggle(
-                                  'Mantener el modelo cargado',
-                                  keepVoice,
-                                  (v) => keepVoice = v,
-                                ),
-                                if (!keepVoice) ...[
+                                if (voiceProvider == 'kokoro')
+                                  _toggle(
+                                    'Mantener el modelo cargado',
+                                    keepVoice,
+                                    (v) => keepVoice = v,
+                                  ),
+                                if (voiceProvider == 'kokoro' &&
+                                    !keepVoice) ...[
                                   Text(
                                     'Liberar tras ${voiceMinutes.round()} min',
                                   ),

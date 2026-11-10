@@ -1715,6 +1715,18 @@ impl SseDecode for Vec<crate::api::ToolCall> {
     }
 }
 
+impl SseDecode for Vec<crate::api::VoiceDebugMessage> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = Vec::with_capacity(len_ as usize);
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::VoiceDebugMessage>::sse_decode(deserializer));
+        }
+        return ans_;
+    }
+}
+
 impl SseDecode for crate::api::LocalModel {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -1991,6 +2003,8 @@ impl SseDecode for crate::api::Snapshot {
         let mut var_acknowledgement = <u32>::sse_decode(deserializer);
         let mut var_dictationStatus = <String>::sse_decode(deserializer);
         let mut var_voiceStatus = <String>::sse_decode(deserializer);
+        let mut var_voiceDebugMessages =
+            <Vec<crate::api::VoiceDebugMessage>>::sse_decode(deserializer);
         let mut var_assistant = <Option<crate::api::AssistantSettings>>::sse_decode(deserializer);
         let mut var_dictation = <Option<crate::api::DictationSettings>>::sse_decode(deserializer);
         let mut var_voice = <Option<crate::api::VoiceSettings>>::sse_decode(deserializer);
@@ -2020,6 +2034,7 @@ impl SseDecode for crate::api::Snapshot {
             acknowledgement: var_acknowledgement,
             dictation_status: var_dictationStatus,
             voice_status: var_voiceStatus,
+            voice_debug_messages: var_voiceDebugMessages,
             assistant: var_assistant,
             dictation: var_dictation,
             voice: var_voice,
@@ -2110,14 +2125,38 @@ impl SseDecode for () {
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {}
 }
 
+impl SseDecode for crate::api::VoiceDebugMessage {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_messageId = <String>::sse_decode(deserializer);
+        let mut var_text = <String>::sse_decode(deserializer);
+        return crate::api::VoiceDebugMessage {
+            message_id: var_messageId,
+            text: var_text,
+        };
+    }
+}
+
 impl SseDecode for crate::api::VoiceSettings {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_provider = <String>::sse_decode(deserializer);
+        let mut var_inworldVoice = <String>::sse_decode(deserializer);
+        let mut var_inworldModel = <String>::sse_decode(deserializer);
+        let mut var_inworldLanguage = <String>::sse_decode(deserializer);
+        let mut var_inworldDelivery = <String>::sse_decode(deserializer);
+        let mut var_inworldNormalization = <String>::sse_decode(deserializer);
         let mut var_enabled = <bool>::sse_decode(deserializer);
         let mut var_voice = <String>::sse_decode(deserializer);
         let mut var_speedPercent = <u32>::sse_decode(deserializer);
         let mut var_unloadMinutes = <Option<u32>>::sse_decode(deserializer);
         return crate::api::VoiceSettings {
+            provider: var_provider,
+            inworld_voice: var_inworldVoice,
+            inworld_model: var_inworldModel,
+            inworld_language: var_inworldLanguage,
+            inworld_delivery: var_inworldDelivery,
+            inworld_normalization: var_inworldNormalization,
             enabled: var_enabled,
             voice: var_voice,
             speed_percent: var_speedPercent,
@@ -2532,6 +2571,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::Snapshot {
             self.acknowledgement.into_into_dart().into_dart(),
             self.dictation_status.into_into_dart().into_dart(),
             self.voice_status.into_into_dart().into_dart(),
+            self.voice_debug_messages.into_into_dart().into_dart(),
             self.assistant.into_into_dart().into_dart(),
             self.dictation.into_into_dart().into_dart(),
             self.voice.into_into_dart().into_dart(),
@@ -2608,9 +2648,33 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::TurnProgress> for crate::api:
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::VoiceDebugMessage {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.message_id.into_into_dart().into_dart(),
+            self.text.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::VoiceDebugMessage {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::VoiceDebugMessage>
+    for crate::api::VoiceDebugMessage
+{
+    fn into_into_dart(self) -> crate::api::VoiceDebugMessage {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::VoiceSettings {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
+            self.provider.into_into_dart().into_dart(),
+            self.inworld_voice.into_into_dart().into_dart(),
+            self.inworld_model.into_into_dart().into_dart(),
+            self.inworld_language.into_into_dart().into_dart(),
+            self.inworld_delivery.into_into_dart().into_dart(),
+            self.inworld_normalization.into_into_dart().into_dart(),
             self.enabled.into_into_dart().into_dart(),
             self.voice.into_into_dart().into_dart(),
             self.speed_percent.into_into_dart().into_dart(),
@@ -2845,6 +2909,16 @@ impl SseEncode for Vec<crate::api::ToolCall> {
         <i32>::sse_encode(self.len() as _, serializer);
         for item in self {
             <crate::api::ToolCall>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::api::VoiceDebugMessage> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::VoiceDebugMessage>::sse_encode(item, serializer);
         }
     }
 }
@@ -3101,6 +3175,7 @@ impl SseEncode for crate::api::Snapshot {
         <u32>::sse_encode(self.acknowledgement, serializer);
         <String>::sse_encode(self.dictation_status, serializer);
         <String>::sse_encode(self.voice_status, serializer);
+        <Vec<crate::api::VoiceDebugMessage>>::sse_encode(self.voice_debug_messages, serializer);
         <Option<crate::api::AssistantSettings>>::sse_encode(self.assistant, serializer);
         <Option<crate::api::DictationSettings>>::sse_encode(self.dictation, serializer);
         <Option<crate::api::VoiceSettings>>::sse_encode(self.voice, serializer);
@@ -3177,9 +3252,23 @@ impl SseEncode for () {
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {}
 }
 
+impl SseEncode for crate::api::VoiceDebugMessage {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.message_id, serializer);
+        <String>::sse_encode(self.text, serializer);
+    }
+}
+
 impl SseEncode for crate::api::VoiceSettings {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.provider, serializer);
+        <String>::sse_encode(self.inworld_voice, serializer);
+        <String>::sse_encode(self.inworld_model, serializer);
+        <String>::sse_encode(self.inworld_language, serializer);
+        <String>::sse_encode(self.inworld_delivery, serializer);
+        <String>::sse_encode(self.inworld_normalization, serializer);
         <bool>::sse_encode(self.enabled, serializer);
         <String>::sse_encode(self.voice, serializer);
         <u32>::sse_encode(self.speed_percent, serializer);

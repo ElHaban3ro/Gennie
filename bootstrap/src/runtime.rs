@@ -573,7 +573,9 @@ struct Backend {
     dictation: Option<gennie_transcription::Controller>,
     snapshot: Snapshot,
     narration: gennie_presence::narration::Narration,
-    speech_queue: std::collections::VecDeque<String>,
+    speech_queue: std::collections::VecDeque<(String, bool)>,
+    voice_rewrite: bool,
+    voice_suppressed: bool,
     revision: Arc<std::sync::atomic::AtomicU64>,
     observed: u64,
     closed: bool,
@@ -618,7 +620,9 @@ impl Backend {
         let llm = Arc::new(gennie_llm::LlmModule::with_journal(
             presence.conversation_journal(state.db.clone()),
         ));
-        let tts = Arc::new(gennie_tts::TtsModule::default());
+        let tts = Arc::new(gennie_tts::TtsModule::with_inworld_api_key(
+            secrets.inworld_api_key,
+        ));
         let reminders = Arc::new(gennie_reminders_plugin::RemindersPluginModule::default());
         let browser_module =
             Arc::new(gennie_browser::BrowserModule::default().with_database(state.db.clone()));
@@ -872,6 +876,8 @@ impl Backend {
             revision,
             narration: Default::default(),
             speech_queue: Default::default(),
+            voice_rewrite: false,
+            voice_suppressed: false,
             observed: 0,
             closed: false,
             last_completed: None,
@@ -1156,6 +1162,12 @@ impl Backend {
         self.snapshot.voice = self.voice.as_ref().map(|c| {
             let s = c.settings();
             VoiceSettings {
+                provider: s.provider,
+                inworld_voice: s.inworld_voice,
+                inworld_model: s.inworld_model,
+                inworld_language: s.inworld_language,
+                inworld_delivery: s.inworld_delivery,
+                inworld_normalization: s.inworld_normalization,
                 enabled: s.enabled,
                 voice: s.voice,
                 speed_percent: s.speed_percent,
@@ -1315,7 +1327,15 @@ impl Backend {
         if self.snapshot.turn.is_some() {
             return Err("Gennie aún está terminando la respuesta".into());
         }
-        let id = controller.speak_turn(&text, reply_to)?;
+        let expressive = self.voice.as_ref().is_some_and(|voice| {
+            let settings = voice.settings();
+            settings.enabled
+                && settings.provider == "inworld"
+                && settings.inworld_model == "inworld-tts-2"
+        });
+        let id = controller.speak_turn_for_voice(&text, reply_to, expressive.then_some(true))?;
+        self.voice_rewrite = expressive;
+        self.voice_suppressed = false;
         self.snapshot.turn = Some(TurnProgress {
             id,
             stopping: false,
@@ -1598,17 +1618,45 @@ impl Backend {
             SpeechEvent::Connected => self.snapshot.connection = "Conectado".into(),
             SpeechEvent::Delta(text) => {
                 self.snapshot.reply.push_str(&text);
-                self.speech_queue.extend(self.narration.push(&text));
+                if !self.voice_rewrite && !self.voice_suppressed {
+                    self.speech_queue.extend(
+                        self.narration
+                            .push(&text)
+                            .into_iter()
+                            .map(|text| (text, false)),
+                    );
+                }
             }
             SpeechEvent::Complete(text) => {
                 self.last_completed = Some(text.clone());
-                if self.snapshot.reply.is_empty() {
-                    self.speech_queue.push_back(text);
-                } else if let Some(last) = self.narration.finish() {
-                    self.speech_queue.push_back(last);
+                if !self.voice_rewrite && !self.voice_suppressed {
+                    if self.snapshot.reply.is_empty() {
+                        self.speech_queue.push_back((text, false));
+                    } else if let Some(last) = self.narration.finish() {
+                        self.speech_queue.push_back((last, false));
+                    }
                 }
                 self.snapshot.reply.clear();
                 self.snapshot.reply_interruption = None;
+            }
+            SpeechEvent::Spoken { text, adapted } => {
+                if self.voice_suppressed {
+                    return refresh;
+                }
+                if !adapted {
+                    self.speech_queue.push_back((text, false));
+                } else {
+                    self.speech_queue.push_back((text, true));
+                }
+            }
+            SpeechEvent::VoiceDebug { message_id, text } => {
+                if self.snapshot.voice_debug_messages.len() == 64 {
+                    self.snapshot.voice_debug_messages.remove(0);
+                }
+                self.snapshot.voice_debug_messages.push(VoiceDebugMessage {
+                    message_id: message_id.to_string(),
+                    text,
+                });
             }
             SpeechEvent::UserSaved(text) => {
                 self.snapshot.acknowledged_text = Some(text);
@@ -1661,6 +1709,36 @@ impl Backend {
         }
         refresh
     }
+    fn observe_dictation_event(
+        &mut self,
+        event: gennie_transcription::Event,
+        dictated: &mut Vec<String>,
+        errors: &mut Vec<(String, bool)>,
+    ) {
+        use gennie_transcription::Event::*;
+        match event {
+            Text {
+                text,
+                finalized: true,
+            } => dictated.push(text),
+            DictationRequested => {
+                self.voice_suppressed = true;
+                self.speech_queue.clear();
+                self.narration.clear();
+                if let Some(v) = &self.voice {
+                    let _ = v.interrupt();
+                    let _ = v.preload();
+                }
+            }
+            NoSpeech(e) => {
+                self.voice_suppressed = false;
+                errors.push((e, false));
+            }
+            Error(e) => errors.push((e, false)),
+            Saved => self.snapshot.confirmation = Some("Ajustes de dictado guardados".into()),
+            _ => {}
+        }
+    }
     fn tick(&mut self) {
         let mut dirty = self.snapshot.models != self.model_info();
         let mut refresh_history = false;
@@ -1675,32 +1753,12 @@ impl Backend {
             dirty = true;
         }
         if let Some(c) = &mut self.dictation {
-            for event in c.tick() {
-                use gennie_transcription::Event::*;
-                match event {
-                    Text {
-                        text,
-                        finalized: true,
-                    } => {
-                        dictated.push(text);
-                    }
-                    DictationRequested => {
-                        self.speech_queue.clear();
-                        self.narration.clear();
-                        if let Some(v) = &self.voice {
-                            let _ = v.interrupt();
-                            let _ = v.preload();
-                        }
-                    }
-                    Error(e) | NoSpeech(e) => errors.push((e, false)),
-                    Saved => {
-                        self.snapshot.confirmation = Some("Ajustes de dictado guardados".into())
-                    }
-                    _ => {}
-                }
+            let events = c.tick();
+            if self.snapshot.dictation_status != c.settings_status {
                 dirty = true;
             }
-            if self.snapshot.dictation_status != c.settings_status {
+            for event in events {
+                self.observe_dictation_event(event, &mut dictated, &mut errors);
                 dirty = true;
             }
         }
@@ -1749,8 +1807,13 @@ impl Backend {
             self.speech_queue.clear();
         }
         if let Some(c) = &self.voice {
-            while let Some(text) = self.speech_queue.front() {
-                match c.speak(&gennie_presence::speech_text(text)) {
+            while let Some((text, adapted)) = self.speech_queue.front() {
+                let speech = if *adapted {
+                    text.clone()
+                } else {
+                    gennie_presence::speech_text(text)
+                };
+                match c.speak(&speech) {
                     Ok(_) => {
                         self.speech_queue.pop_front();
                     }
@@ -1847,6 +1910,12 @@ impl Drop for Backend {
 }
 fn voice_settings(s: VoiceSettings) -> gennie_tts::Settings {
     gennie_tts::Settings {
+        provider: s.provider,
+        inworld_voice: s.inworld_voice,
+        inworld_model: s.inworld_model,
+        inworld_language: s.inworld_language,
+        inworld_delivery: s.inworld_delivery,
+        inworld_normalization: s.inworld_normalization,
         enabled: s.enabled,
         voice: s.voice,
         speed_percent: s.speed_percent,

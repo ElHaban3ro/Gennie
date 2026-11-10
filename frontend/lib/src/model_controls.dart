@@ -65,6 +65,9 @@ class _ModelControlsState extends State<ModelControls> {
   }
 
   Widget _button(ModelInfo info) {
+    final remoteVoice =
+        info.model == LocalModel.voice &&
+        widget.state.snapshot?.voice?.provider == 'inworld';
     final loaded = info.state == ModelState.ready;
     final busy =
         _pending.contains(info.model) ||
@@ -75,13 +78,17 @@ class _ModelControlsState extends State<ModelControls> {
         info.state != ModelState.disabled;
     final (name, icon) = switch (info.model) {
       LocalModel.laya => ('Laya', Icons.psychology_outlined),
-      LocalModel.voice => ('Voz · Kokoro', Icons.volume_up_outlined),
+      LocalModel.voice => (
+        remoteVoice ? 'Voz · Inworld' : 'Voz · Kokoro',
+        Icons.volume_up_outlined,
+      ),
       LocalModel.dictation => ('Transcripción · Nemotron', Icons.mic_none),
     };
     final details = _details(
       info,
       _pending.contains(info.model),
       _memory[info.model] ?? 'RAM —',
+      remoteVoice,
     );
     return RailButton(
       key: ValueKey('model-${info.model.name}'),
@@ -100,12 +107,19 @@ class _ModelControlsState extends State<ModelControls> {
       selected: loaded,
       toggled: loaded,
       busy: busy,
-      onPressed: available && !busy ? () => _toggle(info) : null,
+      onPressed: available && !busy && !remoteVoice
+          ? () => _toggle(info)
+          : null,
     );
   }
 }
 
-AppTooltipDetails _details(ModelInfo info, bool pending, String memory) {
+AppTooltipDetails _details(
+  ModelInfo info,
+  bool pending,
+  String memory,
+  bool remoteVoice,
+) {
   final idle = switch (info.unloadMinutes) {
     null => 'Sin liberación por inactividad.',
     0 => 'Se libera al terminar de usarlo.',
@@ -125,7 +139,7 @@ AppTooltipDetails _details(ModelInfo info, bool pending, String memory) {
   return AppTooltipDetails(
     title: switch (info.model) {
       LocalModel.laya => 'Laya',
-      LocalModel.voice => 'Kokoro',
+      LocalModel.voice => remoteVoice ? 'Inworld' : 'Kokoro',
       LocalModel.dictation => 'Nemotron',
     },
     status: stateLabel,
@@ -134,9 +148,10 @@ AppTooltipDetails _details(ModelInfo info, bool pending, String memory) {
     message: info.state == ModelState.failed && !pending
         ? 'No se pudo cargar el modelo.'
         : null,
-    footer:
-        info.state == ModelState.unavailable ||
-            info.state == ModelState.disabled
+    footer: remoteVoice
+        ? 'Síntesis remota.'
+        : info.state == ModelState.unavailable ||
+              info.state == ModelState.disabled
         ? null
         : idle,
   );

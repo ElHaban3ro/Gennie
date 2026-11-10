@@ -36,6 +36,8 @@ Snapshot snapshot({
   bool emptyActive = false,
   String? executionRevision,
   bool reducedMotion = false,
+  String voiceProvider = 'kokoro',
+  List<VoiceDebugMessage> voiceDebugMessages = const [],
 }) => Snapshot(
   executionRevision: executionRevision,
   historyRevision: (messages?.hashCode ?? 0).toString(),
@@ -93,6 +95,7 @@ Snapshot snapshot({
   acknowledgement: ack,
   dictationStatus: 'Sin cargar',
   voiceStatus: 'Sin cargar',
+  voiceDebugMessages: voiceDebugMessages,
   reducedMotion: reducedMotion,
   assistant: AssistantSettings(
     model: 'gpt-test',
@@ -110,6 +113,12 @@ Snapshot snapshot({
     microphone: null,
   ),
   voice: VoiceSettings(
+    provider: voiceProvider,
+    inworldVoice: 'Ashley',
+    inworldModel: 'inworld-tts-2',
+    inworldLanguage: 'es-CO',
+    inworldDelivery: 'BALANCED',
+    inworldNormalization: 'AUTO',
     enabled: true,
     voice: 'ef_dora',
     speedPercent: 100,
@@ -330,6 +339,93 @@ String draft(WidgetTester tester) =>
     tester.widget<TextField>(composer()).controller!.text;
 
 void main() {
+  testWidgets('cada globo muestra su texto de voz al pasar el cursor', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: Column(
+            children: [
+              ChatMessage(
+                message: Message(
+                  speaker: 'assistant',
+                  text: 'Respuesta uno',
+                  createdAt: '',
+                ),
+                voiceDebug: '[warmly] Primera voz.',
+              ),
+              ChatMessage(
+                message: Message(
+                  speaker: 'assistant',
+                  text: 'Respuesta dos',
+                  createdAt: '',
+                ),
+                voiceDebug: '[curious] Segunda voz.',
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await mouse.addPointer(location: Offset.zero);
+    await mouse.moveTo(tester.getCenter(find.text('Respuesta dos')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('message-voice-debug')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('message-voice-debug')));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<SelectableText>(
+            find.byKey(const ValueKey('message-voice-debug-text')),
+          )
+          .data,
+      '[curious] Segunda voz.',
+    );
+    expect(find.text('[warmly] Primera voz.'), findsNothing);
+    await mouse.removePointer();
+  });
+  testWidgets('el historial asocia las guías por identificador de mensaje', (
+    tester,
+  ) async {
+    await mount(
+      tester,
+      initialSnapshot: snapshot(
+        messages: const [
+          Message(
+            speaker: 'assistant',
+            text: 'Primera respuesta',
+            createdAt: '',
+          ),
+          Message(
+            speaker: 'assistant',
+            text: 'Segunda respuesta',
+            createdAt: '',
+          ),
+        ],
+        voiceDebugMessages: const [
+          VoiceDebugMessage(messageId: '1', text: '[warmly] Primera.'),
+          VoiceDebugMessage(messageId: '2', text: '[curious] Segunda.'),
+        ],
+      ),
+    );
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await mouse.addPointer(location: Offset.zero);
+    await mouse.moveTo(tester.getCenter(find.text('Segunda respuesta')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('message-voice-debug')));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<SelectableText>(
+            find.byKey(const ValueKey('message-voice-debug-text')),
+          )
+          .data,
+      '[curious] Segunda.',
+    );
+    await mouse.removePointer();
+  });
   testWidgets('nueva conversación está en la cabecera del chat', (
     tester,
   ) async {
@@ -1180,6 +1276,20 @@ void main() {
     await tester.tap(find.text('Probar voz sin guardar'));
     await tester.pumpAndSettle();
     expect(fake.voicePreviewed!.voice, 'ef_dora');
+    await tester.ensureVisible(find.text('Kokoro · local'));
+    await tester.tap(find.text('Kokoro · local'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Inworld · remoto').last);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.widgetWithText(TextField, 'ID de voz de Inworld'),
+      'Olivia',
+    );
+    await tester.ensureVisible(find.text('Probar voz sin guardar'));
+    await tester.tap(find.text('Probar voz sin guardar'));
+    await tester.pumpAndSettle();
+    expect(fake.voicePreviewed!.provider, 'inworld');
+    expect(fake.voicePreviewed!.inworldVoice, 'Olivia');
     await tester.tap(find.text('General'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Reducir movimiento'));

@@ -91,6 +91,20 @@ impl gennie_llm::ConversationJournal for Journal {
         }
         Ok(())
     }
+    fn response_message_id(
+        &self,
+        provider: &str,
+        thread: &str,
+        turn: &str,
+        item: Option<&str>,
+        text: &str,
+    ) -> Result<Option<i64>> {
+        self.db.with_connection(|c| {
+            let mut statement = c.prepare("SELECT h.id FROM presence_history h JOIN presence_conversations s ON s.id=h.conversation_id WHERE s.provider=?1 AND s.provider_thread_id=?2 AND s.deleted=0 AND h.provider_turn_id=?3 AND h.provider_item_id IS ?4 AND h.speaker='assistant' AND h.text=?5 ORDER BY h.id DESC LIMIT 1")?;
+            let mut rows = statement.query(params![provider, thread, turn, item, text])?;
+            Ok(rows.next()?.map(|row| row.get(0)).transpose()?)
+        })
+    }
     fn append_interrupted_response(
         &self,
         provider: &str,
