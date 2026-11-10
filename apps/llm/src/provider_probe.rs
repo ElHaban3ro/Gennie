@@ -917,3 +917,6 @@ fn stop_probe_does_not_accept_completed_unsaved_or_unobserved_cancellation() {
     assert!(!state.verified(true, true, 1));
     assert!(!state.verified(false, false, 1));
 }
+
+#[path = "provider_mail_context_probe.rs"]
+mod mail_context;

@@ -12,6 +12,8 @@ El bot envía `Settings::agent_instructions` y las capacidades/permisos vigentes
 
 Los archivos Markdown anteriores conservan el texto de referencia con el que se preparó el snapshot de 0011; cambiar esos archivos ya no sustituye silenciosamente la configuración del usuario. Cualquier evolución futura de valores iniciales debe preservar las ediciones existentes.
 
+El 10 de noviembre, la migración 0012 añade al perfil visible de Gennie una indicación para consultar encargos y catálogos pertinentes antes de preguntar por una fuente desconocida. Conserva el texto anterior y los demás perfiles; si el texto resultante excedería 64.000 caracteres, lo deja intacto para no impedir el arranque. Después de la migración el usuario puede editar o retirar la indicación desde la ficha. La consulta no acredita acceso ni autorización. En una prueba aislada con el modelo configurado y herramientas ficticias, la respuesta anterior preguntó el servicio sin consultar herramientas; con la indicación consultó encargos y plugins e identificó Gmail. Es una muestra, no una garantía para todas las respuestas.
+
 ## Interfaz y validación
 
 La ficha muestra Personalidad e Instrucciones, sin «adicionales» ni una capa de personalización. Conserva el formulario y estilo existentes. Admite 4.000 caracteres Unicode de personalidad y 64.000 de instrucciones, con validación independiente en UI, Rust y SQLite. El proveedor sigue validando modelo/esfuerzo y aplicando los permisos reales. No se inicia inferencia al consultar o guardar.

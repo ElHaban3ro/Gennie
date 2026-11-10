@@ -8,6 +8,46 @@ fn database() -> Database {
     db.migrate(module.name(), module.migrations()).unwrap();
     db
 }
+
+#[test]
+fn discovery_migration_preserves_existing_prompt_and_respects_length_limit() {
+    let module = LlmModule::default();
+    for full in [false, true] {
+        let db = Database::memory().unwrap();
+        db.migrate(module.name(), &module.migrations()[..11])
+            .unwrap();
+        let original = if full {
+            "x".repeat(64_000)
+        } else {
+            "Instrucción propia 🐧".into()
+        };
+        db.with_connection(|c| {
+            c.execute(
+                "UPDATE llm_architect_prompts SET instructions=?1 WHERE architect_id='gennie'",
+                [&original],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let helper = load(&db, Role::Helper).unwrap();
+        db.migrate(module.name(), module.migrations()).unwrap();
+        let bot = load(&db, Role::Bot).unwrap();
+        if full {
+            assert_eq!(bot.instructions, original);
+        } else {
+            assert!(bot.instructions.starts_with(&original));
+            assert!(
+                bot.instructions.contains("antes de preguntar")
+                    || bot.instructions.contains("Antes de preguntar")
+            );
+            assert!(bot.instructions.contains("assignments_list"));
+            assert!(bot.instructions.contains("browser_plugins"));
+        }
+        assert_eq!(load(&db, Role::Helper).unwrap(), helper);
+        db.migrate(module.name(), module.migrations()).unwrap();
+        assert_eq!(load(&db, Role::Bot).unwrap(), bot);
+    }
+}
 #[test]
 fn profiles_expose_their_real_instructions_and_personality() {
     let db = database();
@@ -73,7 +113,7 @@ fn owned_config_migration_preserves_legacy_edits_and_does_not_reseed_after_save(
     assert!(bot.personality.contains("Habla en español"));
     assert!(bot.personality.ends_with("Mi tono anterior"));
     assert!(bot.instructions.contains("Eres Gennie"));
-    assert!(bot.instructions.ends_with("Mis instrucciones anteriores"));
+    assert!(bot.instructions.contains("Mis instrucciones anteriores"));
     assert_eq!(bot.model, "kept-model");
     assert_eq!(bot.effort.as_deref(), Some("medium"));
     assert_eq!(bot.revision, 8);
@@ -346,7 +386,7 @@ fn expansion_migration_preserves_referenced_bases_and_all_their_settings() {
     let bot = load(&db, Role::Bot).unwrap();
     assert_eq!(bot.revision, 7);
     assert!(bot.personality.ends_with("Configurado"));
-    assert!(bot.instructions.ends_with("Conservar"));
+    assert!(bot.instructions.contains("Conservar"));
     assert_eq!(bot.model, "saved-model");
     assert_eq!(bot.name, "Gennie");
     db.with_connection(|c| {

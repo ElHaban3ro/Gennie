@@ -389,6 +389,10 @@ impl AppModule for LlmModule {
                 version: 11,
                 sql: include_str!("../migrations/0011_owned_architect_prompts.sql"),
             },
+            Migration {
+                version: 12,
+                sql: include_str!("../migrations/0012_discover_known_sources.sql"),
+            },
         ]
     }
     fn start(&self, state: &AppState) -> Result<()> {
