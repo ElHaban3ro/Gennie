@@ -23,10 +23,14 @@ pub(crate) const MIGRATIONS: &[gennie_core::Migration] = &[
         version: 5,
         sql: include_str!("../migrations/0005_quarantined_attempts.sql"),
     },
+    gennie_core::Migration {
+        version: 6,
+        sql: include_str!("../migrations/0006_gmail_archive_evidence.sql"),
+    },
 ];
-const COLUMNS: &str = "id,plugin_id,plugin_name,function_name,plugin_revision,candidate_id,operation,state,reason,CASE WHEN closed_unconfirmed_at IS NOT NULL THEN 'unknown' ELSE resolution END,created_at,updated_at,reviewed_at,COALESCE(failure_code_extended,failure_code),COALESCE(failure_phase_extended,failure_phase),observation_only,closed_unconfirmed_at";
+const COLUMNS: &str = "id,plugin_id,plugin_name,function_name,plugin_revision,candidate_id,operation,state,reason,CASE WHEN closed_unconfirmed_at IS NOT NULL THEN 'unknown' ELSE resolution END,created_at,updated_at,reviewed_at,COALESCE(failure_code_extended,failure_code),COALESCE(failure_phase_extended,failure_phase),observation_only,closed_unconfirmed_at,(SELECT auto_resolution FROM browser_gmail_archive_evidence WHERE attempt_id=id)";
 macro_rules! attempt_row { () => { |r| {
-    Ok(json!({"id":r.get::<_,i64>(0)?,"plugin_id":r.get::<_,String>(1)?,"server_name":r.get::<_,String>(2)?,"tool":r.get::<_,String>(3)?,"source_revision":r.get::<_,i64>(4)?,"candidate_id":r.get::<_,Option<String>>(5)?,"operation":r.get::<_,String>(6)?,"state":r.get::<_,String>(7)?,"reason":r.get::<_,String>(8)?,"resolution":r.get::<_,Option<String>>(9)?,"created_at":r.get::<_,String>(10)?,"updated_at":r.get::<_,String>(11)?,"reviewed_at":r.get::<_,Option<String>>(12)?,"failure_code":r.get::<_,Option<String>>(13)?,"failure_phase":r.get::<_,Option<String>>(14)?,"observation_only":r.get::<_,bool>(15)?,"closed_unconfirmed_at":r.get::<_,Option<String>>(16)?}))
+    Ok(json!({"id":r.get::<_,i64>(0)?,"plugin_id":r.get::<_,String>(1)?,"server_name":r.get::<_,String>(2)?,"tool":r.get::<_,String>(3)?,"source_revision":r.get::<_,i64>(4)?,"candidate_id":r.get::<_,Option<String>>(5)?,"operation":r.get::<_,String>(6)?,"state":r.get::<_,String>(7)?,"reason":r.get::<_,String>(8)?,"resolution":r.get::<_,Option<String>>(9)?,"created_at":r.get::<_,String>(10)?,"updated_at":r.get::<_,String>(11)?,"reviewed_at":r.get::<_,Option<String>>(12)?,"failure_code":r.get::<_,Option<String>>(13)?,"failure_phase":r.get::<_,Option<String>>(14)?,"observation_only":r.get::<_,bool>(15)?,"closed_unconfirmed_at":r.get::<_,Option<String>>(16)?,"automatic_resolution":r.get::<_,Option<String>>(17)?}))
 } }; }
 #[derive(Clone)]
 pub(crate) struct Store(pub Database);
@@ -38,6 +42,24 @@ fn identifier(s: &str) -> bool {
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'_')
 }
 impl Store {
+    pub fn gmail_evidence(&self, id: i64) -> Result<Option<Value>> {
+        self.0.with_connection(|c| {
+            let mut q = c.prepare("SELECT e.account_hash,e.thread_id,e.unread_before,a.plugin_id,a.function_name,a.plugin_revision,a.candidate_id FROM browser_gmail_archive_evidence e JOIN browser_web_attempts a ON a.id=e.attempt_id WHERE a.id=?1 AND a.state='uncertain' AND e.auto_resolution IS NULL")?;
+            Ok(q.query_map([id], |r| Ok(json!({"account_hash":r.get::<_,String>(0)?,"thread_id":r.get::<_,String>(1)?,"unread_before":r.get::<_,bool>(2)?,"plugin_id":r.get::<_,String>(3)?,"function_name":r.get::<_,String>(4)?,"revision":r.get::<_,i64>(5)?,"candidate_id":r.get::<_,Option<String>>(6)?})))?.next().transpose()?)
+        })
+    }
+    pub fn reconcile_gmail(&self, id: i64, resolution: &str) -> Result<()> {
+        if resolution != "applied" {
+            return Err("Resolución automática inválida".into());
+        }
+        self.0.with_connection(|c| {
+            let tx = c.transaction()?;
+            let n = tx.execute("UPDATE browser_web_attempts SET state='reviewed',resolution=?2,reviewed_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?1 AND state='uncertain' AND EXISTS(SELECT 1 FROM browser_gmail_archive_evidence WHERE attempt_id=?1 AND auto_resolution IS NULL)", params![id,resolution])?;
+            if n != 1 { return Err("El intento ya no está pendiente".into()); }
+            tx.execute("UPDATE browser_gmail_archive_evidence SET auto_resolution=?2,observed_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE attempt_id=?1",params![id,resolution])?;
+            tx.commit()?; Ok(())
+        })
+    }
     pub fn pending(&self, plugin: &str, function: Option<&str>) -> Result<Option<Value>> {
         if !identifier(plugin) || function.is_some_and(|name| !identifier(name)) {
             return Err("Referencia web inválida".into());
@@ -116,6 +138,12 @@ impl Store {
             let pending:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM browser_web_attempts WHERE plugin_id=?1 AND function_name=?2 AND state IN ('running','uncertain'))",params![plugin,function],|r|r.get(0))?;
             if pending {return Err("Revisa el resultado web pendiente antes de continuar".into());}
             tx.execute("INSERT INTO browser_web_attempts(plugin_id,plugin_name,function_name,plugin_revision,candidate_id,operation,observation_only) VALUES(?1,?2,?3,?4,?5,?6,?7)",params![plugin,name,function,revision,candidate,operation,matches!(metadata["transport"].as_str(),Some("observe" | "gmail_inbox" | "gmail_print" | "gmail_importance"))]) ?;
+            if let Some(evidence) = metadata.get("gmail_evidence") {
+                let account = evidence["account_hash"].as_str().filter(|s| s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit())).ok_or("Identidad de cuenta inválida")?;
+                let thread = evidence["thread_id"].as_str().filter(|s| !s.is_empty() && s.len() <= 16 && s.bytes().all(|b| b.is_ascii_hexdigit())).ok_or("Identidad de conversación inválida")?;
+                let unread = evidence["unread_before"].as_bool().ok_or("Estado de lectura inválido")?;
+                tx.execute("INSERT INTO browser_gmail_archive_evidence(attempt_id,account_hash,thread_id,unread_before) VALUES(?1,?2,?3,?4)", params![tx.last_insert_rowid(),account,thread,unread])?;
+            }
             let attempt=tx.query_row(&format!("SELECT {COLUMNS} FROM browser_web_attempts WHERE id=?1"),[tx.last_insert_rowid()],attempt_row!())?;
             tx.commit()?; Ok(attempt)
         })

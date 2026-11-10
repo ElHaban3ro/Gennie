@@ -10,6 +10,34 @@ fn metadata() -> Value {
     json!({"plugin_id":"fixture","plugin_name":"Prueba","function_name":"send","revision":1})
 }
 #[test]
+fn gmail_evidence_is_atomic_and_resolution_requires_uncertain_attempt() {
+    let db = db();
+    let store = attempts::Store(db.clone());
+    let mut input = metadata();
+    input["gmail_evidence"] =
+        json!({"account_hash":"a".repeat(64),"thread_id":"abcdef","unread_before":true});
+    let attempt = store.reserve(&input, "run", None).unwrap();
+    let id = attempt["id"].as_i64().unwrap();
+    assert!(store.reconcile_gmail(id, "applied").is_err());
+    store.finish(id, "reported_failure").unwrap();
+    assert_eq!(
+        store.gmail_evidence(id).unwrap().unwrap()["unread_before"],
+        true
+    );
+    store.reconcile_gmail(id, "applied").unwrap();
+    assert!(store.gmail_evidence(id).unwrap().is_none());
+    assert!(store.reconcile_gmail(id, "not_applied").is_err());
+    assert_eq!(
+        store.reviews("fixture").unwrap()[0]["resolution"],
+        "applied"
+    );
+    assert_eq!(
+        store.reviews("fixture").unwrap()[0]["automatic_resolution"],
+        "applied"
+    );
+    db.close().unwrap();
+}
+#[test]
 fn journal_recovers_gates_exact_reviews_and_preserves_audit_without_payloads() {
     let db = db();
     let store = attempts::Store(db.clone());
@@ -458,6 +486,38 @@ fn pages_reopen_and_keep_reviewed_history_without_reusing_ids() {
 }
 
 #[test]
+fn gmail_evidence_survives_restart_and_auto_review_is_attributed() {
+    let (_, memory, dir) = fixture();
+    memory.close().unwrap();
+    let file = dir.0.join("gmail.sqlite3");
+    let db = Database::open(&file, 500).unwrap();
+    db.migrate("browser", attempts::MIGRATIONS).unwrap();
+    let mut meta = metadata();
+    meta["gmail_evidence"] =
+        json!({"account_hash":"c".repeat(64),"thread_id":"abcdef","unread_before":false});
+    let id = attempts::Store(db.clone())
+        .reserve(&meta, "run", None)
+        .unwrap()["id"]
+        .as_i64()
+        .unwrap();
+    db.close().unwrap();
+    let db = Database::open(&file, 500).unwrap();
+    db.migrate("browser", attempts::MIGRATIONS).unwrap();
+    let store = attempts::Store(db.clone());
+    store.recover().unwrap();
+    assert_eq!(
+        store.gmail_evidence(id).unwrap().unwrap()["thread_id"],
+        "abcdef"
+    );
+    store.reconcile_gmail(id, "applied").unwrap();
+    let receipt = &store.reviews("fixture").unwrap()[0];
+    assert_eq!(receipt["automatic_resolution"], "applied");
+    assert!(!receipt.to_string().contains("abcdef"));
+    assert!(!receipt.to_string().contains(&"c".repeat(64)));
+    db.close().unwrap();
+}
+
+#[test]
 fn mismatched_preflight_never_reserves_or_sends_an_effect() {
     let (controller, db, dir) = fixture();
     let log = dir.0.join("calls");
@@ -481,6 +541,103 @@ esac
 done"#;
 fn request() -> Value {
     json!({"method":"plugin_run","action":"verify","plugin_id":"fixture","function_name":"send","expected_revision":1,"arguments":{"secret":"PRIVATE_ARGUMENT"}})
+}
+#[test]
+fn gmail_review_uses_saved_evidence_and_never_resends_archive() {
+    let (controller, db, dir) = fixture();
+    let store = attempts::Store(db.clone());
+    let mut meta = metadata();
+    meta["transport"] = json!("gmail_archive");
+    meta["gmail_evidence"] =
+        json!({"account_hash":"a".repeat(64),"thread_id":"abcdef","unread_before":true});
+    let attempt = store.reserve(&meta, "run", None).unwrap();
+    let id = attempt["id"].as_i64().unwrap();
+    store.finish(id, "reported_failure").unwrap();
+    let log = dir.0.join("review_calls");
+    let script = "while IFS= read -r line; do case \"$line\" in *'\"action\":\"gmail_review\"'*) printf '%s\\n' review >> \"$GENNIE_WEB_FIXTURE_LOG\"; printf '%s\\n' '{\"status\":\"applied\"}';; *) printf '%s\\n' unexpected >> \"$GENNIE_WEB_FIXTURE_LOG\"; printf '%s\\n' '{\"status\":\"error\"}';; esac; done";
+    *controller.inner.session.lock().unwrap() = Some(process::Session::scripted(script, &log));
+    let result = controller
+        .automate(json!({"method":"gmail_reconcile","attempt_id":id}))
+        .unwrap();
+    assert_eq!(result["status"], "reviewed");
+    assert_eq!(result["resolution"], "applied");
+    assert_eq!(std::fs::read_to_string(log).unwrap().trim(), "review");
+    assert_eq!(
+        controller.web_attempts("fixture", None).unwrap()["total"],
+        0
+    );
+    controller.stop().unwrap();
+    db.close().unwrap();
+}
+#[test]
+fn gmail_review_keeps_block_for_inconclusive_or_missing_evidence() {
+    let (controller, db, dir) = fixture();
+    let store = attempts::Store(db.clone());
+    let mut meta = metadata();
+    meta["gmail_evidence"] =
+        json!({"account_hash":"b".repeat(64),"thread_id":"abcdef","unread_before":true});
+    let id = store.reserve(&meta, "run", None).unwrap()["id"]
+        .as_i64()
+        .unwrap();
+    store.finish(id, "reported_failure").unwrap();
+    let log = dir.0.join("inconclusive_calls");
+    let script = "while IFS= read -r line; do printf '%s\\n' call >> \"$GENNIE_WEB_FIXTURE_LOG\"; printf '%s\\n' '{\"status\":\"inconclusive\"}'; done";
+    *controller.inner.session.lock().unwrap() = Some(process::Session::scripted(script, &log));
+    assert_eq!(
+        controller
+            .automate(json!({"method":"gmail_reconcile","attempt_id":id}))
+            .unwrap()["status"],
+        "review_required"
+    );
+    assert_eq!(
+        controller
+            .automate(json!({"method":"gmail_reconcile","attempt_id":id+1}))
+            .unwrap()["status"],
+        "review_required"
+    );
+    assert_eq!(std::fs::read_to_string(log).unwrap().lines().count(), 1);
+    assert_eq!(
+        controller.web_attempts("fixture", None).unwrap()["total"],
+        1
+    );
+    controller.stop().unwrap();
+    db.close().unwrap();
+}
+#[test]
+fn gmail_review_of_legacy_attempt_does_not_start_browser() {
+    let (controller, db, _) = fixture();
+    let store = attempts::Store(db.clone());
+    let id = store.reserve(&metadata(), "run", None).unwrap()["id"]
+        .as_i64()
+        .unwrap();
+    store.finish(id, "reported_failure").unwrap();
+    let result = controller
+        .automate(json!({"method":"gmail_reconcile","attempt_id":id}))
+        .unwrap();
+    assert_eq!(result["status"], "review_required");
+    assert!(controller.inner.session.lock().unwrap().is_none());
+    controller.stop().unwrap();
+    db.close().unwrap();
+}
+#[test]
+fn successful_automatic_review_reports_a_completed_run() {
+    let (controller, db, dir) = fixture();
+    let log = dir.0.join("actions");
+    let account = "a".repeat(64);
+    let script = format!(
+        "while IFS= read -r line; do case \"$line\" in *'\"action\":\"preflight\"'*) printf '%s\\n' '{{\"status\":\"ready\",\"executed\":false,\"plugin_id\":\"fixture\",\"plugin_name\":\"Prueba\",\"function_name\":\"send\",\"revision\":1,\"transport\":\"gmail_archive\"}}';; *'\"action\":\"gmail_evidence\"'*) printf '%s\\n' '{{\"status\":\"ready\",\"account_hash\":\"{account}\",\"thread_id\":\"abcdef\",\"unread_before\":true}}';; *'\"action\":\"gmail_review\"'*) printf '%s\\n' '{{\"status\":\"applied\"}}';; *) printf '%s\\n' action >> \"$GENNIE_WEB_FIXTURE_LOG\"; printf '%s\\n' '{{\"status\":\"result_uncertain\"}}';; esac; done"
+    );
+    *controller.inner.session.lock().unwrap() = Some(process::Session::scripted(&script, &log));
+    let mut call = request();
+    call["action"] = json!("run");
+    call["arguments"] = json!({"id":"abcdef"});
+    let result = controller.automate(call).unwrap();
+    assert_eq!(result["status"], "ok");
+    assert_eq!(result["automatic_review"], "applied");
+    assert_eq!(result["review_required"], false);
+    assert_eq!(std::fs::read_to_string(log).unwrap().lines().count(), 1);
+    controller.stop().unwrap();
+    db.close().unwrap();
 }
 #[test]
 fn cancelling_sent_web_calls_and_module_shutdown_keep_uncertainty_without_resending() {
@@ -915,7 +1072,7 @@ try {
  await context.exposeFunction('fixtureArchive',async()=>{await appendFile(path.join(root,'clicks'),'x');archived=true;});
  await context.route('**/*',async route=>{
   const failed=await exists('fail_before'),ambiguous=await exists('ambiguous'),delayed=await exists('delayed');
-  const body=`<!doctype html><html><body><main role="main"><div role="grid" style="min-height:40px"></div></main><script>
+  const body=`<!doctype html><html><body><a href="https://accounts.google.com/SignOutOptions" aria-label="Google Account: Example (example@example.com)">Cuenta</a><main role="main"><div role="grid" style="min-height:40px"></div></main><script>
    const q=decodeURIComponent(location.hash.slice(8)).replace(/\\+/g,' ');
    const inbox=q.startsWith('in:inbox '),show=inbox?!${archived}:${archived}&&!${ambiguous};
    const grid=document.querySelector('[role=grid]');
@@ -949,6 +1106,19 @@ fn gmail_archive_verifies_identity_and_preserves_unread_without_repeating() {
     assert_eq!(first["executed"], false);
     assert_eq!(first["review_required"], false);
     assert!(!dir.0.join("clicks").exists());
+    let evidence_count = db
+        .with_connection(|c| {
+            Ok(c.query_row(
+                "SELECT count(*) FROM browser_gmail_archive_evidence",
+                [],
+                |r| r.get::<_, i64>(0),
+            )?)
+        })
+        .unwrap();
+    assert_eq!(
+        evidence_count, 1,
+        "la cuenta y el estado deben reservarse antes de la acción"
+    );
     std::fs::remove_file(dir.0.join("fail_before")).unwrap();
     let result = controller.automate(call.clone()).unwrap();
     assert_eq!(result["status"], "ok", "{result}");
@@ -988,6 +1158,78 @@ fn gmail_archive_uncertain_effect_never_clicks_twice() {
         "review_required"
     );
     assert_eq!(std::fs::read_to_string(dir.0.join("clicks")).unwrap(), "x");
+    std::fs::remove_file(dir.0.join("ambiguous")).unwrap();
+    let reviewed = controller
+        .automate(json!({"method":"gmail_reconcile", "attempt_id": first["web_attempt_id"]}))
+        .unwrap();
+    assert_eq!(reviewed["status"], "reviewed", "{reviewed}");
+    assert_eq!(reviewed["resolution"], "applied");
+    assert_eq!(std::fs::read_to_string(dir.0.join("clicks")).unwrap(), "x");
+    controller.stop().unwrap();
+    db.close().unwrap();
+}
+
+#[test]
+#[ignore = "Archiva una promoción no importante autorizada por el usuario en Gmail real; requiere perfil exclusivo"]
+fn real_gmail_authorized_unimportant_archive_recovers_confirmation() {
+    const NODE: &str = r#"
+import {createInterface} from 'node:readline';
+import {createRequire} from 'node:module';
+import {pathToFileURL} from 'node:url';
+import {appendFile} from 'node:fs/promises';
+import path from 'node:path';
+const runtime=path.join(process.env.HOME,'Library/Application Support/Gennie/browser/runtime-patchright-1.64.2');
+const {chromium}=createRequire(path.join(runtime,'package.json'))('patchright');
+const {createWebPlugins}=await import(pathToFileURL(process.env.GENNIE_WEB_PLUGIN_MODULE));
+const context=await chromium.launchPersistentContext(process.env.GENNIE_GMAIL_LIVE_PROFILE,{headless:true,viewport:{width:1280,height:800},timeout:15000,executablePath:path.join(runtime,'Gennie Web.app/Contents/MacOS/Google Chrome for Testing')});
+try {
+ const page=await context.newPage(), q='in:inbox category:promotions -is:important -is:starred';
+ await page.goto('https://mail.google.com/mail/u/0/#search/'+encodeURIComponent(q),{waitUntil:'domcontentloaded',timeout:30000});
+ await page.locator('[role=grid] [role=row]').first().waitFor({state:'visible',timeout:20000});
+ const candidates=await page.evaluate(()=>[...document.querySelectorAll('[role=grid] [role=row]')].filter(r=>r.getClientRects().length).map(r=>r.querySelector('[data-legacy-thread-id]')?.getAttribute('data-legacy-thread-id')).filter(id=>/^[a-f0-9]{1,16}$/i.test(id||'')));
+ if(!candidates.length)throw Error('no_safe_candidate');await page.close();
+ const plugins=createWebPlugins({directory:path.join(process.env.GENNIE_WEB_FIXTURE_ROOT,'recipes'),getContext:()=>context});
+ await plugins.dispatch({action:'save',expected_revision:0,manifest:{id:'fixture',name:'Gmail',origin:'https://mail.google.com',functions:[{name:'send',description:'Archivar',parameters:{id:'string'},transport:'gmail_archive',path:'/mail/u/0/',result_type:'object'},{name:'importance',description:'Comprobar importancia',parameters:{id:'string'},transport:'gmail_importance',path:'/mail/u/0/',result_type:'object'}]}});
+ let id;
+ for(const candidate of candidates.slice(0,10)) {
+   const check=await plugins.dispatch({action:'verify',plugin_id:'fixture',function_name:'importance',expected_revision:1,arguments:{id:candidate}});
+   if(check.status==='ok' && check.data?.importante===false && typeof check.data?.no_leida==='boolean'){id=candidate;break;}
+ }
+ if(!id)throw Error('no_confirmed_unimportant_candidate');
+ for await(const line of createInterface({input:process.stdin})){try{
+   const req=JSON.parse(line);req.arguments={id};
+   const result=await plugins.dispatch(req);
+   if(['run','verify'].includes(req.action)) {
+     await appendFile(path.join(process.env.GENNIE_WEB_FIXTURE_ROOT,'archive_calls'),'x');
+     if(result.status==='ok' && result.data?.archivada===true && result.data?.ya_archivada===false) {console.log(JSON.stringify({status:'result_uncertain',diagnostic:{code:'postcondition_failed',phase:'verify'}}));continue;}
+   }
+   console.log(JSON.stringify(result));
+ }catch{console.log(JSON.stringify({status:'fixture_failure'}));}}
+} finally {await context.close();}
+"#;
+    let profile = std::env::var_os("GENNIE_GMAIL_LIVE_PROFILE")
+        .expect("Se requiere perfil explícito y exclusivo");
+    let expected = PathBuf::from(std::env::var_os("HOME").unwrap())
+        .join("Library/Application Support/Gennie/browser/profile");
+    assert_eq!(
+        std::fs::canonicalize(PathBuf::from(profile)).unwrap(),
+        std::fs::canonicalize(expected).unwrap()
+    );
+    let (controller, db, dir) = fixture();
+    *controller.inner.session.lock().unwrap() = Some(process::Session::node_fixture(NODE, &dir.0));
+    let mut call = request();
+    call["arguments"] = json!({"id":"a"});
+    let result = controller.automate(call).unwrap();
+    assert_eq!(result["status"], "auto_reviewed", "{result}");
+    assert_eq!(result["attempt"]["resolution"], "applied");
+    assert_eq!(
+        std::fs::read_to_string(dir.0.join("archive_calls")).unwrap(),
+        "x"
+    );
+    assert_eq!(
+        controller.web_attempts("fixture", None).unwrap()["total"],
+        0
+    );
     controller.stop().unwrap();
     db.close().unwrap();
 }

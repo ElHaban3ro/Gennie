@@ -419,6 +419,17 @@ impl Controller {
         if let Some(blocked) = self.web_gate(&request)? {
             return Ok(blocked);
         }
+        if request["method"] == "gmail_reconcile" {
+            let id = request["attempt_id"]
+                .as_i64()
+                .filter(|id| *id > 0)
+                .ok_or("Falta intento web")?;
+            if self.attempt_store()?.gmail_evidence(id)?.is_none() {
+                return Ok(
+                    json!({"status":"review_required","attempt_id":id,"executed":false,"message":"No hay evidencia previa suficiente para comprobar este intento automáticamente."}),
+                );
+            }
+        }
         let _catalogue_gate = if matches!(request["method"].as_str(), Some("plugins" | "candidate"))
             && matches!(
                 request["action"].as_str(),
@@ -447,6 +458,23 @@ impl Controller {
         ) {
             guard.take();
             return Err(error);
+        }
+        if request["method"] == "gmail_reconcile" {
+            let id = request["attempt_id"]
+                .as_i64()
+                .filter(|id| *id > 0)
+                .ok_or("Falta intento web")?;
+            let _gate = self
+                .inner
+                .web_execution_gate
+                .try_lock()
+                .map_err(|_| "El navegador sigue trabajando")?;
+            let result =
+                self.review_gmail_attempt(id, guard.as_ref().ok_or("Falta navegador")?, &context);
+            if guard.as_ref().is_some_and(|session| !session.is_usable()) {
+                guard.take();
+            }
+            return result;
         }
         let independent = (request["scope"].is_string() || request["background_scope"] == true)
             && !matches!(

@@ -143,6 +143,8 @@ D-043: plugin_mcp_run conserva bloques MCP e isError externos en la salida nativ
 
 D-044: los accesos web run/verify, incluidos candidatos y el alias plugins, pasan por preflight sin contexto/IO y reserva de Browser antes del envío. Exigir identidad/revisión y executed=false; solo éxito confirmado cierra el intento. Incertidumbre bloquea esa función entre candidatos/argumentos, no las independientes; bloquea mutaciones del plugin salvo la eliminación local confirmada, que conserva el diario. No reusar transporte fallido. Reconciliación humana fuera del inventario del modelo, nunca reejecuta o reactiva horarios. Cierre espera confirmaciones antes de DB. El diario por sí solo no cancela IO; D-045 aporta cancelación por vida del consumidor y cierre del propietario.
 
+Excepción acotada en desarrollo: `browser_gmail_reconcile` comprueba el estado observado de un intento de archivo con evidencia capturada antes de la acción, sin reenviar. Solo registra `applied` si coinciden cuenta, conversación y estado de lectura; cualquier otra observación conserva la revisión humana. No modifica la revisión separada de Encargos.
+
 ## Cancelación de transportes — D-045
 
 Las herramientas que esperan Browser o MCP externo deben propagar CallContext desde el registro contextual, también en el constructor. Comprobar antes de IO y durante las esperas; no reutilizar una sesión con respuesta perdida. El host observa EOF separado de la ejecución y une su lector. El helper observa entrada y salida sin quedar retenido por stdout. Tool tradicional conserva compatibilidad, pero su cuerpo iniciado no se preempta automáticamente.

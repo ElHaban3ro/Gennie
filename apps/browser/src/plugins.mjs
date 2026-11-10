@@ -1,7 +1,7 @@
 // Recetas y bloques ejecutables reutilizables de plugins.
 import * as pluginFs from 'node:fs/promises';
 import pluginPath from 'node:path';
-import { randomUUID as pluginUUID } from 'node:crypto';
+import { randomUUID as pluginUUID, createHash as pluginHash } from 'node:crypto';
 
 const PLUGIN_LIMIT = 128 * 1024;
 const pluginId = value => typeof value === 'string' && /^[a-z][a-z0-9_]{0,63}$/.test(value);
@@ -233,6 +233,43 @@ async function gmailLocate(context, id, archived, importance=null) {
   } catch(error) { await page.close();throw error; }
 }
 
+// La identidad se obtiene del control oficial de cuenta de la página consultada.
+async function gmailAccount(page) {
+  const email=await page.evaluate(()=>{
+    const links=[...document.querySelectorAll('a[aria-label]')].filter(n=>{
+      if (!n.getClientRects().length || !/^(Google Account|Cuenta de Google)\s*:/i.test(n.getAttribute('aria-label')||'')) return false;
+      try { const url=new URL(n.href); return url.protocol==='https:' && ['accounts.google.com','myaccount.google.com'].includes(url.hostname); } catch { return false; }
+    });
+    const matches=links.flatMap(n=>[...(n.getAttribute('aria-label')||'').matchAll(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi)].map(m=>m[0].toLowerCase()));
+    return matches.length===1 ? matches[0] : null;
+  });
+  return email ? pluginHash('sha256').update(email).digest('hex') : null;
+}
+
+async function gmailEvidence(context,id) {
+  let inbox;
+  try {
+    inbox=await gmailLocate(context,id,false);
+    const account=await gmailAccount(inbox.page);
+    if (!account || !inbox.found || typeof inbox.no_leida!=='boolean') return {status:'evidence_unavailable'};
+    return {status:'ready',account_hash:account,thread_id:id.toLowerCase(),unread_before:inbox.no_leida};
+  } catch { return {status:'evidence_unavailable'}; }
+  finally { await inbox?.page.close().catch(()=>{}); }
+}
+
+async function gmailReview(context,evidence) {
+  let inbox, archived;
+  try {
+    inbox=await gmailLocate(context,evidence.thread_id,false);
+    if (await gmailAccount(inbox.page)!==evidence.account_hash) return {status:'inconclusive'};
+    if (inbox.found) return {status:inbox.no_leida===evidence.unread_before?'not_applied':'inconclusive'};
+    archived=await gmailLocate(context,evidence.thread_id,true);
+    if (await gmailAccount(archived.page)!==evidence.account_hash) return {status:'inconclusive'};
+    return {status:archived.found && archived.no_leida===evidence.unread_before?'applied':'inconclusive'};
+  } catch { return {status:'inconclusive'}; }
+  finally { await inbox?.page.close().catch(()=>{}); await archived?.page.close().catch(()=>{}); }
+}
+
 async function gmailImportance(context, id) {
   let important,other;
   try {
@@ -247,10 +284,11 @@ async function gmailImportance(context, id) {
   } finally { await important?.page.close().catch(()=>{}); await other?.page.close().catch(()=>{}); }
 }
 
-async function gmailArchive(context, id) {
+async function gmailArchive(context, id, evidence) {
   let initial,attempted=false,before=null;
   try {
     initial=await gmailLocate(context,id,false);
+    if (evidence && (await gmailAccount(initial.page)!==evidence.account_hash || !initial.found || initial.no_leida!==evidence.unread_before)) return {status:'archive_not_started',executed:false,diagnostic:{code:'program_error',phase:'prepare'},message:'La cuenta o el estado de la conversación cambió; no se archivó.'};
     if (!initial.found) {
       await initial.page.close();initial=null;
       const archived=await gmailLocate(context,id,true);
@@ -409,7 +447,7 @@ export function createWebPlugins({ directory, getContext, verificationBase }) {
       await pluginFs.rename(temporary, filename(record.manifest?.id || record.id));
     } finally { await pluginFs.unlink(temporary).catch(error => { if (error.code !== 'ENOENT') throw error; }); }
   }
-  async function execute(manifest, fn, args) {
+  async function execute(manifest, fn, args, evidence) {
     const target = pluginTarget(manifest, fn, args);
     let context;
     try { context = await getContext(); }
@@ -418,7 +456,7 @@ export function createWebPlugins({ directory, getContext, verificationBase }) {
     if (fn.transport === 'program') {
       return executeProgram(context, manifest, fn, args);
     }
-    if (fn.transport === 'gmail_archive') return gmailArchive(context,args.id);
+    if (fn.transport === 'gmail_archive') return gmailArchive(context,args.id,evidence);
     if (fn.transport === 'gmail_importance') return gmailImportance(context,args.id);
     if (fn.transport === 'gmail_print') {
       let response, page;
@@ -635,7 +673,7 @@ export function createWebPlugins({ directory, getContext, verificationBase }) {
         return { status: 'deleted', plugin_id: record.manifest.id };
       }
       if (request.action === 'get') return { plugin: record };
-      if (!['run', 'verify', 'prepare', 'preflight'].includes(request.action)) pluginFail('invalid_plugin_arguments');
+      if (!['run', 'verify', 'prepare', 'preflight', 'gmail_evidence', 'gmail_review'].includes(request.action)) pluginFail('invalid_plugin_arguments');
       if (request.action === 'preflight' && !['run','verify'].includes(request.operation)) pluginFail('invalid_plugin_arguments');
       const fn = record.manifest.functions.find(fn => fn.name === request.function_name);
       if (!fn) return { status: 'function_not_found' };
@@ -646,10 +684,16 @@ export function createWebPlugins({ directory, getContext, verificationBase }) {
       const invalid = pluginArguments(fn, args);
       if (invalid) return { ...invalid, plugin_id: record.manifest.id, plugin_name: record.manifest.name, function_name: fn.name, revision: record.revision };
       if ((fn.transport === 'gmail_print' && !/^[a-f0-9]{1,128}$/i.test(args.id)) || (['gmail_archive','gmail_importance'].includes(fn.transport) && !/^[a-f0-9]{1,16}$/i.test(args.id))) return {status:'invalid_arguments',executed:false,message:'La identidad de la conversación de Gmail no es válida.'};
+      if (request.action === 'gmail_evidence' || request.action === 'gmail_review') {
+        if (fn.transport !== 'gmail_archive') return {status:'inconclusive'};
+        const context=await getContext();
+        if (!context) return {status:'inconclusive'};
+        return request.action==='gmail_evidence' ? gmailEvidence(context,args.id) : gmailReview(context,request.gmail_evidence);
+      }
       if (request.action !== 'verify' && !(request.action === 'preflight' && request.operation === 'verify') && record.verified[fn.name]?.revision !== record.revision) return { status: 'verification_required', executed: false };
       if (['prepare','preflight'].includes(request.action)) return { status: 'ready', executed: false, plugin_id: record.manifest.id, plugin_name: record.manifest.name, function_name: fn.name, revision: record.revision, transport: fn.transport };
       let result;
-      try { result = await execute(record.manifest, fn, args); }
+      try { result = await execute(record.manifest, fn, args, request.gmail_evidence); }
       catch (error) {
         if (error.code === 'invalid_plugin_arguments') throw error;
         result = fn.transport === 'program' ? { status: 'result_uncertain', message: 'El bloque pudo realizar cambios antes de fallar. Comprueba el resultado antes de repetirlo.' } : { status: error.code === 'site_changed' ? 'site_changed' : error.name === 'TimeoutError' ? 'timeout' : 'execution_failed' };

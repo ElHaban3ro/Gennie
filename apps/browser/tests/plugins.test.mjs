@@ -449,6 +449,32 @@ test('consulta controlada de importancia de Gmail exige identidad y origen', () 
   assert.throws(()=>validateWebPlugin({...manifest,functions:[{...manifest.functions[0],code:'return {};'}]}),{code:'invalid_plugin'});
 });
 
+test('evidencia de Gmail exige misma cuenta y estado de lectura para confirmar archivo', async t => {
+  const directory=await mkdtemp(path.join(tmpdir(),'gennie-gmail-evidence-'));
+  t.after(()=>rm(directory,{recursive:true,force:true}));
+  let account='persona@example.com',mode='inbox',unread=true,closed=0;
+  const context={newPage:async()=>{let url;return {
+    goto:async u=>{url=u;},url:()=>url,waitForFunction:async()=>{},
+    evaluate:async (_fn,id)=>id ? {found:decodeURIComponent(url).includes('#search/in:inbox ') ? mode==='inbox' : mode==='archived',no_leida:unread} : account,
+    close:async()=>{closed++;}
+  };}};
+  const plugins=createWebPlugins({directory,getContext:()=>context});
+  const manifest={id:'archive',name:'Gmail',origin:'https://mail.google.com',functions:[{name:'archive',description:'Archivar',parameters:{id:'string'},transport:'gmail_archive',path:'/mail/u/0/',result_type:'object'}]};
+  await plugins.dispatch({action:'save',expected_revision:0,manifest});
+  const call={plugin_id:'archive',function_name:'archive',expected_revision:1,arguments:{id:'abcdef'}};
+  const evidence=await plugins.dispatch({...call,action:'gmail_evidence'});
+  assert.equal(evidence.status,'ready');
+  mode='archived';
+  assert.equal((await plugins.dispatch({...call,action:'gmail_review',gmail_evidence:evidence})).status,'applied');
+  account='otra@example.com';
+  assert.equal((await plugins.dispatch({...call,action:'gmail_review',gmail_evidence:evidence})).status,'inconclusive');
+  account='persona@example.com';unread=false;
+  assert.equal((await plugins.dispatch({...call,action:'gmail_review',gmail_evidence:evidence})).status,'inconclusive');
+  mode='inbox';unread=true;
+  assert.equal((await plugins.dispatch({...call,action:'gmail_review',gmail_evidence:evidence})).status,'not_applied');
+  assert.equal(closed,7);
+});
+
 test('importancia exige resultados excluyentes y no abre mensajes', async t => {
   const directory=await mkdtemp(path.join(tmpdir(),'gennie-gmail-importance-'));
   t.after(()=>rm(directory,{recursive:true,force:true}));

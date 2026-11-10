@@ -1,7 +1,36 @@
 //! Un solo paso con reserva durable para todos los consumidores de recetas web.
 use super::*;
 impl Controller {
-    fn attempt_store(&self) -> Result<attempts::Store> {
+    pub(super) fn review_gmail_attempt(
+        &self,
+        id: i64,
+        session: &process::Session,
+        context: &gennie_mcp::CallContext,
+    ) -> Result<Value> {
+        let store = self.attempt_store()?;
+        let Some(evidence) = store.gmail_evidence(id)? else {
+            return Ok(
+                json!({"status":"review_required","message":"No hay evidencia previa suficiente para comprobar este intento automáticamente."}),
+            );
+        };
+        let mut request = json!({"method":if evidence["candidate_id"].is_string() {"candidate"} else {"plugin_run"}, "action":"gmail_review", "plugin_id":evidence["plugin_id"], "function_name":evidence["function_name"], "expected_revision":evidence["revision"], "arguments":{"id":evidence["thread_id"]}, "gmail_evidence":evidence});
+        if evidence["candidate_id"].is_string() {
+            request["candidate_id"] = evidence["candidate_id"].clone();
+        }
+        let observation = decode_response(session.request_with_context(&request, context)?)?;
+        if observation["status"] == "applied" {
+            store.reconcile_gmail(id, "applied")?;
+            self.execution_changed();
+            Ok(
+                json!({"status":"reviewed","resolution":"applied","method":"automatic","attempt_id":id,"executed":false}),
+            )
+        } else {
+            Ok(
+                json!({"status":"review_required","attempt_id":id,"executed":false,"message":"No se pudo confirmar el efecto completo en la misma cuenta; el intento sigue bloqueado."}),
+            )
+        }
+    }
+    pub(super) fn attempt_store(&self) -> Result<attempts::Store> {
         self.inner
             .attempts
             .lock()
@@ -148,7 +177,7 @@ impl Controller {
         let mut preflight = request.clone();
         preflight["operation"] = request["action"].clone();
         preflight["action"] = json!("preflight");
-        let prepared = decode_response(session.request_with_context(&preflight, context)?)?;
+        let mut prepared = decode_response(session.request_with_context(&preflight, context)?)?;
         if prepared["status"] != "ready" {
             return Ok((prepared, false));
         }
@@ -172,6 +201,14 @@ impl Controller {
                 false,
             ));
         }
+        if prepared["transport"] == "gmail_archive" {
+            let mut observation = request.clone();
+            observation["action"] = json!("gmail_evidence");
+            let evidence = decode_response(session.request_with_context(&observation, context)?)?;
+            if evidence["status"] == "ready" {
+                prepared["gmail_evidence"] = evidence;
+            }
+        }
         context.check()?;
         let reserved = store.reserve(
             &prepared,
@@ -192,6 +229,9 @@ impl Controller {
         // Vincula la ejecución al tipo comprobado antes de crear la reserva.
         let mut execution_request = request.clone();
         execution_request["checked_transport"] = prepared["transport"].clone();
+        if prepared["gmail_evidence"].is_object() {
+            execution_request["gmail_evidence"] = prepared["gmail_evidence"].clone();
+        }
         let result = session
             .request_with_context(&execution_request, context)
             .and_then(decode_response);
@@ -228,10 +268,44 @@ impl Controller {
             prepared["transport"].as_str(),
             Some("observe" | "gmail_inbox" | "gmail_print" | "gmail_importance")
         );
-        let uncertain =
+        let mut uncertain =
             (reason != "reported_success" && !observation && !not_started) || saved.is_err();
         let mut value=result.unwrap_or_else(|_| if observation { json!({"status":"observation_failed","message":"No se pudo leer la página abierta; el resultado no está disponible."}) } else { json!({"status":"result_uncertain","message":"El navegador dejó de confirmar la operación; comprueba su efecto antes de repetirla."}) });
         let mut attempt = saved.unwrap_or(reserved);
+        if uncertain
+            && !context.is_cancelled()
+            && attempt["state"] == "uncertain"
+            && let Some(evidence) = store.gmail_evidence(attempt["id"].as_i64().unwrap())?
+        {
+            let mut review = request.clone();
+            review["action"] = json!("gmail_review");
+            review["gmail_evidence"] = evidence;
+            if let Ok(response) = session
+                .request_with_context(&review, context)
+                .and_then(decode_response)
+            {
+                // Un efecto visible se confirma; la ausencia puede ser un efecto demorado.
+                if response["status"] == "applied"
+                    && store
+                        .reconcile_gmail(attempt["id"].as_i64().unwrap(), "applied")
+                        .is_ok()
+                {
+                    attempt["state"] = json!("reviewed");
+                    attempt["resolution"] = json!("applied");
+                    value["status"] = if request["action"] == "run" {
+                        json!("ok")
+                    } else {
+                        json!("auto_reviewed")
+                    };
+                    value["automatic_review"] = json!("applied");
+                    value["message"] = json!(
+                        "Se comprobó que la conversación está archivada y conserva su estado de lectura."
+                    );
+                    uncertain = false;
+                    self.execution_changed();
+                }
+            }
+        }
         attempt["active"] = json!(false);
         if attempt["state"] == "running" {
             attempt["state"] = json!("uncertain");

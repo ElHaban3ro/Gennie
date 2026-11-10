@@ -101,7 +101,7 @@ fn mcp_rejects_invalid_arguments_before_touching_the_browser() {
 fn expanded_inventory_validates_structured_arguments_without_side_effects() {
     let controller = Controller::new("/missing/gennie-browser-test".into());
     let tools = tools(controller.clone());
-    assert_eq!(tools.len(), 24);
+    assert_eq!(tools.len(), 25);
     for (name, invalid) in [
         ("browser_wait_for", json!({"kind":"element"})),
         (

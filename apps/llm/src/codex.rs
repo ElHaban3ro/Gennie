@@ -1510,6 +1510,7 @@ fn session_capabilities(settings: &Settings, tool_names: &[String]) -> Value {
             "background_builder_available":local_control && tool_names.iter().any(|name| name == "plugin_build_start"),
             "background_builder_tools": if local_control { tool_names.iter().filter(|name| matches!(name.as_str(), "plugin_build_start" | "plugin_build_jobs")).collect::<Vec<_>>() } else { Vec::new() },
             "builder_schedules_assignments":false,
+            "gmail_reconciliation": if local_control && tool_names.iter().any(|name| name == "browser_gmail_reconcile") { "Para archivo de Gmail incierto, usa browser_gmail_reconcile con el ID del intento antes de pedir intervención. Esta comprobación del host es la excepción específica a la regla general de revisión humana: no repite la acción y solo resuelve cuando la evidencia es suficiente; si sigue pendiente pide revisión humana." } else { "no disponible" },
             "authentication":"solo cuando la operación requiere acceso y la sesión existente no basta"
         },
         "mcp_plugins": {
@@ -1764,6 +1765,27 @@ mod tests {
         assert_eq!(
             super::session_capabilities(&Settings::default(), &[])["web_plugins"]["background_builder_tools"],
             json!([])
+        );
+    }
+    #[test]
+    fn gmail_reconciliation_is_advertised_only_when_permitted_and_registered() {
+        let names = vec!["browser_gmail_reconcile".to_owned()];
+        let mut settings = Settings::default();
+        let available = super::session_capabilities(&settings, &names);
+        assert!(
+            available["web_plugins"]["gmail_reconciliation"]
+                .as_str()
+                .unwrap()
+                .contains("browser_gmail_reconcile")
+        );
+        settings.local_actions = false;
+        assert_eq!(
+            super::session_capabilities(&settings, &names)["web_plugins"]["gmail_reconciliation"],
+            "no disponible"
+        );
+        assert_eq!(
+            super::session_capabilities(&Settings::default(), &[])["web_plugins"]["gmail_reconciliation"],
+            "no disponible"
         );
     }
     #[test]
