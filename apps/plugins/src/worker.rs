@@ -790,6 +790,10 @@ fn scoped_tools(
                 "{} Para el detalle de Gmail usa gmail_print: origin https://mail.google.com, path /mail/u/0/, parameters {{id:\"string\"}}, result_type object, sin code ni selectores. Para comprobar si una conversación en Recibidos es importante usa gmail_importance con el mismo origin, path y parámetros; devuelve importante y no_leida sin abrirla. Para archivar usa gmail_archive con el mismo origin, path y parámetros: selecciona por identidad sin abrir, pulsa Archivar una vez y verifica el estado de lectura. Solo verifica una escritura sobre la conversación autorizada; ya_archivada no prueba una acción nueva. Para comprobar paginación bastan dos páginas cuando existen; no recorras toda la bandeja durante la preparación salvo petición expresa. Una revisión unknown conserva un resultado anterior desconocido: no repitas aquel programa; sustitúyelo por una lectura controlada. quarantined_recipe significa que el host rechazó la ejecución antes de empezar, sin necesitar otra revisión del usuario.",
                 definition["description"].as_str().unwrap_or_default()
             ));
+            definition["description"] = json!(format!(
+                "{} Investiga si la cuenta o perfil activo importa para las funciones solicitadas. Si corresponde, identifica y verifica mediante la interfaz oficial una identidad estable del perfil y documenta la capacidad y sus límites; no uses la posición de la cuenta ni el nombre visible como identidad estable. Si no puedes comprobarla, indícalo en limitations sin inventarla. Si no corresponde, documenta ese hecho y su motivo. No guardes credenciales, cookies ni tokens.",
+                definition["description"].as_str().unwrap_or_default()
+            ));
         }
         let schema = definition["inputSchema"].clone();
         let controller = controller.clone();
@@ -1067,6 +1071,8 @@ mod retry_tests {
         let description = candidate.definition["description"].as_str().unwrap();
         assert!(description.contains("http exige una respuesta JSON"));
         assert!(description.contains("página HTML utiliza transport page"));
+        assert!(description.contains("Investiga si la cuenta o perfil activo"));
+        assert!(description.contains("Si no corresponde"));
         let tool = tools
             .iter()
             .find(|t| t.definition["name"] == "browser_navigate")
