@@ -436,7 +436,6 @@ class _VoiceDebugHoverState extends State<_VoiceDebugHover> {
                     'Texto de voz generado:\n$preview${text.runes.length > 200 ? '…' : ''}\nPulsa para ver completo.',
                 child: IconButton(
                   key: const ValueKey('message-voice-debug'),
-                  tooltip: null,
                   constraints: const BoxConstraints.tightFor(
                     width: 28,
                     height: 28,
