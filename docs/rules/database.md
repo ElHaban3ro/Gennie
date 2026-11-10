@@ -149,6 +149,10 @@ D-037: assignments 0010 posee recibo de solicitud del chat por review_id y UNIQU
 
 ## Diario de recetas web — D-044
 
+Browser 0004 amplía el diagnóstico con columnas de valores cerrados para discrepancia de tipo y fase de ejecución, sin cambiar columnas o recibos anteriores. Los lectores combinan el valor nuevo con el histórico. Una operación confirmada como no iniciada cierra su intento sin marcar que tuvo éxito ni permitir que se pierda un fallo de persistencia.
+
+Browser 0005 conserva el cierre humano de incertidumbre sin inventar resolución mediante `closed_unconfirmed_at`. El intento termina conservando razón y diagnóstico; la función queda en cuarentena para ejecuciones arbitrarias y solo permite transportes de lectura controlada. No se autoriza otro envío ni se reconcilian ejecuciones de Encargos.
+
 Browser posee browser_web_attempts (0001) usando la conexión compartida, sin cambiar migraciones anteriores ni recetas en archivos. Reserva antes de IO; ID AUTOINCREMENT, identidad/revisión/candidato/operación y estados/razones fijos, fechas UTC y revisión humana. No argumentos, resultados, hashes de cuerpos o errores libres. Índice único de pendiente por plugin/función; una función incierta bloquea run/verify/prepare y las mutaciones del plugin completo, salvo la eliminación local confirmada que conserva el diario, sin bloquear funciones independientes. Confirmación fallida mantiene reserva; arranque recupera running sin reenvío. Consulta por ID en páginas de cincuenta y recibos conservados tras revisar/eliminar receta. Reconciliación humana comprueba plugin/ID/revisión/estado y confirma en una escritura atómica, sin IO o cambiar recetas/horarios. Sin FK entre apps. Encargos guarda solo referencia tipada web_attempt_id/mcp_attempt_id al conservar incertidumbre. Ver [D-044](../decisions/web-attempts.md).
 
 ## Respuestas interrumpidas — D-047

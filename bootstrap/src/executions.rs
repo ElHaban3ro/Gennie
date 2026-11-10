@@ -151,7 +151,10 @@ impl Runtime for Host {
         }
         match prepared["transport"].as_str() {
             Some("http") => Ok(Route::Http),
-            Some("page" | "program") => Ok(Route::Web),
+            Some(
+                "page" | "program" | "gmail_inbox" | "gmail_print" | "gmail_archive"
+                | "gmail_importance",
+            ) => Ok(Route::Web),
             Some("mcp") => Ok(Route::Mcp),
             _ => Err("La función no tiene una vía de ejecución admitida".into()),
         }

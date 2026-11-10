@@ -53,3 +53,7 @@ El [recorrido nativo de actividad/revisión/pausa](../verification/native-execut
 ## Próxima fecha en la lista
 
 La proyección de lectura upcoming_execution_times pertenece a Assignments: máximo cien IDs positivos visibles, unión por instancia, políticas enabled/active, versión y documento activos/vigentes, mínimo por instante persistido. Sin preparar, recomputar calendario o ejecutar; no añade migraciones. Bootstrap traslada el opcional al snapshot/FRB y Flutter lo presenta en hora local como fecha prevista. La [verificación](../verification/assignment-next-execution.md) incluye mínimo/pausa/obsolescencia/identidad/lectura, reapertura y cuatro estados nativos sin Runner; no promete ejecución con el producto cerrado o una función indisponible.
+
+### Fallo de lectura controlada
+
+La función `gmail_inbox` se resuelve como vía web y exige autorización web vigente. Si el host confirma que un intento de lectura controlada terminó sin resultado y no requiere revisión, la ocurrencia se registra como `rejected` con código `controlled_read_failed`, sin afirmar éxito ni pedir una comprobación de efecto. No se repite esa ocurrencia inmediatamente; una política recurrente conserva sus próximas ocurrencias autorizadas. El detalle muestra «Lectura fallida» y la comunicación del bot no afirma que la ejecución estuviera pausada o no se enviara. Un programa o resultado sin clasificación confiable sigue siendo incierto y mantiene la revisión humana.

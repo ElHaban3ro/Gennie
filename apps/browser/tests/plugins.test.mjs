@@ -30,6 +30,28 @@ test('valida contratos cerrados y rechaza credenciales/código antes de guardar'
     { functions: [{ ...manifest().functions[0], query: { after: '{unknown}' } }] },
   ]) assert.throws(() => validateWebPlugin({ ...manifest(), ...patch }), { code: 'invalid_plugin' });
 });
+test('rechaza una función flecha completa como cuerpo antes de ejecutar', () => {
+  const fn={name:'list',description:'Consulta',parameters:{},transport:'program',path:'/',result_type:'object',code:'async ({count}, runtime) => { return {added:count}; }'};
+  const input={id:'mail',name:'Prueba',origin:'https://example.com',functions:[fn]};
+  assert.throws(()=>validateWebPlugin(input),{code:'invalid_program_body'});
+  assert.doesNotThrow(()=>validateWebPlugin({...input,functions:[{...fn,code:'const f = async () => 1; return {value:await f()};'}]}));
+});
+test('el constructor puede corregir el cuerpo rechazado sin ejecutar ni crear revisión', async t => {
+  const directory=await mkdtemp(path.join(tmpdir(),'gennie-body-test-'));
+  t.after(()=>rm(directory,{recursive:true,force:true}));
+  let contexts=0;
+  const plugins=createWebPlugins({directory,getContext:()=>{contexts++;return {newPage:async()=>({close:async()=>{}})};}});
+  const fn={name:'list',description:'Consulta',parameters:{},transport:'program',path:'/',result_type:'object',code:'async ({count}, runtime) => { return {added:count}; }'};
+  const input={id:'fixture',name:'Prueba',origin:'https://example.com',functions:[fn]};
+  await assert.rejects(plugins.dispatch({action:'save',manifest:input,expected_revision:0}),{code:'invalid_program_body'});
+  assert.equal(contexts,0);
+  assert.equal((await plugins.dispatch({action:'get',plugin_id:'fixture'})).status,'plugin_not_found');
+  const saved=await plugins.dispatch({action:'save',manifest:{...input,functions:[{...fn,code:'return {added:1};'}]},expected_revision:0});
+  assert.equal(saved.plugin.revision,1);
+  const result=await plugins.dispatch({action:'verify',plugin_id:'fixture',function_name:'list',expected_revision:1,arguments:{},program_allowed:true});
+  assert.deepEqual(result.data,{added:1});
+  assert.equal(contexts,1);
+});
 test('revisión, verificación por función, persistencia y edición invalidan evidencia', async t => {
   const f = await fixture(t);
   assert.equal((await f.save()).status, 'saved');
@@ -67,6 +89,16 @@ test('preflight valida verificación y ejecución sin obtener contexto ni ejecut
   await assert.rejects(inspect.dispatch({...base,operation:'review'}),{code:'invalid_plugin_arguments'});
   assert.equal(f.calls.length,0);
   assert.deepEqual((await f.plugins.dispatch({action:'get',plugin_id:'mail'})).plugin.verified,{});
+});
+test('fallo al obtener contexto antes del programa es diagnosticado y no ejecutado', async t => {
+  const f=await fixture(t);
+  await f.save({id:'mail',name:'Prueba',origin:'https://example.com',functions:[{name:'list',description:'Consulta',parameters:{},transport:'program',path:'/',result_type:'object',code:'throw new Error("no debe ejecutarse");'}]});
+  const failed=createWebPlugins({directory:f.directory,getContext:()=>{const error=new Error('PRIVATE');error.name='TimeoutError';throw error;}});
+  const result=await failed.dispatch({action:'verify',plugin_id:'mail',function_name:'list',expected_revision:1,arguments:{},program_allowed:true});
+  assert.equal(result.status,'browser_unavailable');
+  assert.equal(result.executed,false);
+  assert.deepEqual(result.diagnostic,{code:'timeout',phase:'prepare'});
+  assert.ok(!JSON.stringify(result).includes('PRIVATE'));
 });
 test('acceso bajo demanda: público/sesión vigente, 401, 403, redirect y contrato', async t => {
   const f = await fixture(t); await f.save();
@@ -283,15 +315,22 @@ async function recoveryFixture(t, code) {
   await plugins.dispatch({action:'save',expected_revision:0,manifest:{id:'recover',name:'Prueba',origin:'https://example.com',functions:[{name:'action',description:'Prueba',parameters:{},transport:'program',path:'/',result_type:'object',code}]}});
   return { directory, state, plugins, run: (action='verify') => plugins.dispatch({action,plugin_id:'recover',function_name:'action',expected_revision:1,arguments:{},program_allowed:true}) };
 }
-test('recupera lecturas transitorias y confirma una escritura cuyo paso final falló', async t => {
+test('runtime.read no repite un bloque arbitrario que pudo causar un efecto', async t => {
+  const f=await recoveryFixture(t, `await runtime.read('open',async()=>{context.state.writes++;const e=new Error('private');e.name='TimeoutError';throw e;});return {};`);
+  const result=await f.run();
+  assert.equal(result.status,'result_uncertain');
+  assert.equal(f.state.writes,1);
+  assert.equal(result.diagnostic.read_attempts,1);
+});
+test('confirma una escritura cuyo paso final falló sin repetirla', async t => {
   const f = await recoveryFixture(t, `
-    await runtime.read('load', async()=>{ context.state.reads++; if(context.state.reads<2){ const e=new Error('private detail');e.name='TimeoutError';throw e; } });
+    await runtime.read('load', async()=>{ context.state.reads++; });
     return runtime.action('archive',async()=>{context.state.writes++;context.state.confirmed=true;throw new TypeError('private detail');},async()=>context.state.confirmed);
   `);
   const result = await f.run();
   assert.equal(result.status,'ok');
   assert.equal(result.data.recovered,true);
-  assert.equal(f.state.reads,2);
+  assert.equal(f.state.reads,1);
   assert.equal(f.state.writes,1);
   assert.equal((await f.run('run')).data.already_satisfied,true);
   assert.equal(f.state.writes,1);
@@ -312,7 +351,7 @@ test('acota las lecturas fallidas y distingue un error de código de un timeout'
   const result = await f.run();
   assert.equal(result.diagnostic.code,'timeout');
   assert.equal(result.diagnostic.stage,'load');
-  assert.equal(f.state.reads,3);
+  assert.equal(f.state.reads,1);
   assert.equal(f.state.writes,0);
   const invalid = await recoveryFixture(t, `await runtime.read('decode',async()=>{context.state.reads++;throw new TypeError('private detail');});return {};`);
   assert.equal((await invalid.run()).diagnostic.code,'type_error');
@@ -350,4 +389,81 @@ test('prepare valida revisión, verificación y argumentos sin abrir contexto ni
   await f.save(manifest(), 1);
   assert.equal((await f.run('prepare', { after: 'today' }, 2)).status, 'verification_required');
   assert.equal(f.calls.length, count);
+});
+
+test('observación controlada lee una pestaña existente sin ejecutar código ni acciones', async t => {
+  const directory=await mkdtemp(path.join(tmpdir(),'gennie-observe-'));
+  t.after(()=>rm(directory,{recursive:true,force:true}));
+  let reads=0;
+  const page={url:()=> 'https://example.com/inbox',locator:()=>({allTextContents:async()=>{reads++; return ['uno'];}})};
+  const plugins=createWebPlugins({directory,getContext:()=>({pages:()=>[page]})});
+  const manifest={id:'observe',name:'Lectura',origin:'https://example.com',functions:[{name:'inbox',description:'Leer',parameters:{},transport:'observe',path:'/inbox',selector:'.row',result_type:'array'}]};
+  await plugins.dispatch({action:'save',expected_revision:0,manifest});
+  const req={action:'verify',plugin_id:'observe',function_name:'inbox',expected_revision:1,arguments:{}};
+  const ready=await plugins.dispatch({...req,action:'preflight',operation:'verify'});
+  assert.equal(ready.transport,'observe');
+  assert.equal((await plugins.dispatch({...req,checked_transport:'program'})).status,'revision_conflict');
+  assert.equal(reads,0);
+  const result=await plugins.dispatch({...req,checked_transport:'observe'}); assert.equal(result.status,'ok');assert.deepEqual(result.data,['uno']);assert.equal(reads,1);
+  assert.throws(()=>validateWebPlugin({...manifest,functions:[{...manifest.functions[0],code:'await page.click("button")'}]}),{code:'invalid_plugin'});
+});
+
+test('la lectura controlada de Gmail acepta paginación sin código arbitrario', () => {
+  const manifest={id:'gmail_read',name:'Gmail',origin:'https://mail.google.com',functions:[{name:'leer_recibidos',description:'Leer Recibidos',parameters:{pagina:{type:'integer',minimum:1,maximum:100}},transport:'gmail_inbox',path:'/mail/u/0/',result_type:'object'}]};
+  assert.equal(validateWebPlugin(manifest).id,'gmail_read');
+  for (const patch of [{origin:'https://example.com'},{functions:[{...manifest.functions[0],code:'await page.click("archive")'}]},{functions:[{...manifest.functions[0],path:'/mail/u/0/#spam'}]}]) assert.throws(()=>validateWebPlugin({...manifest,...patch}),{code:'invalid_plugin'});
+});
+
+test('lectura de Gmail por impresión exige origen e identidad y no ejecuta código arbitrario', async t => {
+  const directory=await mkdtemp(path.join(tmpdir(),'gennie-gmail-print-'));
+  t.after(()=>rm(directory,{recursive:true,force:true}));
+  let calls=0;
+  const manifest={id:'gmail_read',name:'Gmail',origin:'https://mail.google.com',functions:[{name:'leer_conversacion',description:'Leer',parameters:{id:'string'},transport:'gmail_print',path:'/mail/u/0/',result_type:'object'}]};
+  assert.equal(validateWebPlugin(manifest).id,'gmail_read');
+  assert.throws(()=>validateWebPlugin({...manifest,origin:'https://example.com'}),{code:'invalid_plugin'});
+  assert.throws(()=>validateWebPlugin({...manifest,functions:[{...manifest.functions[0],code:'return {};'}]}),{code:'invalid_plugin'});
+  const plugins=createWebPlugins({directory,getContext:()=>{calls++;return null;}});
+  await plugins.dispatch({action:'save',expected_revision:0,manifest});
+  const result=await plugins.dispatch({action:'preflight',operation:'verify',plugin_id:'gmail_read',function_name:'leer_conversacion',expected_revision:1,arguments:{id:'../x'}});
+  assert.equal(result.status,'invalid_arguments');assert.equal(calls,0);
+});
+
+test('archivo de Gmail exige identidad estable y solo admite el origen permitido', async t => {
+  const directory=await mkdtemp(path.join(tmpdir(),'gennie-gmail-archive-'));
+  t.after(()=>rm(directory,{recursive:true,force:true}));
+  let contexts=0;
+  const manifest={id:'gmail_archive',name:'Gmail',origin:'https://mail.google.com',functions:[{name:'archivar',description:'Archivar una conversación',parameters:{id:'string'},transport:'gmail_archive',path:'/mail/u/0/',result_type:'object'}]};
+  assert.equal(validateWebPlugin(manifest).id,'gmail_archive');
+  assert.throws(()=>validateWebPlugin({...manifest,origin:'https://example.com'}),{code:'invalid_plugin'});
+  assert.throws(()=>validateWebPlugin({...manifest,functions:[{...manifest.functions[0],code:'return {};'}]}),{code:'invalid_plugin'});
+  const plugins=createWebPlugins({directory,getContext:()=>{contexts++;return null;}});
+  await plugins.dispatch({action:'save',expected_revision:0,manifest});
+  const result=await plugins.dispatch({action:'preflight',operation:'verify',plugin_id:'gmail_archive',function_name:'archivar',expected_revision:1,arguments:{id:'../x'}});
+  assert.equal(result.status,'invalid_arguments');assert.equal(contexts,0);
+});
+
+test('consulta controlada de importancia de Gmail exige identidad y origen', () => {
+  const manifest={id:'gmail_importance',name:'Gmail',origin:'https://mail.google.com',functions:[{name:'importancia',description:'Consultar importancia',parameters:{id:'string'},transport:'gmail_importance',path:'/mail/u/0/',result_type:'object'}]};
+  assert.equal(validateWebPlugin(manifest).id,'gmail_importance');
+  assert.throws(()=>validateWebPlugin({...manifest,origin:'https://example.com'}),{code:'invalid_plugin'});
+  assert.throws(()=>validateWebPlugin({...manifest,functions:[{...manifest.functions[0],code:'return {};'}]}),{code:'invalid_plugin'});
+});
+
+test('importancia exige resultados excluyentes y no abre mensajes', async t => {
+  const directory=await mkdtemp(path.join(tmpdir(),'gennie-gmail-importance-'));
+  t.after(()=>rm(directory,{recursive:true,force:true}));
+  let mode='ordinary',closed=0; const queries=[];
+  const context={newPage:async()=>{let url;return {
+    goto:async u=>{url=u;queries.push(decodeURIComponent(u));},url:()=>url,
+    waitForFunction:async()=>{},evaluate:async()=>{const negative=decodeURIComponent(url).includes('-is:important');return {found:mode==='both'||(mode==='ordinary'&&negative),no_leida:true};},
+    close:async()=>{closed++;}
+  };}};
+  const plugins=createWebPlugins({directory,getContext:()=>context});
+  const manifest={id:'importance',name:'Gmail',origin:'https://mail.google.com',functions:[{name:'check',description:'Importancia',parameters:{id:'string'},transport:'gmail_importance',path:'/mail/u/0/',result_type:'object'}]};
+  await plugins.dispatch({action:'save',expected_revision:0,manifest});
+  const call={action:'verify',plugin_id:'importance',function_name:'check',expected_revision:1,arguments:{id:'abcdef'}};
+  let result=await plugins.dispatch(call);assert.equal(result.status,'ok');assert.equal(result.data.importante,false);assert.equal(result.data.no_leida,true);assert.equal(closed,2);
+  assert.ok(queries.every(q=>q.includes('threadid:11259375')));
+  mode='both';result=await plugins.dispatch(call);assert.equal(result.status,'importance_unknown');assert.equal(closed,4);
+  mode='none';result=await plugins.dispatch(call);assert.equal(result.status,'importance_unknown');assert.equal(closed,6);
 });

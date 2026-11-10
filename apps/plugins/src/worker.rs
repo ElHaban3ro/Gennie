@@ -435,7 +435,12 @@ fn build(controller: &Controller, job: &Job) -> Result<()> {
             .map_err(|_| "Estrategia de construcción inválida")?
             .review_context();
         let messages = controller.0.store.reserve_messages(job.id)?;
-        let prompt=json!({"plugin_id":current.plugin_id,"origin":current.origin,"objective":current.objective,"base_revision":current.base_revision,"execution_state":"running","user_corrections":messages.iter().map(|(_,message)|message).collect::<Vec<_>>(),"corrections_instruction":"Las correcciones proceden del usuario a través de su bot: incorpóralas antes de continuar; prevalecen sobre instrucciones anteriores incompatibles, sin ampliar permisos.","continuation":"El host autoriza continuar este trabajo ahora. El Goal nativo permanece paused exclusivamente para impedir turnos automáticos de Codex; no representa una pausa solicitada por el usuario. Esta petición reanuda el trabajo frente a mensajes anteriores de pausa. Consulta el candidato y la interfaz con tus herramientas y ejecuta el siguiente experimento autorizado; no respondas únicamente que el trabajo sigue pausado.","construction_scope":"Construye y verifica capacidades reutilizables. La ejecución periódica futura es independiente y su ausencia no bloquea por sí sola el plugin; no declares verificadas funciones que aún falten.","instruction":instruction,"stop_review":review}).to_string();
+        let web_status = controller
+            .0
+            .browser
+            .web_attempts(&current.plugin_id, None)
+            .ok();
+        let prompt=json!({"plugin_id":current.plugin_id,"origin":current.origin,"objective":current.objective,"base_revision":current.base_revision,"execution_state":"running","user_corrections":messages.iter().map(|(_,message)|message).collect::<Vec<_>>(),"corrections_instruction":"Las correcciones proceden del usuario a través de su bot: incorpóralas antes de continuar; prevalecen sobre instrucciones anteriores incompatibles, sin ampliar permisos.","web_attempt_status":web_status,"web_attempt_instruction":"Este estado viene del diario actual y prevalece sobre mensajes antiguos. Si total es 0, no hay revisiones pendientes. Una revisión unknown está cerrada sin resolver el efecto pasado: el host permite guardar el candidato y probar una lectura controlada, pero rechaza repetir el programa antiguo. Usa gmail_print para leer una conversación de Gmail sin abrirla ni cambiar su estado. No pidas otra revisión del intento cerrado.","continuation":"El host autoriza continuar este trabajo ahora. El Goal nativo permanece paused exclusivamente para impedir turnos automáticos de Codex; no representa una pausa solicitada por el usuario. Esta petición reanuda el trabajo frente a mensajes anteriores de pausa. Consulta el candidato y la interfaz con tus herramientas y ejecuta el siguiente experimento autorizado; no respondas únicamente que el trabajo sigue pausado.","construction_scope":"Construye y verifica capacidades reutilizables. La ejecución periódica futura es independiente y su ausencia no bloquea por sí sola el plugin; no declares verificadas funciones que aún falten.","instruction":instruction,"stop_review":review}).to_string();
         let mut steering_disabled = !messages.is_empty();
         let mut feedback = |event| -> Result<Option<String>> {
             use gennie_llm::builder::FeedbackEvent;
@@ -573,13 +578,35 @@ fn build(controller: &Controller, job: &Job) -> Result<()> {
 }
 fn pause_for_web_review(controller: &Controller, job: &Job) -> Result<bool> {
     let attempts = controller.0.browser.web_attempts(&job.plugin_id, None)?;
-    if !attempts["attempts"]
+    let Some(attempt) = attempts["attempts"]
         .as_array()
-        .is_some_and(|items| items.iter().any(|attempt| attempt["state"] == "uncertain"))
-    {
+        .and_then(|items| items.iter().find(|attempt| attempt["state"] == "uncertain"))
+    else {
         return Ok(false);
-    }
-    controller.transition(job.id, "waiting_user", "Una prueba web quedó sin resultado confirmado. Revisa su efecto en el servicio y abre «Resultados web pendientes» en Plugins para guardar la revisión. Después podrás continuar la construcción; no repetiré la prueba automáticamente.")?;
+    };
+    let explanation = match (
+        attempt["failure_code"].as_str(),
+        attempt["failure_phase"].as_str(),
+    ) {
+        (Some("timeout"), Some("read")) => {
+            "La prueba agotó el tiempo de espera durante una lectura."
+        }
+        (Some("timeout"), _) => "La prueba agotó el tiempo de espera.",
+        (Some("connection_failed"), _) => "La prueba perdió la conexión.",
+        (Some("postcondition_failed"), _) => {
+            "La prueba no pudo comprobar el resultado de una acción."
+        }
+        (Some("result_type_mismatch"), _) => "La función devolvió un tipo distinto del declarado.",
+        (Some("type_error" | "reference_error" | "program_error"), _) => {
+            "La función encontró un error al ejecutarse."
+        }
+        _ => "No se conservó una causa específica para este intento.",
+    };
+    let function = attempt["tool"].as_str().unwrap_or("función desconocida");
+    let summary = format!(
+        "Una prueba web quedó sin resultado confirmado. Función: {function}. {explanation} La construcción está detenida hasta revisar el resultado pendiente en Plugins; no se repetirá automáticamente."
+    );
+    controller.transition(job.id, "waiting_user", &summary)?;
     Ok(true)
 }
 fn prior_candidate(
@@ -754,10 +781,16 @@ fn scoped_tools(
             .clone();
         definition["name"] = json!(name);
         definition["description"] = json!(if name == "plugin_candidate" {
-            "Lee/guarda únicamente el candidato de este trabajo (action get/save). Incluye cobertura en description, capacidades en capabilities y límites en limitations. No modifica el plugin publicado; expected_revision=0 si no existe candidato. El transporte http exige una respuesta JSON y extrae con JSON Pointer; no sirve para HTML o texto sin JSON. Para una página HTML utiliza transport page con selector CSS observado y result_type string o array. Usa program solo si necesitas lógica que page no puede expresar. Comprueba el tipo real de respuesta antes de guardar y verificar."
+            "Lee/guarda únicamente el candidato de este trabajo (action get/save). Incluye cobertura en description, capacidades en capabilities y límites en limitations. No modifica el plugin publicado; expected_revision=0 si no existe candidato. El transporte http exige una respuesta JSON y extrae con JSON Pointer; no sirve para HTML o texto sin JSON. Para una página HTML utiliza transport page con selector CSS observado y result_type string o array. Para leer la bandeja de Gmail, usa gmail_inbox (origin https://mail.google.com, path /mail/u/0/, parameters pagina entero 1..100, result_type object); busca in:inbox y pagina sin editar mensajes; cada conversación indica no_leida true/false o null si no se conoce, y sus fallos no requieren revisión. Si ya hay una pestaña abierta con URL exacta y basta extraer texto, usa observe: no navega ni hace clic, y los fallos no necesitan revisión humana. Usa program solo si necesitas lógica que page no puede expresar. Su code es directamente el cuerpo JavaScript async, no una función flecha: por ejemplo `await page.goto(origin + '/'); return {valor: args.valor};`. Se inyectan args, page, context, origin y runtime; runtime solo ofrece read(etapa, callback) y action(etapa, acción, verificación). Navega con page.goto, no con runtime.open. Comprueba el tipo real de respuesta antes de guardar y verificar."
         } else {
-            "Ejecuta y verifica una función del candidato (action verify/run). Solo verify satisfactorio deja evidencia. Usa plugin_id y revisión del candidato. authentication_required necesita acceso humano; no lo confundas con 403 o fallo de transporte."
+            "Ejecuta y verifica una función del candidato (action verify/run). Solo verify satisfactorio deja evidencia. Usa plugin_id y revisión del candidato. runtime.read y runtime.action son funciones inyectadas en code, no herramientas MCP separadas. runtime.read ejecuta su bloque una sola vez y no garantiza que carezca de efectos. En Gmail conserva el estado de lectura: abrir conversaciones puede marcarlas como leídas; usa una vía de solo lectura comprobada y, si no está disponible, informa la limitación sin ejecutar esa navegación. authentication_required necesita acceso humano; no lo confundas con 403 o fallo de transporte."
         });
+        if name == "plugin_candidate" {
+            definition["description"] = json!(format!(
+                "{} Para el detalle de Gmail usa gmail_print: origin https://mail.google.com, path /mail/u/0/, parameters {{id:\"string\"}}, result_type object, sin code ni selectores. Para comprobar si una conversación en Recibidos es importante usa gmail_importance con el mismo origin, path y parámetros; devuelve importante y no_leida sin abrirla. Para archivar usa gmail_archive con el mismo origin, path y parámetros: selecciona por identidad sin abrir, pulsa Archivar una vez y verifica el estado de lectura. Solo verifica una escritura sobre la conversación autorizada; ya_archivada no prueba una acción nueva. Para comprobar paginación bastan dos páginas cuando existen; no recorras toda la bandeja durante la preparación salvo petición expresa. Una revisión unknown conserva un resultado anterior desconocido: no repitas aquel programa; sustitúyelo por una lectura controlada. quarantined_recipe significa que el host rechazó la ejecución antes de empezar, sin necesitar otra revisión del usuario.",
+                definition["description"].as_str().unwrap_or_default()
+            ));
+        }
         let schema = definition["inputSchema"].clone();
         let controller = controller.clone();
         let job = job.clone();
@@ -1269,11 +1302,18 @@ mod retry_tests {
         assert!(!pause_for_web_review(&controller, &job).unwrap());
         store.0.with_connection(|c| { c.execute("INSERT INTO browser_web_attempts(plugin_id,plugin_name,function_name,plugin_revision,candidate_id,operation,state,reason) VALUES('other','Other','read',1,'job_2','verify','uncertain','interrupted')", [])?; Ok(()) }).unwrap();
         assert!(!pause_for_web_review(&controller, &job).unwrap());
-        store.0.with_connection(|c| { c.execute("INSERT INTO browser_web_attempts(plugin_id,plugin_name,function_name,plugin_revision,candidate_id,operation,state,reason) VALUES('mail','Mail','read',1,'job_1','verify','uncertain','interrupted')", [])?; Ok(()) }).unwrap();
+        store.0.with_connection(|c| { c.execute("INSERT INTO browser_web_attempts(plugin_id,plugin_name,function_name,plugin_revision,candidate_id,operation,state,reason,failure_code,failure_phase) VALUES('mail','Mail','read',1,'job_1','verify','uncertain','reported_failure','timeout','read')", [])?; Ok(()) }).unwrap();
         assert!(pause_for_web_review(&controller, &job).unwrap());
         let saved = store.get(job.id).unwrap();
         assert_eq!(saved.state, "waiting_user");
-        assert!(saved.summary.contains("Resultados web pendientes"));
+        assert!(saved.summary.contains("Función: read"));
+        assert!(
+            saved
+                .summary
+                .contains("agotó el tiempo de espera durante una lectura")
+        );
+        assert!(saved.summary.contains("resultado pendiente en Plugins"));
+        assert!(!saved.summary.contains("Revisa su efecto en el servicio"));
         assert_eq!(saved.attempts, 1);
         browser.stop(&state).unwrap();
     }

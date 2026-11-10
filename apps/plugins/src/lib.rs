@@ -68,6 +68,17 @@ pub(crate) const MIGRATIONS: &[Migration] = &[
 pub use store::{BuildEvent, Job};
 pub use tools::{contextual_tools, tools};
 
+fn matching_published_revision(job: &Job, published: &Value, candidate: &Value) -> Option<u64> {
+    let revision = published.pointer("/plugin/revision")?.as_u64()?;
+    let manifest = candidate.pointer("/plugin/manifest")?;
+    (revision > job.base_revision
+        && manifest.is_object()
+        && manifest["id"] == job.plugin_id
+        && manifest["origin"] == job.origin
+        && Some(manifest) == published.pointer("/plugin/manifest"))
+    .then_some(revision)
+}
+
 // BusyError se devuelve antes de enviar nada al navegador; solo ese caso admite espera.
 fn wait_for_browser_delete(
     mut operation: impl FnMut() -> Result<Value>,
@@ -676,6 +687,15 @@ impl Controller {
                 "Solo se puede continuar un trabajo esperando acceso o interrumpido".into(),
             );
         }
+        // Una publicación parcial idéntica al candidato puede ser la nueva base.
+        // Si cambió por separado, conservar la revisión anterior para detectar conflicto.
+        if let Ok(published) = self.0.browser.call(json!({"method":"plugins","action":"get","plugin_id":job.plugin_id}))
+            && let Ok(candidate) = self.0.browser.call(json!({"method":"candidate","action":"get","plugin_id":job.plugin_id,"candidate_id":format!("job_{}",job.id)}))
+            && let Some(revision) = matching_published_revision(&job,&published,&candidate)
+            && !self.0.store.adopt_matching_published_base(job.id,job.base_revision,revision)?
+        {
+            return Err("El trabajo cambió antes de actualizar su revisión base".into());
+        }
         self.0.browser.automate(json!({"method":"background"}))?;
         self.0.store.transition(
             id,
@@ -749,6 +769,7 @@ impl Controller {
         match request["action"].as_str() {
             Some("web_attempts")=>self.0.browser.web_attempts(request["plugin_id"].as_str().ok_or("Falta plugin web")?,request["after"].as_i64()),
             Some("web_reconcile")=>self.0.browser.reconcile_web(request["plugin_id"].as_str().ok_or("Falta plugin web")?,request["attempt_id"].as_i64().ok_or("Falta intento web")?,request["expected_revision"].as_i64().ok_or("Falta revisión web")?,request["resolution"].as_str().ok_or("Falta comprobación web")?),
+            Some("web_close_unconfirmed")=>self.0.browser.close_unconfirmed_web(request["plugin_id"].as_str().ok_or("Falta plugin web")?,request["attempt_id"].as_i64().ok_or("Falta intento web")?,request["expected_revision"].as_i64().ok_or("Falta revisión web")?),
             Some("mcp_list")=>Ok(json!({"servers":self.0.mcp.list()?})),
             Some("mcp_get")=>Ok(json!({"server":self.0.mcp.get(request["server_id"].as_str().ok_or("Falta servidor MCP")?)?})),
             Some("mcp_attempts")=>self.0.mcp.pending_page(request["server_id"].as_str().ok_or("Falta servidor MCP")?,request["after"].as_i64()),

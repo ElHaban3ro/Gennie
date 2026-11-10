@@ -547,6 +547,18 @@ impl Controller {
                 ("succeeded", "reported_success", Some(value), false)
             }
             Ok(value)
+                if matches!(policy.target, Target::Web { .. })
+                    && value["executed"] == true
+                    && value["review_required"] == false
+                    && value["attempt"]["observation_only"] == true
+                    && value["attempt"]["state"] == "completed"
+                    && value["web_attempt_id"].as_i64().is_some_and(|id| {
+                        id > 0 && value["attempt"]["id"].as_i64() == Some(id)
+                    }) =>
+            {
+                ("rejected", "controlled_read_failed", None, false)
+            }
+            Ok(value)
                 if value["executed"] == false
                     || matches!(
                         value["status"].as_str(),

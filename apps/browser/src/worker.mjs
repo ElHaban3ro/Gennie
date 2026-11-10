@@ -888,6 +888,7 @@ function errorMessage(error) {
     image_limit: 'La captura excede el límite. Captura un elemento o una región visible más pequeña.',
     content_limit: 'El contenido excede el límite de esta operación. Acota la extracción o exportación.',
     invalid_plugin: 'La receta web no cumple el formato o los límites permitidos.',
+    invalid_program_body: 'code debe ser el cuerpo JavaScript que usa args, page, context y runtime y retorna el resultado; no una función flecha completa sin invocar. Corrige el candidato antes de verificar.',
     invalid_plugin_arguments: 'Los argumentos no corresponden a los parámetros de la función web.',
     plugin_storage_error: 'No se pudo leer o guardar el catálogo de plugins web de forma segura.',
     invalid_arguments: 'Los argumentos no corresponden a esta operación de navegador.',

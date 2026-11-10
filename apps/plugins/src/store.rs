@@ -209,6 +209,20 @@ impl Store {
         })?;
         id.map(|id| self.get(id)).transpose()
     }
+    /// Adopta una publicación idéntica comprobada por el Controller, sin aceptar una revisión concurrente.
+    pub fn adopt_matching_published_base(
+        &self,
+        id: i64,
+        expected: u64,
+        published: u64,
+    ) -> Result<bool> {
+        if published <= expected {
+            return Ok(false);
+        }
+        self.0.with_connection(|c| {
+            Ok(c.execute("UPDATE plugin_build_jobs SET base_revision=?3,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?1 AND base_revision=?2 AND state IN ('waiting_user','interrupted')",params![id,i64::try_from(expected)?,i64::try_from(published)?])? == 1)
+        })
+    }
     pub fn set_initial_base(&self, id: i64, revision: u64) -> Result<()> {
         self.0.with_connection(|c| {
             c.execute("UPDATE plugin_build_jobs SET base_revision=?2,refresh_base=0 WHERE id=?1 AND state='running' AND refresh_base=1",params![id,i64::try_from(revision)?])?;
@@ -382,6 +396,7 @@ fn test_origin(conversation_id: i64) -> gennie_llm::delegation::Origin {
 mod tests {
     use super::*;
     use crate::{BuildJournal, BuildRequest};
+    use serde_json::json;
     use std::sync::Mutex;
     fn fixture() -> Store {
         fixture_db(Database::memory().unwrap())
@@ -910,6 +925,34 @@ mod tests {
         next.request_key = "second".into();
         assert!(store.create(&next, 1, 0).is_ok());
     }
+    #[test]
+    fn rebasing_a_waiting_job_requires_the_expected_original_revision() {
+        let store = fixture();
+        let job = store.create(&request("mail"), 1, 0).unwrap();
+        store.claim().unwrap();
+        store.transition(job.id, "waiting_user", "Pausa").unwrap();
+        let manifest =
+            json!({"id":"mail","origin":"https://example.com","functions":[{"name":"read"}]});
+        let published = json!({"plugin":{"revision":1,"manifest":manifest}});
+        let candidate = json!({"plugin":{"revision":5,"manifest":manifest}});
+        assert_eq!(
+            crate::matching_published_revision(&job, &published, &candidate),
+            Some(1)
+        );
+        let mut changed = candidate.clone();
+        changed["plugin"]["manifest"]["functions"][0]["name"] = json!("different");
+        assert_eq!(
+            crate::matching_published_revision(&job, &published, &changed),
+            None
+        );
+        assert!(store.adopt_matching_published_base(job.id, 0, 1).unwrap());
+        assert_eq!(store.get(job.id).unwrap().base_revision, 1);
+        assert!(!store.adopt_matching_published_base(job.id, 0, 2).unwrap());
+        store.transition(job.id, "queued", "Continuar").unwrap();
+        assert!(!store.adopt_matching_published_base(job.id, 1, 2).unwrap());
+        assert_eq!(store.get(job.id).unwrap().base_revision, 1);
+    }
+
     #[test]
     fn queue_migration_preserves_existing_jobs_and_evidence() {
         let db = Database::memory().unwrap();

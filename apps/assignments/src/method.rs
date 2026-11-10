@@ -16,6 +16,7 @@ pub struct Method {
 pub struct Authorization {
     /// Ámbito y efectos expresamente delegados; no sustituye permisos del sistema.
     pub scope: String,
+    #[serde(default)]
     pub allowed_routes: Vec<Route>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -37,8 +38,7 @@ pub(crate) fn identifier(value: &str) -> bool {
 pub(crate) fn validate(d: &Document) -> Result<()> {
     if let Some(a) = &d.authorization {
         text(&a.scope, 2000, "Autorización")?;
-        if a.allowed_routes.is_empty()
-            || a.allowed_routes.len() > 4
+        if a.allowed_routes.len() > 4
             || a.allowed_routes
                 .iter()
                 .enumerate()
@@ -113,7 +113,7 @@ pub fn resolve(d: &Document, catalogue: &[Value]) -> Option<Value> {
     let routes: Vec<Value> = method.functions.iter().map(|name| {
         let function = functions.and_then(|fs| fs.iter().find(|f| f["name"] == *name));
         let route = match function.and_then(|f| f["transport"].as_str()) {
-            Some("http") => Some(Route::Http), Some("page") => Some(Route::Web), _ => None,
+            Some("http") => Some(Route::Http), Some("page" | "gmail_inbox" | "gmail_print" | "gmail_archive" | "gmail_importance") => Some(Route::Web), _ => None,
         };
         let allowed = route.as_ref().is_some_and(|r| authorization.allowed_routes.contains(r));
         let verified = revision.as_u64().is_some_and(|r| r>0)

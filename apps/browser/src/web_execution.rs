@@ -58,6 +58,26 @@ impl Controller {
         self.execution_changed();
         Ok(json!({"status":"reviewed","executed":false}))
     }
+    /// Cierre local explícito sin atribuir el efecto; mantiene en cuarentena el programa antiguo.
+    pub fn close_unconfirmed_web(&self, plugin: &str, id: i64, revision: i64) -> Result<Value> {
+        let _guard = self
+            .inner
+            .session
+            .try_lock()
+            .map_err(|_| "El navegador sigue trabajando; espera antes de revisar")?;
+        if !self.inner.enabled.load(Ordering::Acquire) {
+            return Err("El módulo de navegador está desactivado".into());
+        }
+        let _execution = self
+            .inner
+            .web_execution_gate
+            .try_lock()
+            .map_err(|_| "El navegador sigue trabajando; espera antes de revisar")?;
+        self.attempt_store()?
+            .close_unconfirmed(plugin, id, revision)?;
+        self.execution_changed();
+        Ok(json!({"status":"closed_unconfirmed","executed":false}))
+    }
     pub(super) fn web_gate(&self, request: &Value) -> Result<Option<Value>> {
         let guarded = matches!(
             request["method"].as_str(),
@@ -140,6 +160,18 @@ impl Controller {
             return Err("La comprobación previa no corresponde a esta función web".into());
         }
         let store = self.attempt_store()?;
+        if store.quarantined(
+            prepared["plugin_id"].as_str().unwrap_or_default(),
+            prepared["function_name"].as_str().unwrap_or_default(),
+        )? && !matches!(
+            prepared["transport"].as_str(),
+            Some("observe" | "gmail_inbox" | "gmail_print" | "gmail_importance")
+        ) {
+            return Ok((
+                json!({"status":"quarantined_recipe","executed":false,"message":"El resultado anterior sigue sin confirmarse. No repitas ese programa; usa una lectura controlada o una revisión humana con evidencia."}),
+                false,
+            ));
+        }
         context.check()?;
         let reserved = store.reserve(
             &prepared,
@@ -157,8 +189,11 @@ impl Controller {
         }
         let _active = Active(&self.inner.active_web);
         self.execution_changed();
+        // Vincula la ejecución al tipo comprobado antes de crear la reserva.
+        let mut execution_request = request.clone();
+        execution_request["checked_transport"] = prepared["transport"].clone();
         let result = session
-            .request_with_context(request, context)
+            .request_with_context(&execution_request, context)
             .and_then(decode_response);
         let discard = result.is_err();
         let reason = match &result {
@@ -167,17 +202,42 @@ impl Controller {
             Ok(_) => "reported_failure",
             Err(_) => "transport_error",
         };
-        let saved = store.finish(reserved["id"].as_i64().unwrap(), reason);
+        let diagnostic = result
+            .as_ref()
+            .ok()
+            .and_then(|value| value.get("diagnostic"));
+        let not_started = !context.is_cancelled()
+            && result.as_ref().is_ok_and(|v| {
+                v["executed"] == false
+                    && v["diagnostic"]["phase"] == "prepare"
+                    && (v["status"] == "browser_unavailable"
+                        || (prepared["transport"] == "gmail_archive"
+                            && matches!(
+                                v["status"].as_str(),
+                                Some("archive_not_started" | "authentication_required")
+                            )))
+            });
+        let saved = store.finish_with_outcome(
+            reserved["id"].as_i64().unwrap(),
+            reason,
+            diagnostic,
+            not_started,
+        );
         self.execution_changed();
-        let uncertain = reason != "reported_success" || saved.is_err();
-        let mut value=result.unwrap_or_else(|_|json!({"status":"result_uncertain","message":"El navegador dejó de confirmar la operación; comprueba su efecto antes de repetirla."}));
+        let observation = matches!(
+            prepared["transport"].as_str(),
+            Some("observe" | "gmail_inbox" | "gmail_print" | "gmail_importance")
+        );
+        let uncertain =
+            (reason != "reported_success" && !observation && !not_started) || saved.is_err();
+        let mut value=result.unwrap_or_else(|_| if observation { json!({"status":"observation_failed","message":"No se pudo leer la página abierta; el resultado no está disponible."}) } else { json!({"status":"result_uncertain","message":"El navegador dejó de confirmar la operación; comprueba su efecto antes de repetirla."}) });
         let mut attempt = saved.unwrap_or(reserved);
         attempt["active"] = json!(false);
         if attempt["state"] == "running" {
             attempt["state"] = json!("uncertain");
             value["status"] = json!("result_uncertain");
         }
-        value["executed"] = json!(true);
+        value["executed"] = json!(!not_started);
         value["review_required"] = json!(uncertain);
         value["web_attempt_id"] = attempt["id"].clone();
         value["attempt"] = attempt;

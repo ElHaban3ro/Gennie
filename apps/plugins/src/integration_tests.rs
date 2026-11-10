@@ -714,6 +714,136 @@ fn real_builder_creates_fixture_plugin_without_touching_the_chat_thread() {
 }
 
 #[test]
+#[ignore = "Consume una construcción breve con Codex real, Chromium headless y un sitio local; sin cuentas web personales"]
+fn real_builder_recovers_a_failed_controlled_observation() {
+    let root = std::env::temp_dir().join(format!(
+        "gennie-builder-smoke-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(root.join("browser")).unwrap();
+    let installed = PathBuf::from(std::env::var_os("HOME").unwrap())
+        .join("Library/Application Support/Gennie/browser");
+    for name in ["runtime-patchright-1.64.2", "browsers"] {
+        std::os::unix::fs::symlink(installed.join(name), root.join("browser").join(name)).unwrap();
+    }
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    listener.set_nonblocking(true).unwrap();
+    let stop = Arc::new(AtomicBool::new(false));
+    let server_stop = stop.clone();
+    let server = std::thread::spawn(move || {
+        while !server_stop.load(Ordering::Acquire) {
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    let _ = stream.set_read_timeout(Some(Duration::from_secs(1)));
+                    let mut buffer = [0; 4096];
+                    let _ = stream.read(&mut buffer);
+                    let body = r#"<html><body><div id="real">Dato de prueba</div></body></html>"#;
+                    let response = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        body.len(),
+                        body
+                    );
+                    let _ = stream.write_all(response.as_bytes());
+                }
+                Err(_) => std::thread::sleep(Duration::from_millis(10)),
+            }
+        }
+    });
+    let db = Database::open(&root.join("fixture.sqlite3"), 500).unwrap();
+    let state = AppState {
+        db: db.clone(),
+        config: Arc::new(gennie_config::Config {
+            database_path: root.join("fixture.sqlite3"),
+            db_busy_timeout_ms: 500,
+        }),
+        shutdown: Default::default(),
+    };
+    let browser = gennie_browser::BrowserModule::new(root.join("browser"));
+    db.migrate(browser.name(), browser.migrations()).unwrap();
+    browser.start(&state).unwrap();
+    browser.controller().set_automation_allowed(true);
+    let helper = std::env::var_os("GENNIE_TEST_HELPER")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/flutter/debug/gennie")
+        });
+    let journal = Arc::new(Journal::default());
+    let plugins = PluginsModule::new(
+        db.clone(),
+        browser.controller(),
+        journal.clone(),
+        crate::AgentSettings::shared(Arc::new(|| Ok(Settings::default()))),
+        helper,
+        root.join("builds"),
+    );
+    db.migrate(plugins.name(), plugins.migrations()).unwrap();
+    plugins.start(&state).unwrap();
+    let fixture = Fixture {
+        root,
+        stop,
+        server: Some(server),
+        plugins,
+        browser,
+        state,
+    };
+    let controller = fixture.plugins.controller();
+    let objective = format!(
+        "Sonda sintética autorizada. Abre en segundo plano {origin}/items. Crea un candidato plugin_id=fixture, origin={origin}, con función list_items, transport=observe, path=/items, parameters={{}}, result_type=array. Para comprobar recuperación, verifica primero selector=#ausente: debe fallar sin revisión. Después observa la página, identifica un selector correcto, guarda la nueva revisión, verifica de nuevo y publica con state=ready. El dato esperado es Dato de prueba. No uses otros sitios ni otras funciones."
+    );
+    let job = controller
+        .submit(
+            BuildRequest {
+                request_key: "smoke".into(),
+                plugin_id: "fixture".into(),
+                origin,
+                objective,
+                max_attempts: 2,
+                max_seconds: 120,
+                retry_of: None,
+            },
+            Some(7),
+        )
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(150);
+    let finished = loop {
+        let current = controller.0.store.get(job.id).unwrap();
+        if !matches!(current.state.as_str(), "queued" | "running") {
+            break current;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "El trabajo no terminó dentro del límite de la sonda"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    assert_eq!(finished.state, "completed", "{}", finished.summary);
+    let published = controller.catalogue().unwrap();
+    assert_eq!(published["plugins"][0]["manifest"]["id"], "fixture");
+    let (failed, succeeded):(i64,i64)=db.with_connection(|c| {
+        Ok((c.query_row("SELECT count(*) FROM browser_web_attempts WHERE observation_only=1 AND reason='reported_failure' AND state='completed'",[],|r|r.get(0))?,
+            c.query_row("SELECT count(*) FROM browser_web_attempts WHERE observation_only=1 AND reason='reported_success'",[],|r|r.get(0))?))
+    }).unwrap();
+    assert!(failed >= 1, "No se observó un fallo de lectura real");
+    assert!(
+        succeeded >= 1,
+        "El constructor no verificó la lectura corregida"
+    );
+    assert_eq!(
+        fixture
+            .browser
+            .controller()
+            .web_attempts("fixture", None)
+            .unwrap()["total"],
+        0
+    );
+}
+
+#[test]
 #[ignore = "Consume una construcción real sobre una página pública sin autenticación y Chromium headless aislado"]
 fn real_builder_generates_and_reuses_a_public_page_plugin() {
     let root = std::env::temp_dir().join(format!(
@@ -740,6 +870,7 @@ fn real_builder_generates_and_reuses_a_public_page_plugin() {
         shutdown: Default::default(),
     };
     let browser = gennie_browser::BrowserModule::new(root.join("browser"));
+    db.migrate(browser.name(), browser.migrations()).unwrap();
     browser.start(&state).unwrap();
     browser.controller().set_automation_allowed(true);
     browser.controller().set_file_access_allowed(true);
@@ -807,6 +938,14 @@ fn real_builder_generates_and_reuses_a_public_page_plugin() {
         );
         std::thread::sleep(Duration::from_millis(100));
     };
+    if finished.state != "completed" {
+        let attempts: Vec<(String, Option<String>, Option<String>)> = db.with_connection(|c| {
+            let mut statement = c.prepare("SELECT reason, COALESCE(failure_code_extended,failure_code), COALESCE(failure_phase_extended,failure_phase) FROM browser_web_attempts WHERE plugin_id='public_elements' ORDER BY id")?;
+            let rows = statement.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+            rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
+        }).unwrap();
+        eprintln!("public_test attempts={attempts:?}");
+    }
     assert_eq!(finished.state, "completed", "{}", finished.summary);
     let catalogue = controller.catalogue().unwrap();
     let published = catalogue["plugins"]

@@ -46,6 +46,287 @@ fn journal_recovers_gates_exact_reviews_and_preserves_audit_without_payloads() {
     db.close().unwrap();
 }
 #[test]
+fn read_timeout_explains_why_an_attempt_is_pending_without_saving_private_data() {
+    let db = db();
+    let store = attempts::Store(db.clone());
+    let attempt = store.reserve(&metadata(), "verify", Some("job_1")).unwrap();
+    store.finish_with_diagnostic(attempt["id"].as_i64().unwrap(), "reported_failure", Some(&json!({"code":"timeout","phase":"read","stage":"PRIVATE_CONTENT","read_attempts":3}))).unwrap();
+    let pending = store.page("fixture", None).unwrap();
+    assert_eq!(pending["attempts"][0]["failure_code"], "timeout");
+    assert_eq!(pending["attempts"][0]["failure_phase"], "read");
+    assert!(!pending.to_string().contains("PRIVATE_CONTENT"));
+    db.close().unwrap();
+}
+
+#[test]
+fn historical_attempts_upgrade_without_inventing_a_diagnostic() {
+    let db = Database::memory().unwrap();
+    db.migrate("browser", &attempts::MIGRATIONS[..1]).unwrap();
+    db.with_connection(|c| { c.execute("INSERT INTO browser_web_attempts(plugin_id,plugin_name,function_name,plugin_revision,operation,state,reason) VALUES('fixture','Prueba','read',1,'verify','uncertain','reported_failure')", [])?; Ok(()) }).unwrap();
+    db.migrate("browser", attempts::MIGRATIONS).unwrap();
+    let page = attempts::Store(db.clone()).page("fixture", None).unwrap();
+    assert_eq!(page["attempts"][0]["failure_code"], Value::Null);
+    assert_eq!(page["attempts"][0]["failure_phase"], Value::Null);
+    assert_eq!(page["attempts"][0]["state"], "uncertain");
+    db.close().unwrap();
+}
+
+#[test]
+fn result_type_diagnostic_survives_upgrade_without_changing_previous_attempts() {
+    let db = Database::memory().unwrap();
+    db.migrate("browser", &attempts::MIGRATIONS[..3]).unwrap();
+    db.with_connection(|c| { c.execute("INSERT INTO browser_web_attempts(plugin_id,plugin_name,function_name,plugin_revision,operation,state,reason,failure_code,failure_phase) VALUES('fixture','Prueba','old',1,'verify','uncertain','reported_failure','timeout','read')", [])?; Ok(()) }).unwrap();
+    db.migrate("browser", attempts::MIGRATIONS).unwrap();
+    let store = attempts::Store(db.clone());
+    let attempt = store.reserve(&metadata(), "verify", None).unwrap();
+    store
+        .finish_with_diagnostic(
+            attempt["id"].as_i64().unwrap(),
+            "reported_failure",
+            Some(&json!({"code":"result_type_mismatch","phase":"execute"})),
+        )
+        .unwrap();
+    let page = store.page("fixture", None).unwrap();
+    let rows = page["attempts"].as_array().unwrap();
+    let old = rows.iter().find(|v| v["tool"] == "old").unwrap();
+    let new = rows.iter().find(|v| v["tool"] == "send").unwrap();
+    assert_eq!(old["failure_code"], "timeout");
+    assert_eq!(old["failure_phase"], "read");
+    assert_eq!(new["failure_code"], "result_type_mismatch");
+    assert_eq!(new["failure_phase"], "execute");
+    assert_eq!(new["state"], "uncertain");
+    db.close().unwrap();
+}
+
+#[test]
+fn failed_controlled_observation_does_not_block_but_unknown_program_still_does() {
+    let db = db();
+    let store = attempts::Store(db.clone());
+    let mut read = metadata();
+    read["transport"] = json!("observe");
+    let attempt = store.reserve(&read, "verify", None).unwrap();
+    store
+        .finish_with_diagnostic(attempt["id"].as_i64().unwrap(), "reported_failure", None)
+        .unwrap();
+    assert!(store.pending("fixture", Some("send")).unwrap().is_none());
+    let another = store.reserve(&metadata(), "verify", None).unwrap();
+    store
+        .finish_with_diagnostic(another["id"].as_i64().unwrap(), "reported_failure", None)
+        .unwrap();
+    assert!(store.pending("fixture", Some("send")).unwrap().is_some());
+    db.close().unwrap();
+}
+
+#[test]
+fn unconfirmed_closure_preserves_uncertainty_and_quarantines_program() {
+    let (controller, db, dir) = fixture();
+    let store = attempts::Store(db.clone());
+    let attempt = store.reserve(&metadata(), "verify", Some("job_1")).unwrap();
+    let id = attempt["id"].as_i64().unwrap();
+    store
+        .finish_with_diagnostic(
+            id,
+            "reported_failure",
+            Some(&json!({"code":"timeout","phase":"read"})),
+        )
+        .unwrap();
+    assert!(store.close_unconfirmed("fixture", id, 2).is_err());
+    store.close_unconfirmed("fixture", id, 1).unwrap();
+    assert!(store.close_unconfirmed("fixture", id, 1).is_err());
+    assert_eq!(store.page("fixture", None).unwrap()["total"], 0);
+    let review = &store.reviews("fixture").unwrap()[0];
+    assert_eq!(review["resolution"], "unknown");
+    assert_eq!(review["reason"], "reported_failure");
+    assert_eq!(review["failure_code"], "timeout");
+    assert_eq!(review["reviewed_at"], Value::Null);
+    let log = dir.0.join("calls");
+    let program = SCRIPT.replace(
+        "\"revision\":1}",
+        "\"revision\":1,\"transport\":\"program\"}",
+    );
+    *controller.inner.session.lock().unwrap() = Some(process::Session::scripted(&program, &log));
+    let blocked = controller.automate(request()).unwrap();
+    assert_eq!(blocked["status"], "quarantined_recipe");
+    assert_eq!(blocked["executed"], false);
+    assert!(!log.exists());
+    controller.stop().unwrap();
+    db.close().unwrap();
+}
+
+#[test]
+fn unconfirmed_closure_survives_upgrade_and_reopen() {
+    let (_, memory, dir) = fixture();
+    memory.close().unwrap();
+    let path = dir.0.join("unconfirmed.sqlite3");
+    let db = Database::open(&path, 500).unwrap();
+    db.migrate("browser", &attempts::MIGRATIONS[..4]).unwrap();
+    db.with_connection(|c| { c.execute("INSERT INTO browser_web_attempts(plugin_id,plugin_name,function_name,plugin_revision,candidate_id,operation,state,reason,failure_code,failure_phase) VALUES('fixture','Prueba','send',2,'job_1','verify','uncertain','reported_failure','timeout','read')",[])?; Ok(()) }).unwrap();
+    db.migrate("browser", attempts::MIGRATIONS).unwrap();
+    let store = attempts::Store(db.clone());
+    assert_eq!(store.page("fixture", None).unwrap()["total"], 1);
+    store.close_unconfirmed("fixture", 1, 2).unwrap();
+    db.close().unwrap();
+    let db = Database::open(&path, 500).unwrap();
+    db.migrate("browser", attempts::MIGRATIONS).unwrap();
+    let store = attempts::Store(db.clone());
+    assert_eq!(
+        store.reviews("fixture").unwrap()[0]["resolution"],
+        "unknown"
+    );
+    assert!(store.quarantined("fixture", "send").unwrap());
+    assert!(!store.quarantined("fixture", "other").unwrap());
+    db.with_connection(|c| {
+        let status: String = c.query_row("PRAGMA integrity_check", [], |r| r.get(0))?;
+        assert_eq!(status, "ok");
+        Ok(())
+    })
+    .unwrap();
+    db.close().unwrap();
+}
+
+#[test]
+fn restarted_observation_is_closed_without_changing_other_uncertain_attempts() {
+    let db = db();
+    let store = attempts::Store(db.clone());
+    let mut read = metadata();
+    read["transport"] = json!("observe");
+    let observation = store.reserve(&read, "verify", None).unwrap();
+    let mut program = metadata();
+    program["function_name"] = json!("send_other");
+    store.reserve(&program, "verify", None).unwrap();
+    store.recover().unwrap();
+    assert!(store.pending("fixture", Some("send")).unwrap().is_none());
+    assert!(
+        store
+            .pending("fixture", Some("send_other"))
+            .unwrap()
+            .is_some()
+    );
+    db.with_connection(|c| {
+        let row: (String, String) = c.query_row(
+            "SELECT state,reason FROM browser_web_attempts WHERE id=?1",
+            [observation["id"].as_i64().unwrap()],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        assert_eq!(row, ("completed".into(), "interrupted".into()));
+        Ok(())
+    })
+    .unwrap();
+    db.close().unwrap();
+}
+
+#[test]
+fn controller_reports_failed_observation_without_review_or_automatic_replay() {
+    let (controller, db, dir) = fixture();
+    let log = dir.0.join("calls");
+    let script = SCRIPT
+        .replace(
+            "\"revision\":1}",
+            "\"revision\":1,\"transport\":\"observe\"}",
+        )
+        .replace("\"result_uncertain\"", "\"site_changed\"");
+    *controller.inner.session.lock().unwrap() = Some(process::Session::scripted(&script, &log));
+    let result = controller.automate(request()).unwrap();
+    assert_eq!(result["status"], "site_changed");
+    assert_eq!(result["review_required"], false);
+    assert_eq!(
+        controller.web_attempts("fixture", None).unwrap()["total"],
+        0
+    );
+    assert_eq!(std::fs::read_to_string(&log).unwrap(), "call\n");
+    controller.stop().unwrap();
+    db.close().unwrap();
+}
+
+#[test]
+fn context_failure_before_execution_is_diagnostic_and_does_not_block() {
+    let (controller, db, dir) = fixture();
+    let log = dir.0.join("calls");
+    let script = SCRIPT.replace(
+        "\"status\":\"result_uncertain\",\"message\":\"PRIVATE_FAILURE\"",
+        "\"status\":\"browser_unavailable\",\"executed\":false,\"diagnostic\":{\"code\":\"timeout\",\"phase\":\"prepare\"}",
+    );
+    *controller.inner.session.lock().unwrap() = Some(process::Session::scripted(&script, &log));
+    let result = controller.automate(request()).unwrap();
+    assert_eq!(result["status"], "browser_unavailable", "{result}");
+    assert_eq!(result["executed"], false);
+    assert_eq!(result["review_required"], false);
+    assert_eq!(
+        controller.web_attempts("fixture", None).unwrap()["total"],
+        0
+    );
+    assert_eq!(
+        controller.automate(request()).unwrap()["status"],
+        "browser_unavailable"
+    );
+    controller.stop().unwrap();
+    db.close().unwrap();
+}
+
+#[test]
+#[ignore = "Usa Node real y SQLite temporal; sin navegador ni red"]
+fn node_recovers_after_context_failure_without_review() {
+    const NODE: &str = r#"
+import {createInterface} from 'node:readline';
+import {pathToFileURL} from 'node:url';
+import path from 'node:path';
+const {createWebPlugins}=await import(pathToFileURL(process.env.GENNIE_WEB_PLUGIN_MODULE));
+let calls=0;
+const plugins=createWebPlugins({directory:path.join(process.env.GENNIE_WEB_FIXTURE_ROOT,'recipes'),getContext:()=>{if(++calls===1){const e=new Error('private');e.name='TimeoutError';throw e;}return {newPage:async()=>({close:async()=>{}})};}});
+await plugins.dispatch({action:'save',expected_revision:0,manifest:{id:'fixture',name:'Prueba',origin:'https://example.com',functions:[{name:'send',description:'Consulta',parameters:{},transport:'program',path:'/',result_type:'object',code:'return {ok:true};'}]}});
+for await(const line of createInterface({input:process.stdin})) {try{console.log(JSON.stringify(await plugins.dispatch(JSON.parse(line))));}catch{console.log(JSON.stringify({error:'fixture'}));}}
+"#;
+    let (controller, db, dir) = fixture();
+    controller.set_program_allowed(true);
+    *controller.inner.session.lock().unwrap() = Some(process::Session::node_fixture(NODE, &dir.0));
+    let mut call = request();
+    call["arguments"] = json!({});
+    let first = controller.automate(call.clone()).unwrap();
+    assert_eq!(first["status"], "browser_unavailable", "{first}");
+    assert_eq!(first["diagnostic"]["code"], "timeout");
+    assert_eq!(first["executed"], false);
+    assert_eq!(first["review_required"], false);
+    assert_eq!(
+        controller.web_attempts("fixture", None).unwrap()["total"],
+        0
+    );
+    let second = controller.automate(call).unwrap();
+    assert_eq!(second["status"], "ok", "{second}");
+    assert_eq!(second["data"]["ok"], true);
+    controller.stop().unwrap();
+    db.close().unwrap();
+}
+
+#[test]
+fn program_claiming_read_phase_stays_blocked() {
+    let (controller, db, dir) = fixture();
+    let log = dir.0.join("calls");
+    let script = SCRIPT
+        .replace(
+            "\"revision\":1}",
+            "\"revision\":1,\"transport\":\"program\"}",
+        )
+        .replace(
+            "\"message\":\"PRIVATE_FAILURE\"",
+            "\"diagnostic\":{\"phase\":\"read\",\"code\":\"timeout\"}",
+        );
+    *controller.inner.session.lock().unwrap() = Some(process::Session::scripted(&script, &log));
+    let result = controller.automate(request()).unwrap();
+    assert_eq!(result["review_required"], true);
+    assert_eq!(
+        controller.web_attempts("fixture", None).unwrap()["total"],
+        1
+    );
+    assert_eq!(
+        controller.automate(request()).unwrap()["status"],
+        "review_required"
+    );
+    assert_eq!(std::fs::read_to_string(&log).unwrap(), "call\n");
+    controller.stop().unwrap();
+    db.close().unwrap();
+}
+
+#[test]
 fn another_function_can_run_while_mutations_keep_the_pending_guard() {
     let db = db();
     let store = attempts::Store(db.clone());
@@ -413,6 +694,611 @@ for await(const line of createInterface({input:process.stdin,crlfDelay:Infinity}
     );
     controller.stop().unwrap();
     db.close().unwrap();
+}
+
+#[test]
+#[ignore = "Abre Chromium aislado sin red ni cuentas personales"]
+fn real_chromium_observation_failure_recovers_through_journal() {
+    const NODE: &str = r#"
+import {createInterface} from 'node:readline';
+import {createRequire} from 'node:module';
+import {access} from 'node:fs/promises';
+import {pathToFileURL} from 'node:url';
+import path from 'node:path';
+const root=process.env.GENNIE_WEB_FIXTURE_ROOT;
+const runtime=path.join(process.env.HOME,'Library/Application Support/Gennie/browser/runtime-patchright-1.64.2');
+const {chromium}=createRequire(path.join(runtime,'package.json'))('patchright');
+const {createWebPlugins}=await import(pathToFileURL(process.env.GENNIE_WEB_PLUGIN_MODULE));
+const browser=await chromium.launch({headless:true,executablePath:path.join(runtime,'Gennie Web.app/Contents/MacOS/Google Chrome for Testing')});
+try {
+ const context=await browser.newContext();let requests=0;
+ await context.route('**/*',route=>{requests++;return route.fulfill({status:200,contentType:'text/html',body:'<main>Datos de prueba</main>'});});
+ const page=await context.newPage(); await page.goto('https://fixture.invalid/inbox');
+ const plugins=createWebPlugins({directory:path.join(root,'recipes'),getContext:()=>context});
+ await plugins.dispatch({action:'save',expected_revision:0,manifest:{id:'fixture',name:'Prueba',origin:'https://fixture.invalid',functions:[{name:'send',description:'Leer',parameters:{},transport:'observe',path:'/inbox',selector:'.row',result_type:'array'}]}});
+ for await(const line of createInterface({input:process.stdin})) {
+  try {
+   const request=JSON.parse(line);
+   if(request.action==='verify') { try { await access(path.join(root,'allow')); if(!await page.locator('.row').count()) await page.locator('main').evaluate(node=>{let e=document.createElement('span');e.className='row';e.textContent='OK';node.appendChild(e);}); } catch {} }
+   const result=await plugins.dispatch(request);
+   if(requests!==1) throw new Error('unexpected network');
+   console.log(JSON.stringify(result));
+  } catch { console.log(JSON.stringify({error:'Error del fixture'})); }
+ }
+} finally { await browser.close(); }
+"#;
+    let (controller, db, dir) = fixture();
+    *controller.inner.session.lock().unwrap() = Some(process::Session::node_fixture(NODE, &dir.0));
+    let request = json!({"method":"plugin_run","action":"verify","plugin_id":"fixture","function_name":"send","expected_revision":1,"arguments":{}});
+    let first = controller.automate(request.clone()).unwrap();
+    assert_eq!(first["status"], "site_changed");
+    assert_eq!(first["review_required"], false);
+    assert_eq!(
+        controller.web_attempts("fixture", None).unwrap()["total"],
+        0
+    );
+    std::fs::write(dir.0.join("allow"), "").unwrap();
+    let second = controller.automate(request).unwrap();
+    assert_eq!(second["status"], "ok");
+    assert_eq!(second["data"], json!(["OK"]));
+    assert_eq!(
+        controller.web_attempts("fixture", None).unwrap()["total"],
+        0
+    );
+    controller.stop().unwrap();
+    db.close().unwrap();
+}
+
+#[test]
+#[ignore = "Reproduce Gmail con Chromium y SQLite aislados, sin red ni cuentas"]
+fn gmail_detail_selector_timeout_preserves_uncertain_navigation() {
+    const NODE: &str = r#"
+import {createInterface} from 'node:readline';
+import {createRequire} from 'node:module';
+import {appendFile} from 'node:fs/promises';
+import {pathToFileURL} from 'node:url';
+import path from 'node:path';
+const root=process.env.GENNIE_WEB_FIXTURE_ROOT;
+const runtime=path.join(process.env.HOME,'Library/Application Support/Gennie/browser/runtime-patchright-1.64.2');
+const {chromium}=createRequire(path.join(runtime,'package.json'))('patchright');
+const {createWebPlugins}=await import(pathToFileURL(process.env.GENNIE_WEB_PLUGIN_MODULE));
+const browser=await chromium.launch({headless:true,executablePath:path.join(runtime,'Gennie Web.app/Contents/MacOS/Google Chrome for Testing')});
+try {
+ const context=await browser.newContext();
+ await context.route('**/*',async route=>{
+   if (new URL(route.request().url()).pathname === '/increment') {
+    await appendFile(path.join(root,'effect'),'x');
+    return route.fulfill({status:200,contentType:'text/plain',body:'ok'});
+   }
+   await appendFile(path.join(root,'navigation'),'x');
+   await route.fulfill({status:200,contentType:'text/html; charset=utf-8',body:'<div role="main"><h2>Conversación ficticia</h2><p>Contenido ficticio</p></div>'});
+ });
+ const plugins=createWebPlugins({directory:path.join(root,'recipes'),getContext:()=>context});
+ for(const [id,selector] of [['fixture','main h2'],['corrected','[role=main] h2']]) {
+  const code=`return await runtime.read('read_detail',async()=>{await page.goto(origin+'/mail/u/0/#all/'+args.id);await page.locator('${selector}').first().waitFor({timeout:250});return {id:args.id,texto:await page.locator('[role=main]').innerText()};});`;
+  await plugins.dispatch({action:'save',expected_revision:0,manifest:{id,name:'Gmail ficticio',origin:'https://mail.google.com',functions:[{name:'send',description:'Leer detalle',parameters:{id:'string'},transport:'program',path:'/',result_type:'object',code}]}});
+ }
+ await plugins.dispatch({action:'save',expected_revision:0,manifest:{id:'portal',name:'Portal ficticio',origin:'https://portal.invalid',functions:[{name:'send',description:'Consultar pedido',parameters:{},transport:'program',path:'/',result_type:'object',code:"return await runtime.read('load',async()=>{await page.goto(origin+'/orders');await page.evaluate(()=>fetch('/increment',{method:'POST'}));await page.locator('#missing').waitFor({timeout:250});return {};});"}]}});
+ for await(const line of createInterface({input:process.stdin})) {try{console.log(JSON.stringify(await plugins.dispatch(JSON.parse(line))));}catch{console.log(JSON.stringify({error:'Error del fixture'}));}}
+} finally { await browser.close(); }
+"#;
+    let (controller, db, dir) = fixture();
+    controller.set_program_allowed(true);
+    *controller.inner.session.lock().unwrap() = Some(process::Session::node_fixture(NODE, &dir.0));
+    let request = json!({"method":"plugin_run","action":"verify","plugin_id":"fixture","function_name":"send","expected_revision":1,"arguments":{"id":"abcdef"},"program_allowed":true});
+    let first = controller.automate(request.clone()).unwrap();
+    assert_eq!(first["status"], "result_uncertain", "{first}");
+    assert_eq!(first["diagnostic"]["code"], "timeout");
+    assert_eq!(first["diagnostic"]["phase"], "read");
+    assert_eq!(first["diagnostic"]["read_attempts"], 1);
+    assert_eq!(first["review_required"], true);
+    assert_eq!(
+        std::fs::read_to_string(dir.0.join("navigation")).unwrap(),
+        "x"
+    );
+    assert_eq!(
+        controller.automate(request.clone()).unwrap()["status"],
+        "review_required"
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.0.join("navigation")).unwrap(),
+        "x"
+    );
+    let mut corrected = request;
+    corrected["plugin_id"] = json!("corrected");
+    let success = controller.automate(corrected).unwrap();
+    assert_eq!(success["status"], "ok", "{success}");
+    assert_eq!(
+        success["data"]["texto"],
+        "Conversación ficticia\n\nContenido ficticio"
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.0.join("navigation")).unwrap(),
+        "xx"
+    );
+    assert_eq!(
+        controller.web_attempts("fixture", None).unwrap()["total"],
+        1
+    );
+    let mut portal = json!({"method":"plugin_run","action":"verify","plugin_id":"portal","function_name":"send","expected_revision":1,"arguments":{}});
+    let portal_result = controller.automate(portal.clone()).unwrap();
+    assert_eq!(portal_result["diagnostic"]["phase"], "read");
+    assert_eq!(portal_result["review_required"], true);
+    assert_eq!(std::fs::read_to_string(dir.0.join("effect")).unwrap(), "x");
+    portal["action"] = json!("run");
+    assert_eq!(
+        controller.automate(portal).unwrap()["status"],
+        "review_required"
+    );
+    assert_eq!(std::fs::read_to_string(dir.0.join("effect")).unwrap(), "x");
+    controller.stop().unwrap();
+    db.close().unwrap();
+}
+
+#[test]
+#[ignore = "Chromium aislado y respuesta Gmail ficticia; sin red ni cuentas"]
+fn gmail_print_failed_read_recovers_and_does_not_load_mail_resources() {
+    const NODE: &str = r#"
+import {createInterface} from 'node:readline';
+import {createRequire} from 'node:module';
+import {access,appendFile} from 'node:fs/promises';
+import {pathToFileURL} from 'node:url';
+import path from 'node:path';
+const root=process.env.GENNIE_WEB_FIXTURE_ROOT;
+const runtime=path.join(process.env.HOME,'Library/Application Support/Gennie/browser/runtime-patchright-1.64.2');
+const {chromium}=createRequire(path.join(runtime,'package.json'))('patchright');
+const {createWebPlugins}=await import(pathToFileURL(process.env.GENNIE_WEB_PLUGIN_MODULE));
+const browser=await chromium.launch({headless:true,executablePath:path.join(runtime,'Gennie Web.app/Contents/MacOS/Google Chrome for Testing')});
+try {
+ const browserContext=await browser.newContext();
+ browserContext.on('request',()=>appendFile(path.join(root,'network'),'x'));
+ const context={newPage:()=>browserContext.newPage(),request:{get:async(url,opts)=>{
+  if(url!=='https://mail.google.com/mail/u/0/?view=pt&search=all&th=abcdef'||opts.maxRedirects!==0)throw Error('unexpected request');
+  let allowed=true;try{await access(path.join(root,'allow'));}catch{allowed=false;}
+  return {status:()=>allowed?200:403,headers:()=>({'content-type':'text/html'}),body:async()=>Buffer.from('<div class="maincontent"><h1>Asunto ficticio</h1><p>Contenido ficticio</p><script>SECRET_SCRIPT</script><img src="https://tracker.invalid/pixel"></div>'),dispose:async()=>{}};
+ }}};
+ const plugins=createWebPlugins({directory:path.join(root,'recipes'),getContext:()=>context});
+ await plugins.dispatch({action:'save',expected_revision:0,manifest:{id:'fixture',name:'Gmail',origin:'https://mail.google.com',functions:[{name:'send',description:'Leer',parameters:{id:'string'},transport:'gmail_print',path:'/mail/u/0/',result_type:'object'}]}});
+ for await(const line of createInterface({input:process.stdin})){try{console.log(JSON.stringify(await plugins.dispatch(JSON.parse(line))));}catch{console.log(JSON.stringify({error:'fixture'}));}}
+} finally {await browser.close();}
+"#;
+    let (controller, db, dir) = fixture();
+    let store = attempts::Store(db.clone());
+    let old = store.reserve(&metadata(), "verify", Some("job_1")).unwrap();
+    let id = old["id"].as_i64().unwrap();
+    store.finish(id, "reported_failure").unwrap();
+    store.close_unconfirmed("fixture", id, 1).unwrap();
+    *controller.inner.session.lock().unwrap() = Some(process::Session::node_fixture(NODE, &dir.0));
+    let mut call = request();
+    call["arguments"] = json!({"id":"abcdef"});
+    let first = controller.automate(call.clone()).unwrap();
+    assert_eq!(first["status"], "access_denied");
+    assert_eq!(first["review_required"], false);
+    assert_eq!(
+        controller.web_attempts("fixture", None).unwrap()["total"],
+        0
+    );
+    std::fs::write(dir.0.join("allow"), "").unwrap();
+    let second = controller.automate(call).unwrap();
+    assert_eq!(second["status"], "ok", "{second}");
+    assert!(
+        second["data"]["texto"]
+            .as_str()
+            .unwrap()
+            .contains("Contenido ficticio")
+    );
+    assert!(!second.to_string().contains("SECRET_SCRIPT"));
+    assert!(!dir.0.join("network").exists());
+    assert_eq!(
+        controller.web_attempts("fixture", None).unwrap()["total"],
+        0
+    );
+    controller.stop().unwrap();
+    db.close().unwrap();
+}
+
+const GMAIL_ARCHIVE_FIXTURE_NODE: &str = r#"
+import {createInterface} from 'node:readline';
+import {createRequire} from 'node:module';
+import {access,appendFile} from 'node:fs/promises';
+import {pathToFileURL} from 'node:url';
+import path from 'node:path';
+const root=process.env.GENNIE_WEB_FIXTURE_ROOT;
+const runtime=path.join(process.env.HOME,'Library/Application Support/Gennie/browser/runtime-patchright-1.64.2');
+const {chromium}=createRequire(path.join(runtime,'package.json'))('patchright');
+const {createWebPlugins}=await import(pathToFileURL(process.env.GENNIE_WEB_PLUGIN_MODULE));
+const browser=await chromium.launch({headless:true,executablePath:path.join(runtime,'Gennie Web.app/Contents/MacOS/Google Chrome for Testing')});
+let archived=false;
+async function exists(name){try{await access(path.join(root,name));return true;}catch{return false;}}
+try {
+ const context=await browser.newContext();
+ await context.exposeFunction('fixtureArchive',async()=>{await appendFile(path.join(root,'clicks'),'x');archived=true;});
+ await context.route('**/*',async route=>{
+  const failed=await exists('fail_before'),ambiguous=await exists('ambiguous'),delayed=await exists('delayed');
+  const body=`<!doctype html><html><body><main role="main"><div role="grid" style="min-height:40px"></div></main><script>
+   const q=decodeURIComponent(location.hash.slice(8)).replace(/\\+/g,' ');
+   const inbox=q.startsWith('in:inbox '),show=inbox?!${archived}:${archived}&&!${ambiguous};
+   const grid=document.querySelector('[role=grid]');
+   if(show){grid.innerHTML='<div role="row" class="zE"><span hidden data-legacy-thread-id="abcdef"></span><div role="checkbox" aria-checked="false">Seleccionar</div></div>';
+     document.querySelector('[role=checkbox]').onclick=e=>{e.currentTarget.setAttribute('aria-checked','true');const b=document.querySelector('[aria-label="Archivar"]');if(b)b.style.display='block';};
+     if(!${failed}){const b=document.createElement('div');b.setAttribute('role','button');b.setAttribute('aria-label','Archivar');b.style.display='none';b.textContent='Archivar';b.onclick=()=>${delayed} ? setTimeout(()=>window.fixtureArchive(),500) : window.fixtureArchive();document.body.appendChild(b);}
+   }else{document.querySelector('main').append('No hay mensajes que coincidan con tus criterios.');}
+  </script></body></html>`;
+  await route.fulfill({status:200,contentType:'text/html; charset=utf-8',body});
+ });
+ const plugins=createWebPlugins({directory:path.join(root,'recipes'),getContext:()=>context});
+ await plugins.dispatch({action:'save',expected_revision:0,manifest:{id:'fixture',name:'Gmail',origin:'https://mail.google.com',functions:[{name:'send',description:'Archivar',parameters:{id:'string'},transport:'gmail_archive',path:'/mail/u/0/',result_type:'object'}]}});
+ for await(const line of createInterface({input:process.stdin})){try{console.log(JSON.stringify(await plugins.dispatch(JSON.parse(line))));}catch{console.log(JSON.stringify({error:'fixture'}));}}
+} finally {await browser.close();}
+"#;
+
+#[test]
+#[ignore = "Chromium y Gmail ficticio; sin red ni cuentas"]
+fn gmail_archive_verifies_identity_and_preserves_unread_without_repeating() {
+    let (controller, db, dir) = fixture();
+    std::fs::write(dir.0.join("fail_before"), "").unwrap();
+    std::fs::write(dir.0.join("delayed"), "").unwrap();
+    *controller.inner.session.lock().unwrap() = Some(process::Session::node_fixture(
+        GMAIL_ARCHIVE_FIXTURE_NODE,
+        &dir.0,
+    ));
+    let mut call = request();
+    call["arguments"] = json!({"id":"abcdef"});
+    let first = controller.automate(call.clone()).unwrap();
+    assert_eq!(first["status"], "archive_not_started", "{first}");
+    assert_eq!(first["executed"], false);
+    assert_eq!(first["review_required"], false);
+    assert!(!dir.0.join("clicks").exists());
+    std::fs::remove_file(dir.0.join("fail_before")).unwrap();
+    let result = controller.automate(call.clone()).unwrap();
+    assert_eq!(result["status"], "ok", "{result}");
+    assert_eq!(result["data"]["archivada"], true);
+    assert_eq!(result["data"]["no_leida"], true);
+    assert_eq!(std::fs::read_to_string(dir.0.join("clicks")).unwrap(), "x");
+    call["action"] = json!("run");
+    let again = controller.automate(call).unwrap();
+    assert_eq!(again["status"], "ok", "{again}");
+    assert_eq!(again["data"]["ya_archivada"], true);
+    assert_eq!(std::fs::read_to_string(dir.0.join("clicks")).unwrap(), "x");
+    assert_eq!(
+        controller.web_attempts("fixture", None).unwrap()["total"],
+        0
+    );
+    controller.stop().unwrap();
+    db.close().unwrap();
+}
+
+#[test]
+#[ignore = "Chromium y Gmail ficticio; sin red ni cuentas"]
+fn gmail_archive_uncertain_effect_never_clicks_twice() {
+    let (controller, db, dir) = fixture();
+    std::fs::write(dir.0.join("ambiguous"), "").unwrap();
+    *controller.inner.session.lock().unwrap() = Some(process::Session::node_fixture(
+        GMAIL_ARCHIVE_FIXTURE_NODE,
+        &dir.0,
+    ));
+    let mut call = request();
+    call["arguments"] = json!({"id":"abcdef"});
+    let first = controller.automate(call.clone()).unwrap();
+    assert_eq!(first["status"], "result_uncertain", "{first}");
+    assert_eq!(first["review_required"], true);
+    assert_eq!(std::fs::read_to_string(dir.0.join("clicks")).unwrap(), "x");
+    assert_eq!(
+        controller.automate(call).unwrap()["status"],
+        "review_required"
+    );
+    assert_eq!(std::fs::read_to_string(dir.0.join("clicks")).unwrap(), "x");
+    controller.stop().unwrap();
+    db.close().unwrap();
+}
+
+#[test]
+#[ignore = "Chromium real con Gmail simulado e interceptado; sin cuentas ni red externa"]
+fn real_chromium_gmail_inbox_search_and_pagination_recovers_without_review() {
+    const NODE: &str = r#"
+import {createInterface} from 'node:readline';
+import {createRequire} from 'node:module';
+import {access,appendFile} from 'node:fs/promises';
+import {pathToFileURL} from 'node:url';
+import path from 'node:path';
+const root=process.env.GENNIE_WEB_FIXTURE_ROOT;
+const runtime=path.join(process.env.HOME,'Library/Application Support/Gennie/browser/runtime-patchright-1.64.2');
+const {chromium}=createRequire(path.join(runtime,'package.json'))('patchright');
+const {createWebPlugins}=await import(pathToFileURL(process.env.GENNIE_WEB_PLUGIN_MODULE));
+const browser=await chromium.launch({headless:true,executablePath:path.join(runtime,'Gennie Web.app/Contents/MacOS/Google Chrome for Testing')});
+try {
+ const context=await browser.newContext();
+ await context.exposeFunction('fixtureArchive',()=>appendFile(path.join(root,'archive'),'x'));
+ await context.route('**/*',async route=>{
+   let allow=true;try{await access(path.join(root,'allow'));}catch{allow=false;}
+   const body=`<input aria-label="Buscar en el correo electrónico" onkeydown="if(event.key==='Enter'){document.getElementById('query').textContent=this.value;location.hash='search/in%3Ainbox'}"><span id="query"></span><button aria-label="Mostrar más mensajes">1–1</button><button aria-label="Resultados siguientes" aria-disabled="${!allow}" onclick="document.querySelector('[data-legacy-thread-id]').setAttribute('data-legacy-thread-id','second');document.querySelector('[role=row]').lastChild.textContent='Segundo';document.querySelector('[role=row]').className='yO';">Siguiente</button><button aria-label="Archivar" onclick="fixtureArchive()">Archivar</button><div role="grid"><div role="row" class="zE"><span data-legacy-thread-id="first"></span><span>Primero</span></div></div>`;
+   await route.fulfill({status:200,contentType:'text/html; charset=utf-8',body});
+ });
+ const plugins=createWebPlugins({directory:path.join(root,'recipes'),getContext:()=>context});
+ await plugins.dispatch({action:'save',expected_revision:0,manifest:{id:'fixture',name:'Gmail',origin:'https://mail.google.com',functions:[{name:'send',description:'Leer',parameters:{pagina:{type:'integer',minimum:1,maximum:100}},transport:'gmail_inbox',path:'/mail/u/0/',result_type:'object'}]}});
+ for await(const line of createInterface({input:process.stdin})) { try {console.log(JSON.stringify(await plugins.dispatch(JSON.parse(line))));}catch{console.log(JSON.stringify({error:'Error del fixture'}));} }
+} finally { await browser.close(); }
+"#;
+    let (controller, db, dir) = fixture();
+    *controller.inner.session.lock().unwrap() = Some(process::Session::node_fixture(NODE, &dir.0));
+    let request = json!({"method":"plugin_run","action":"verify","plugin_id":"fixture","function_name":"send","expected_revision":1,"arguments":{"pagina":2}});
+    let mut page_one = request.clone();
+    page_one["arguments"]["pagina"] = json!(1);
+    let first_page = controller.automate(page_one).unwrap();
+    assert_eq!(first_page["status"], "ok");
+    assert_eq!(first_page["data"]["conversaciones"][0]["id"], "first");
+    assert_eq!(first_page["data"]["conversaciones"][0]["no_leida"], true);
+    let first = controller.automate(request.clone()).unwrap();
+    assert_eq!(first["status"], "page_not_available", "{first}");
+    assert_eq!(first["review_required"], false);
+    assert_eq!(
+        controller.web_attempts("fixture", None).unwrap()["total"],
+        0
+    );
+    std::fs::write(dir.0.join("allow"), "").unwrap();
+    let second = controller.automate(request).unwrap();
+    assert_eq!(second["status"], "ok", "{second}");
+    assert_eq!(second["data"]["conversaciones"][0]["id"], "second");
+    assert_eq!(second["data"]["conversaciones"][0]["no_leida"], false);
+    assert_eq!(
+        controller.web_attempts("fixture", None).unwrap()["total"],
+        0
+    );
+    assert!(!dir.0.join("archive").exists());
+    controller.stop().unwrap();
+    db.close().unwrap();
+}
+
+#[test]
+#[ignore = "Usa el perfil real de Gennie Web; solo con autorización explícita y Gennie cerrado"]
+fn real_gmail_inbox_reads_two_pages_without_writes() {
+    const NODE: &str = r#"
+import {createInterface} from 'node:readline';
+import {createRequire} from 'node:module';
+import {pathToFileURL} from 'node:url';
+import path from 'node:path';
+const runtime=path.join(process.env.HOME,'Library/Application Support/Gennie/browser/runtime-patchright-1.64.2');
+const {chromium}=createRequire(path.join(runtime,'package.json'))('patchright');
+const {createWebPlugins}=await import(pathToFileURL(process.env.GENNIE_WEB_PLUGIN_MODULE));
+const profile=process.env.GENNIE_GMAIL_LIVE_PROFILE;
+const context=await chromium.launchPersistentContext(profile,{headless:true,viewport:{width:1280,height:800},timeout:9000,executablePath:path.join(runtime,'Gennie Web.app/Contents/MacOS/Google Chrome for Testing')});
+try {
+ const plugins=createWebPlugins({directory:path.join(process.env.GENNIE_WEB_FIXTURE_ROOT,'recipes'),getContext:()=>context});
+ await plugins.dispatch({action:'save',expected_revision:0,manifest:{id:'fixture',name:'Gmail',origin:'https://mail.google.com',functions:[{name:'send',description:'Leer Recibidos',parameters:{pagina:{type:'integer',minimum:1,maximum:100}},transport:'gmail_inbox',path:'/mail/u/0/',result_type:'object'}]}});
+ for await(const line of createInterface({input:process.stdin})) {try{console.log(JSON.stringify(await plugins.dispatch(JSON.parse(line))));}catch{console.log(JSON.stringify({error:'Error de consulta'}));}}
+} finally {await context.close();}
+"#;
+    let profile = std::env::var_os("GENNIE_GMAIL_LIVE_PROFILE")
+        .expect("Se requiere perfil explícito y exclusivo");
+    let expected = PathBuf::from(std::env::var_os("HOME").unwrap())
+        .join("Library/Application Support/Gennie/browser/profile");
+    assert_eq!(
+        std::fs::canonicalize(PathBuf::from(profile)).unwrap(),
+        std::fs::canonicalize(expected).unwrap()
+    );
+    let (controller, db, dir) = fixture();
+    *controller.inner.session.lock().unwrap() = Some(process::Session::node_fixture(NODE, &dir.0));
+    let mut request = json!({"method":"plugin_run","action":"verify","plugin_id":"fixture","function_name":"send","expected_revision":1,"arguments":{"pagina":1}});
+    let result = (|| -> Result<(Value, Value, i64)> {
+        let first = controller.automate(request.clone())?;
+        request["arguments"]["pagina"] = json!(2);
+        let second = controller.automate(request)?;
+        let pending = controller.web_attempts("fixture", None)?["total"]
+            .as_i64()
+            .unwrap_or(-1);
+        Ok((first, second, pending))
+    })();
+    controller.stop().unwrap();
+    db.close().unwrap();
+    let (first, second, pending) = result.unwrap();
+    eprintln!(
+        "Página 1: status={}, fase={}; página 2: status={}, fase={}; pendientes={pending}",
+        first["status"],
+        first["diagnostic"]["stage"],
+        second["status"],
+        second["diagnostic"]["stage"]
+    );
+    eprintln!(
+        "Control siguiente: coincidencias={}, deshabilitado={}; primera página declara siguiente={}",
+        second["diagnostic"]["matches"],
+        second["diagnostic"]["disabled"],
+        first["data"]["siguiente"]
+    );
+    assert_eq!(first["status"], "ok");
+    assert_eq!(second["status"], "ok");
+    let one = first["data"]["conversaciones"].as_array().unwrap();
+    let two = second["data"]["conversaciones"].as_array().unwrap();
+    assert!(!one.is_empty() && !two.is_empty());
+    assert!(
+        one.iter()
+            .chain(two)
+            .all(|row| row["no_leida"].is_boolean() || row["no_leida"].is_null())
+    );
+    assert!(
+        one.iter().chain(two).any(|row| row["no_leida"] == true),
+        "La muestra no contenía ninguna conversación sin leer"
+    );
+    assert_ne!(one[0]["id"], two[0]["id"]);
+    assert_eq!(pending, 0);
+    assert_eq!(first["review_required"], false);
+    assert_eq!(second["review_required"], false);
+    eprintln!(
+        "Lectura y paginación reales verificadas; {} y {} conversaciones; sin datos impresos.",
+        one.len(),
+        two.len()
+    );
+}
+
+#[test]
+#[ignore = "Lee una conversación sin leer con la sesión web real y comprueba su estado; requiere Gennie cerrado"]
+fn real_gmail_print_reads_without_marking_unread() {
+    const NODE: &str = r#"
+import {createInterface} from 'node:readline';
+import {createRequire} from 'node:module';
+import {pathToFileURL} from 'node:url';
+import path from 'node:path';
+const runtime=path.join(process.env.HOME,'Library/Application Support/Gennie/browser/runtime-patchright-1.64.2');
+const {chromium}=createRequire(path.join(runtime,'package.json'))('patchright');
+const {createWebPlugins}=await import(pathToFileURL(process.env.GENNIE_WEB_PLUGIN_MODULE));
+const context=await chromium.launchPersistentContext(process.env.GENNIE_GMAIL_LIVE_PROFILE,{headless:true,viewport:{width:1280,height:800},timeout:15000,executablePath:path.join(runtime,'Gennie Web.app/Contents/MacOS/Google Chrome for Testing')});
+try {
+ const inbox=await context.newPage();
+ await inbox.goto('https://mail.google.com/mail/u/0/#inbox',{waitUntil:'domcontentloaded',timeout:30000});
+ await inbox.getByRole('textbox',{name:'Buscar en el correo electrónico',exact:true}).waitFor({timeout:20000});
+ const item=await inbox.evaluate(()=>{const row=[...document.querySelectorAll('[role=grid] [role=row].zE')].find(r=>r.getClientRects().length&&r.querySelector('[data-legacy-thread-id]'));return row?{id:row.querySelector('[data-legacy-thread-id]').getAttribute('data-legacy-thread-id'),subject:row.querySelector('.bog')?.textContent||''}:null});
+ if (!item || !/^[a-f0-9]+$/i.test(item.id)) throw new Error('No hay conversación sin leer disponible');
+ const plugins=createWebPlugins({directory:path.join(process.env.GENNIE_WEB_FIXTURE_ROOT,'recipes'),getContext:()=>context});
+ await plugins.dispatch({action:'save',expected_revision:0,manifest:{id:'fixture',name:'Gmail',origin:'https://mail.google.com',functions:[{name:'send',description:'Leer detalle',parameters:{id:'string'},transport:'gmail_print',path:'/mail/u/0/',result_type:'object'}]}});
+ for await(const line of createInterface({input:process.stdin})) {
+  try {
+   const request=JSON.parse(line);request.arguments={id:item.id};
+   const result=await plugins.dispatch(request);
+   if (request.action==='verify' && result.status==='ok') {
+    const content=result.data.texto;
+    await inbox.reload({waitUntil:'domcontentloaded',timeout:30000});
+    await inbox.getByRole('textbox',{name:'Buscar en el correo electrónico',exact:true}).waitFor({timeout:20000});
+    const after=await inbox.evaluate(id=>{const e=[...document.querySelectorAll('[data-legacy-thread-id]')].find(x=>x.getAttribute('data-legacy-thread-id')===id);const row=e?.closest('[role=row]');return !row?'not_visible':row.classList.contains('zE')?'unread':row.classList.contains('yO')?'read':'ambiguous';},item.id);
+    result.data={content_present:content.length>0,subject_present:!!item.subject&&content.includes(item.subject),after};
+   }
+   console.log(JSON.stringify(result));
+  }catch{console.log(JSON.stringify({error:'Fallo de la prueba real'}));}
+ }
+} finally {await context.close();}
+"#;
+    let profile = std::env::var_os("GENNIE_GMAIL_LIVE_PROFILE")
+        .expect("Se requiere perfil explícito y exclusivo");
+    let expected = PathBuf::from(std::env::var_os("HOME").unwrap())
+        .join("Library/Application Support/Gennie/browser/profile");
+    assert_eq!(
+        std::fs::canonicalize(PathBuf::from(profile)).unwrap(),
+        std::fs::canonicalize(expected).unwrap()
+    );
+    let (controller, db, dir) = fixture();
+    *controller.inner.session.lock().unwrap() = Some(process::Session::node_fixture(NODE, &dir.0));
+    let result = controller.automate(json!({"method":"plugin_run","action":"verify","plugin_id":"fixture","function_name":"send","expected_revision":1,"arguments":{"id":"a"}})).unwrap();
+    assert_eq!(result["status"], "ok", "{result}");
+    assert_eq!(result["data"]["content_present"], true);
+    assert_eq!(result["data"]["subject_present"], true);
+    assert_eq!(result["data"]["after"], "unread");
+    assert_eq!(result["review_required"], false);
+    assert_eq!(
+        controller.web_attempts("fixture", None).unwrap()["total"],
+        0
+    );
+    controller.stop().unwrap();
+    db.close().unwrap();
+}
+
+#[test]
+#[ignore = "Consulta una conversación ya archivada con la sesión real, sin modificarla; requiere Gennie cerrado"]
+fn real_gmail_archive_already_archived_is_idempotent() {
+    const NODE: &str = r#"
+import {createInterface} from 'node:readline';
+import {createRequire} from 'node:module';
+import {pathToFileURL} from 'node:url';
+import path from 'node:path';
+const runtime=path.join(process.env.HOME,'Library/Application Support/Gennie/browser/runtime-patchright-1.64.2');
+const {chromium}=createRequire(path.join(runtime,'package.json'))('patchright');
+const {createWebPlugins}=await import(pathToFileURL(process.env.GENNIE_WEB_PLUGIN_MODULE));
+const context=await chromium.launchPersistentContext(process.env.GENNIE_GMAIL_LIVE_PROFILE,{headless:true,viewport:{width:1280,height:800},timeout:15000,executablePath:path.join(runtime,'Gennie Web.app/Contents/MacOS/Google Chrome for Testing')});
+try {
+ const page=await context.newPage(),q='in:anywhere -in:inbox -in:trash -in:spam is:unread';
+ await page.goto('https://mail.google.com/mail/u/0/#search/'+encodeURIComponent(q),{waitUntil:'domcontentloaded',timeout:30000});
+ await page.locator('[role=grid] [role=row].zE').first().waitFor({state:'attached',timeout:20000});
+ const id=await page.locator('[role=grid] [role=row].zE [data-legacy-thread-id]').first().getAttribute('data-legacy-thread-id');
+ if (!/^[a-f0-9]{1,16}$/i.test(id||'')) throw Error('missing_fixture');
+ await page.close();
+ const plugins=createWebPlugins({directory:path.join(process.env.GENNIE_WEB_FIXTURE_ROOT,'recipes'),getContext:()=>context});
+ await plugins.dispatch({action:'save',expected_revision:0,manifest:{id:'fixture',name:'Gmail',origin:'https://mail.google.com',functions:[{name:'send',description:'Archivar',parameters:{id:'string'},transport:'gmail_archive',path:'/mail/u/0/',result_type:'object'}]}});
+ for await(const line of createInterface({input:process.stdin})){try{const req=JSON.parse(line);req.arguments={id};const result=await plugins.dispatch(req);if(result.data)result.data={archivada:result.data.archivada,ya_archivada:result.data.ya_archivada,no_leida:result.data.no_leida};console.log(JSON.stringify(result));}catch{console.log(JSON.stringify({error:'fixture'}));}}
+} finally {await context.close();}
+"#;
+    let profile = std::env::var_os("GENNIE_GMAIL_LIVE_PROFILE")
+        .expect("Se requiere perfil explícito y exclusivo");
+    let expected = PathBuf::from(std::env::var_os("HOME").unwrap())
+        .join("Library/Application Support/Gennie/browser/profile");
+    assert_eq!(
+        std::fs::canonicalize(PathBuf::from(profile)).unwrap(),
+        std::fs::canonicalize(expected).unwrap()
+    );
+    let (controller, db, dir) = fixture();
+    *controller.inner.session.lock().unwrap() = Some(process::Session::node_fixture(NODE, &dir.0));
+    let mut call = request();
+    call["arguments"] = json!({"id":"a"});
+    let result = controller.automate(call).unwrap();
+    assert_eq!(result["status"], "ok", "{result}");
+    assert_eq!(result["data"]["archivada"], true);
+    assert_eq!(result["data"]["ya_archivada"], true);
+    assert_eq!(result["data"]["no_leida"], true);
+    assert_eq!(result["review_required"], false);
+    assert_eq!(
+        controller.web_attempts("fixture", None).unwrap()["total"],
+        0
+    );
+    controller.stop().unwrap();
+    db.close().unwrap();
+}
+
+#[test]
+#[ignore = "Archiva exactamente la promoción autorizada en Gmail real; requiere Gennie cerrado"]
+fn real_gmail_archive_one_authorized_unread_promotion() {
+    const NODE: &str = r#"
+import {createInterface} from 'node:readline';
+import {createRequire} from 'node:module';
+import {pathToFileURL} from 'node:url';
+import path from 'node:path';
+const runtime=path.join(process.env.HOME,'Library/Application Support/Gennie/browser/runtime-patchright-1.64.2');
+const {chromium}=createRequire(path.join(runtime,'package.json'))('patchright');
+const {createWebPlugins}=await import(pathToFileURL(process.env.GENNIE_WEB_PLUGIN_MODULE));
+const context=await chromium.launchPersistentContext(process.env.GENNIE_GMAIL_LIVE_PROFILE,{headless:true,viewport:{width:1280,height:800},timeout:15000,executablePath:path.join(runtime,'Gennie Web.app/Contents/MacOS/Google Chrome for Testing')});
+try {
+ const page=await context.newPage(),q='in:inbox category:promotions is:unread -is:starred -is:important';
+ await page.goto('https://mail.google.com/mail/u/0/#search/'+encodeURIComponent(q),{waitUntil:'domcontentloaded',timeout:30000});
+ await page.locator('[role=grid] [role=row].zE').first().waitFor({state:'attached',timeout:20000});
+ const matches=await page.evaluate(()=>[...document.querySelectorAll('[role=grid] [role=row].zE')].filter(r=>r.getClientRects().length&&r.querySelector('.bog')?.textContent?.trim()==='4K all day'&&r.querySelector('[email]')?.getAttribute('email')?.endsWith('@tella.tv')).map(r=>r.querySelector('[data-legacy-thread-id]')?.getAttribute('data-legacy-thread-id')));
+ if(matches.length!==1||!/^[a-f0-9]{1,16}$/i.test(matches[0]||''))throw Error('missing_authorized_fixture');
+ const id=matches[0],response=await context.request.get('https://mail.google.com/mail/u/0/?view=pt&search=all&th='+id,{timeout:20000,maxRedirects:0});
+ if(response.status()!==200)throw Error('print_unavailable');
+ const html=await response.text();await response.dispose();
+ const blank=await context.newPage();await blank.route('**/*',route=>route.abort());
+ const safe=await blank.evaluate(html=>{const d=new DOMParser().parseFromString(html,'text/html'),m=d.querySelector('.maincontent');return !!m&&m.querySelectorAll('table.message').length===1&&/unsubscribe|darse de baja|cancelar suscripci[oó]n|anular suscripci[oó]n/i.test(m.textContent||'');},html);
+ await blank.close();await page.close();if(!safe)throw Error('fixture_not_single_promotion');
+ const plugins=createWebPlugins({directory:path.join(process.env.GENNIE_WEB_FIXTURE_ROOT,'recipes'),getContext:()=>context});
+ await plugins.dispatch({action:'save',expected_revision:0,manifest:{id:'fixture',name:'Gmail',origin:'https://mail.google.com',functions:[{name:'send',description:'Archivar',parameters:{id:'string'},transport:'gmail_archive',path:'/mail/u/0/',result_type:'object'}]}});
+ for await(const line of createInterface({input:process.stdin})){try{const req=JSON.parse(line);req.arguments={id};const result=await plugins.dispatch(req);if(result.data)result.data={archivada:result.data.archivada,ya_archivada:result.data.ya_archivada,no_leida:result.data.no_leida};console.log(JSON.stringify(result));}catch{console.log(JSON.stringify({error:'fixture'}));}}
+} finally {await context.close();}
+"#;
+    let profile = std::env::var_os("GENNIE_GMAIL_LIVE_PROFILE")
+        .expect("Se requiere perfil explícito y exclusivo");
+    let expected = PathBuf::from(std::env::var_os("HOME").unwrap())
+        .join("Library/Application Support/Gennie/browser/profile");
+    assert_eq!(
+        std::fs::canonicalize(PathBuf::from(profile)).unwrap(),
+        std::fs::canonicalize(expected).unwrap()
+    );
+    let (controller, db, dir) = fixture();
+    *controller.inner.session.lock().unwrap() = Some(process::Session::node_fixture(NODE, &dir.0));
+    let mut call = request();
+    call["arguments"] = json!({"id":"a"});
+    let first = controller.automate(call.clone()).unwrap();
+    let second = if first["status"] == "ok" {
+        call["action"] = json!("run");
+        Some(controller.automate(call).unwrap())
+    } else {
+        None
+    };
+    let pending = controller.web_attempts("fixture", None).unwrap()["total"].clone();
+    controller.stop().unwrap();
+    db.close().unwrap();
+    assert_eq!(first["status"], "ok", "{first}");
+    assert_eq!(first["data"]["archivada"], true);
+    assert_eq!(first["data"]["ya_archivada"], false);
+    assert_eq!(first["data"]["no_leida"], true);
+    let second = second.unwrap();
+    assert_eq!(second["status"], "ok", "{second}");
+    assert_eq!(second["data"]["ya_archivada"], true);
+    assert_eq!(second["data"]["no_leida"], true);
+    assert_eq!(pending, 0);
 }
 
 #[test]

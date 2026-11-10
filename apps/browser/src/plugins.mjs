@@ -115,15 +115,30 @@ export function validateWebPlugin(manifest) {
       if (/[{}]/u.test(remaining)) pluginFail('invalid_plugin');
     }
     for (const match of fn.path.matchAll(/\{([a-z][a-z0-9_]{0,63})\}/g)) if (!parameterSpec(fn.parameters[match[1]]).required) pluginFail('invalid_plugin');
-    if (fn.transport !== 'program' && Object.keys(fn.parameters).some(key => !used.has(key))) pluginFail('invalid_plugin');
+    if (!['program','gmail_inbox','gmail_print','gmail_archive','gmail_importance'].includes(fn.transport) && Object.keys(fn.parameters).some(key => !used.has(key))) pluginFail('invalid_plugin');
     if (fn.transport === 'program') {
       pluginText(fn.code, 48000);
       if (!['array', 'object', 'string', 'number', 'boolean'].includes(fn.result_type) || fn.query !== undefined || fn.fields !== undefined || fn.selector !== undefined || fn.ready_selector !== undefined || fn.result_pointer !== undefined) pluginFail('invalid_plugin');
+      // Una expresión flecha aislada devuelve la función como expresión descartada:
+      // el cuerpo no se ejecuta. Se comprueba sintaxis, sin evaluar código del plugin.
+      if (/^\s*(?:async\s+)?(?:\([^)]*\)|[a-zA-Z_$][\w$]*)\s*=>/u.test(fn.code)) {
+        try { new Function(`return (${fn.code.trim().replace(/;\s*$/u, '')}\n)`); pluginFail('invalid_program_body'); }
+        catch (error) { if (error.code === 'invalid_program_body') throw error; }
+      }
       try { new (Object.getPrototypeOf(async function(){}).constructor)('context', 'page', 'args', 'origin', 'runtime', fn.code); } catch { pluginFail('invalid_plugin'); }
     } else if (fn.transport === 'http') {
       if (fn.code !== undefined) pluginFail('invalid_plugin');
       if (!['array', 'object', 'string', 'number', 'boolean'].includes(fn.result_type) || fn.selector !== undefined || fn.ready_selector !== undefined || fn.login_selector !== undefined) pluginFail('invalid_plugin');
       if (fn.result_pointer !== undefined) pluginPointer(fn.result_pointer);
+    } else if (fn.transport === 'gmail_inbox') {
+      const keys=Object.keys(fn.parameters);
+      if (manifest.origin !== 'https://mail.google.com' || fn.path !== '/mail/u/0/' || fn.result_type !== 'object' || keys.length !== 1 || keys[0] !== 'pagina' || parameterSpec(fn.parameters.pagina).type !== 'integer' || !parameterSpec(fn.parameters.pagina).required || ['code','query','fields','selector','ready_selector','login_selector','result_pointer'].some(key => fn[key] !== undefined)) pluginFail('invalid_plugin');
+    } else if (fn.transport === 'gmail_print' || fn.transport === 'gmail_archive' || fn.transport === 'gmail_importance') {
+      const keys=Object.keys(fn.parameters);
+      if (manifest.origin !== 'https://mail.google.com' || fn.path !== '/mail/u/0/' || fn.result_type !== 'object' || keys.length !== 1 || keys[0] !== 'id' || parameterSpec(fn.parameters.id).type !== 'string' || !parameterSpec(fn.parameters.id).required || ['code','query','fields','selector','ready_selector','login_selector','result_pointer'].some(key => fn[key] !== undefined)) pluginFail('invalid_plugin');
+    } else if (fn.transport === 'observe') {
+      if (fn.code !== undefined || fn.query !== undefined || fn.fields !== undefined || fn.ready_selector !== undefined || fn.login_selector !== undefined || fn.result_pointer !== undefined || !['array','string'].includes(fn.result_type)) pluginFail('invalid_plugin');
+      pluginText(fn.selector, 1000);
     } else if (fn.transport === 'page') {
       if (fn.code !== undefined) pluginFail('invalid_plugin');
       if (!['array', 'string'].includes(fn.result_type) || fn.result_pointer !== undefined) pluginFail('invalid_plugin');
@@ -185,6 +200,98 @@ function programErrorCode(error) {
   return 'program_error';
 }
 
+// Busca por identidad estable sin abrir una conversación. La ausencia solo se
+// acepta cuando Gmail muestra explícitamente la vista de resultados vacíos.
+async function gmailLocate(context, id, archived, importance=null) {
+  const page=await context.newPage();
+  try {
+    const decimal=BigInt('0x'+id).toString();
+    const query=(archived?'in:anywhere -in:inbox -in:trash -in:spam':'in:inbox')+(importance===null?'':importance?' is:important':' -is:important')+' threadid:'+decimal;
+    await page.goto('https://mail.google.com/mail/u/0/#search/'+encodeURIComponent(query),{waitUntil:'domcontentloaded',timeout:25000});
+    if (new URL(page.url()).origin !== 'https://mail.google.com') { const e=new Error();e.code='authentication_required';throw e; }
+    await page.waitForFunction(({id,query})=>{
+      if (!location.hash.startsWith('#search/')) return false;
+      let actual;try{actual=decodeURIComponent(location.hash.slice(8)).replace(/\+/g,' ');}catch{return false;}
+      if (actual!==query) return false;
+      const grid=[...document.querySelectorAll('[role=grid]')].find(n=>n.getClientRects().length);
+      if (!grid) return false;
+      const rows=[...grid.querySelectorAll('[role=row]')].filter(n=>n.getClientRects().length);
+      const exact=rows.filter(r=>[...r.querySelectorAll('[data-legacy-thread-id]')].some(n=>n.getAttribute('data-legacy-thread-id')?.toLowerCase()===id));
+      const main=[...document.querySelectorAll('[role=main]')].find(n=>n.getClientRects().length);
+      const empty=rows.length===0 && !!main && /No hay mensajes que coincidan con tus criterios|No conversations found|No messages matched your search/i.test(main.innerText);
+      return (rows.length===1 && exact.length===1) || empty;
+    },{id:id.toLowerCase(),query},{timeout:20000});
+    const result=await page.evaluate(id=>{
+      const grid=[...document.querySelectorAll('[role=grid]')].find(n=>n.getClientRects().length);
+      const rows=[...grid.querySelectorAll('[role=row]')].filter(n=>n.getClientRects().length);
+      const row=rows.find(r=>[...r.querySelectorAll('[data-legacy-thread-id]')].some(n=>n.getAttribute('data-legacy-thread-id')?.toLowerCase()===id));
+      if (!row) return {found:false};
+      const unread=row.classList.contains('zE'),read=row.classList.contains('yO');
+      return {found:true,no_leida:unread===read?null:unread};
+    },id.toLowerCase());
+    return {page,...result};
+  } catch(error) { await page.close();throw error; }
+}
+
+async function gmailImportance(context, id) {
+  let important,other;
+  try {
+    important=await gmailLocate(context,id,false,true);
+    other=await gmailLocate(context,id,false,false);
+    if (important.found===other.found || (important.found && important.no_leida===null) || (other.found && other.no_leida===null))
+      return {status:'importance_unknown',message:'No se pudo determinar la importancia de la conversación en Recibidos.'};
+    const match=important.found?important:other;
+    return {status:'ok',data:{id,importante:important.found,no_leida:match.no_leida}};
+  } catch(error) {
+    return {status:error.code==='authentication_required'?'authentication_required':'execution_failed',diagnostic:{code:programErrorCode(error),phase:'read'},message:'No se pudo comprobar la importancia en Gmail.'};
+  } finally { await important?.page.close().catch(()=>{}); await other?.page.close().catch(()=>{}); }
+}
+
+async function gmailArchive(context, id) {
+  let initial,attempted=false,before=null;
+  try {
+    initial=await gmailLocate(context,id,false);
+    if (!initial.found) {
+      await initial.page.close();initial=null;
+      const archived=await gmailLocate(context,id,true);
+      try {
+        if (!archived.found || archived.no_leida===null) return {status:'archive_not_started',executed:false,diagnostic:{code:'program_error',phase:'prepare'},message:'No se pudo identificar la conversación en Recibidos o Archivo.'};
+        return {status:'ok',data:{id,archivada:true,ya_archivada:true,no_leida:archived.no_leida}};
+      } finally { await archived.page.close(); }
+    }
+    before=initial.no_leida;
+    if (before===null) return {status:'archive_not_started',executed:false,diagnostic:{code:'program_error',phase:'prepare'},message:'No se pudo comprobar el estado de lectura; no se archivó.'};
+    const row=initial.page.locator('[role=grid]:visible [role=row]').filter({has:initial.page.locator('[data-legacy-thread-id="'+id+'" i]')});
+    if (await row.count()!==1) throw new Error('row_count');
+    const box=row.locator('[role=checkbox]');
+    if (await box.count()!==1 || await box.getAttribute('aria-checked')!=='false') throw new Error('selection');
+    await box.click({timeout:5000});
+    if (await box.getAttribute('aria-checked')!=='true') throw new Error('selection');
+    const selected=await initial.page.evaluate(()=>{const grid=[...document.querySelectorAll('[role=grid]')].find(n=>n.getClientRects().length);return [...grid.querySelectorAll('[role=row] [role=checkbox][aria-checked=true]')].filter(n=>n.getClientRects().length).length;});
+    if (selected!==1) throw new Error('selection');
+    const archive=initial.page.locator('[role=button][aria-label="Archivar"]:visible, [role=button][aria-label="Archive"]:visible');
+    if (await archive.count()!==1 || await archive.getAttribute('aria-disabled')==='true') throw new Error('archive_control');
+    attempted=true;
+    try { await archive.click({timeout:10000}); } catch {}
+  } catch(error) {
+    if (!attempted) return {status:error.code==='authentication_required'?'authentication_required':'archive_not_started',executed:false,diagnostic:{code:programErrorCode(error),phase:'prepare'},message:'No se pudo preparar el archivo; no se archivó ningún mensaje.'};
+  } finally { if (initial && !attempted) await initial.page.close().catch(()=>{}); }
+  // Si el clic perdió su respuesta, solo se repiten observaciones, nunca el clic.
+  try {
+  for (let n=0;n<3;n++) {
+    if(n) await new Promise(resolve=>setTimeout(resolve,n*750));
+    let inbox,archived;
+    try {
+      inbox=await gmailLocate(context,id,false);
+      if (inbox.found) continue;
+      archived=await gmailLocate(context,id,true);
+      if (archived.found && archived.no_leida===before) return {status:'ok',data:{id,archivada:true,ya_archivada:false,no_leida:archived.no_leida}};
+    } catch {} finally { await inbox?.page.close().catch(()=>{});await archived?.page.close().catch(()=>{}); }
+  }
+  return {status:'result_uncertain',diagnostic:{code:'postcondition_failed',phase:'verify'},message:'No se pudo confirmar el archivo y el estado de lectura; no se repetirá automáticamente.'};
+  } finally { if (initial) await initial.page.close().catch(()=>{}); }
+}
+
 function programRuntime() {
   // Solo etiquetas técnicas cerradas: nunca incluir mensajes, selectores ni contenido del sitio.
   const diagnostic = { stage:'program', phase:'prepare', action_status:'unknown', read_attempts:0 };
@@ -195,14 +302,10 @@ function programRuntime() {
   async function read(name, operation) {
     stage(name);
     diagnostic.phase = 'read';
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      diagnostic.read_attempts = attempt;
-      try { return await operation(); }
-      catch (error) {
-        if (attempt === 3 || !['timeout', 'connection_failed'].includes(programErrorCode(error))) throw error;
-        await new Promise(resolve => setTimeout(resolve, attempt * 100));
-      }
-    }
+    // El callback puede contener navegación o escrituras. El nombre no demuestra
+    // que sea seguro repetirlo; una sola invocación conserva esa incertidumbre.
+    diagnostic.read_attempts = 1;
+    return await operation();
   }
   return {
     diagnostic,
@@ -308,10 +411,113 @@ export function createWebPlugins({ directory, getContext, verificationBase }) {
   }
   async function execute(manifest, fn, args) {
     const target = pluginTarget(manifest, fn, args);
-    const context = await getContext();
-    if (!context) return { status: 'browser_closed' };
+    let context;
+    try { context = await getContext(); }
+    catch (error) { return {status:'browser_unavailable',executed:false,diagnostic:{code:programErrorCode(error),phase:'prepare'},message:'No se pudo preparar el navegador; la función no se ejecutó.'}; }
+    if (!context) return { status: 'browser_unavailable', executed:false, diagnostic:{code:'program_error',phase:'prepare'}, message:'El navegador no está disponible; la función no se ejecutó.' };
     if (fn.transport === 'program') {
       return executeProgram(context, manifest, fn, args);
+    }
+    if (fn.transport === 'gmail_archive') return gmailArchive(context,args.id);
+    if (fn.transport === 'gmail_importance') return gmailImportance(context,args.id);
+    if (fn.transport === 'gmail_print') {
+      let response, page;
+      try {
+        const url = new URL('/mail/u/0/', manifest.origin);
+        url.search = new URLSearchParams({view:'pt',search:'all',th:args.id}).toString();
+        response=await context.request.get(url.href,{timeout:20000,maxRedirects:0});
+        const status=response.status();
+        if (status === 401) return pluginAuth(manifest);
+        if (status >= 300 && status < 400) {
+          const location=response.headers().location;
+          let login=false;
+          try { const dest=new URL(location,url); login=dest.protocol==='https:' && dest.hostname==='accounts.google.com'; } catch {}
+          return login ? pluginAuth(manifest) : {status:'redirect_blocked'};
+        }
+        if (status === 403) return {status:'access_denied'};
+        if (status !== 200) return {status:'http_error',http_status:status};
+        if (!/\btext\/html\b/i.test(response.headers()['content-type'] || '')) return {status:'site_changed'};
+        const body=await response.body();
+        if (body.length > 1024*1024) return {status:'response_too_large'};
+        page=await context.newPage();
+        await page.route('**/*',route=>route.abort());
+        const texto=await page.evaluate(html=>{
+          const doc=new DOMParser().parseFromString(html,'text/html');
+          const main=doc.querySelector('.maincontent');
+          if (!main) return null;
+          for (const node of main.querySelectorAll('script,style,noscript,iframe,object,embed')) node.remove();
+          const blocks=new Set(['ADDRESS','ARTICLE','BLOCKQUOTE','BR','DIV','H1','H2','H3','H4','H5','H6','LI','P','PRE','SECTION','TABLE','TR']);
+          const parts=[];
+          const walker=doc.createTreeWalker(main,NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
+          while (walker.nextNode()) {
+            const node=walker.currentNode;
+            if (node.nodeType===Node.TEXT_NODE) parts.push(node.nodeValue || '');
+            else if (blocks.has(node.tagName)) parts.push('\n');
+            else if (node.tagName==='TD' || node.tagName==='TH') parts.push(' ');
+          }
+          return parts.join('').replace(/\r/g,'').replace(/[ \t]+\n/g,'\n').replace(/\n{3,}/g,'\n\n').trim();
+        },body.toString('utf8'));
+        if (!texto) return {status:'site_changed'};
+        if (Buffer.byteLength(texto)>100000) return {status:'response_too_large'};
+        return {status:'ok',data:{id:args.id,texto}};
+      } catch (error) {
+        return {status:error?.name === 'TimeoutError'?'timeout':'execution_failed',diagnostic:{code:programErrorCode(error),phase:'read'},message:'No se pudo leer la conversación de Gmail.'};
+      } finally {
+        await page?.close();
+        await response?.dispose();
+      }
+    }
+    if (fn.transport === 'gmail_inbox') {
+      if (!Number.isSafeInteger(args.pagina) || args.pagina < 1 || args.pagina > 100) return {status:'invalid_arguments',executed:false};
+      const page = await context.newPage();
+      let stage='open';
+      try {
+        await page.goto(target,{waitUntil:'domcontentloaded',timeout:20000});
+        if (new URL(page.url()).origin !== manifest.origin) return pluginAuth(manifest);
+        stage='search';
+        const search=page.getByRole('textbox',{name:'Buscar en el correo electrónico',exact:true});
+        await search.waitFor({timeout:15000});
+        await search.fill('in:inbox'); await search.press('Enter');
+        await page.waitForFunction(()=>location.hash.startsWith('#search/'),null,{timeout:15000});
+        if (new URL(page.url()).origin !== manifest.origin) return pluginAuth(manifest);
+        stage='rows';
+        await page.locator('[aria-label="Mostrar más mensajes"]:visible').first().waitFor({state:'visible',timeout:15000});
+        const rows=page.locator('[role=grid]:visible [role=row] [data-legacy-thread-id]');
+        await rows.first().waitFor({state:'attached',timeout:15000});
+        stage='pagination';
+        for (let i=1;i<args.pagina;i++) {
+          const next=page.getByRole('button',{name:'Resultados siguientes',exact:true});
+          const matches=await next.count();
+          const disabled=matches === 1 ? await next.getAttribute('aria-disabled') === 'true' : null;
+          if (matches !== 1 || disabled) return {status:'page_not_available',diagnostic:{code:'page_unavailable',phase:'read',matches,disabled},message:'No se encontró una página siguiente disponible.'};
+          const before=await rows.first().getAttribute('data-legacy-thread-id');
+          await next.click({timeout:10000});
+          if (new URL(page.url()).origin !== manifest.origin) return {status:'redirect_blocked'};
+          await page.waitForFunction(old=>{const grids=Array.from(document.querySelectorAll('[role=grid]'));const grid=grids.find(node=>node.getClientRects().length>0);const first=grid?.querySelector('[role=row] [data-legacy-thread-id]');return first && first.getAttribute('data-legacy-thread-id') !== old;},before,{timeout:15000});
+        }
+        const data=await page.evaluate(()=>{
+          const visible=selector=>Array.from(document.querySelectorAll(selector)).find(node=>node.getClientRects().length>0);
+          const grid=visible('[role=grid]');
+          const range=visible('[aria-label="Mostrar más mensajes"]');
+          const next=visible('[aria-label="Resultados siguientes"]');
+          return {rango:range?.innerText?.slice(0,200) || null,siguiente:!!next && next.getAttribute('aria-disabled') !== 'true',conversaciones:Array.from(grid?.querySelectorAll('[role=row]') || []).slice(0,50).map(row=>({id:row.querySelector('[data-legacy-thread-id]')?.getAttribute('data-legacy-thread-id') || null,texto:(row.innerText || '').slice(0,2000),no_leida:row.classList.contains('zE')===row.classList.contains('yO')?null:row.classList.contains('zE')})).filter(row=>row.id)};
+        });
+        if (!data.conversaciones.length) return {status:'site_changed',message:'No se encontraron filas de conversaciones en la página.'};
+        if (Buffer.byteLength(JSON.stringify(data)) > 100000) return {status:'response_too_large'};
+        return {status:'ok',data};
+      } catch (error) {
+        return {status:error?.name === 'TimeoutError' ? 'timeout' : 'execution_failed', diagnostic:{code:programErrorCode(error),phase:'read',stage}, message:'No se completó la consulta de Recibidos.'};
+      } finally { await page.close(); }
+    }
+    if (fn.transport === 'observe') {
+      // No abre ni navega: lee únicamente una página ya presente, sin código del plugin.
+      const page = context.pages().find(candidate => candidate.url() === target);
+      if (!page) return { status:'page_not_available', message:'La página necesaria no está abierta.' };
+      const values = await page.locator(fn.selector).allTextContents({timeout:6500});
+      if (page.url() !== target) return { status:'site_changed' };
+      if (!values.length) return { status:'site_changed' };
+      const data = values.slice(0,200).map(value => value.trim().slice(0,2000));
+      return { status:'ok', data:fn.result_type === 'string' ? data[0] : data, truncated:values.length>200 || values.some(value=>value.length>2000) };
     }
     const deadline = Date.now() + 6500;
     const timeout = () => Math.max(1, deadline - Date.now());
@@ -435,9 +641,11 @@ export function createWebPlugins({ directory, getContext, verificationBase }) {
       if (!fn) return { status: 'function_not_found' };
       if (fn.transport === 'program' && request.program_allowed !== true) return { status: 'permission_required', message: 'El bloque programable requiere activar lectura y escritura de archivos, comandos y control de aplicaciones.' };
       if (request.expected_revision !== record.revision) return { status: 'revision_conflict' };
+      if (request.checked_transport !== undefined && request.checked_transport !== fn.transport) return { status: 'revision_conflict', executed: false };
       const args = request.arguments === undefined ? {} : request.arguments;
       const invalid = pluginArguments(fn, args);
       if (invalid) return { ...invalid, plugin_id: record.manifest.id, plugin_name: record.manifest.name, function_name: fn.name, revision: record.revision };
+      if ((fn.transport === 'gmail_print' && !/^[a-f0-9]{1,128}$/i.test(args.id)) || (['gmail_archive','gmail_importance'].includes(fn.transport) && !/^[a-f0-9]{1,16}$/i.test(args.id))) return {status:'invalid_arguments',executed:false,message:'La identidad de la conversación de Gmail no es válida.'};
       if (request.action !== 'verify' && !(request.action === 'preflight' && request.operation === 'verify') && record.verified[fn.name]?.revision !== record.revision) return { status: 'verification_required', executed: false };
       if (['prepare','preflight'].includes(request.action)) return { status: 'ready', executed: false, plugin_id: record.manifest.id, plugin_name: record.manifest.name, function_name: fn.name, revision: record.revision, transport: fn.transport };
       let result;

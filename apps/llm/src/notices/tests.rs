@@ -99,6 +99,18 @@ fn messages(db: &Database) -> Vec<String> {
     .unwrap()
 }
 #[test]
+fn controlled_read_failure_does_not_claim_execution_was_paused_or_not_sent() {
+    let (_, _, mut update) = fixture();
+    update.state = "rejected".into();
+    update.reference.state = "rejected".into();
+    update.code = "controlled_read_failed".into();
+    let text = update.fallback();
+    assert!(text.contains("lectura no se completó"));
+    assert!(!text.contains("pausada"));
+    assert!(!text.contains("no se envió"));
+}
+
+#[test]
 fn typed_input_is_idempotent_and_bot_renders_once_without_a_helper_identity() {
     let (db, journal, update) = fixture();
     let store = Store(db.clone());

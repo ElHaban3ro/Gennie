@@ -137,6 +137,32 @@ fn runs(c: &Controller, id: &str) -> Value {
     c.request(json!({"action":"runs","policy_id":id})).unwrap()
 }
 #[test]
+fn empty_authorized_routes_do_not_allow_execution_configuration() {
+    let (controller, _, runtime, reference) = setup();
+    let record = controller.0.store.get(reference.id).unwrap();
+    let mut document = record.document;
+    document
+        .authorization
+        .as_mut()
+        .unwrap()
+        .allowed_routes
+        .clear();
+    let saved = controller
+        .0
+        .store
+        .update(reference.id, reference.revision, document)
+        .unwrap();
+    let reference = Reference {
+        id: saved.id,
+        instance_id: saved.instance_id,
+        revision: saved.revision,
+    };
+    let error = controller.configure(configuration(reference)).unwrap_err();
+    assert!(error.to_string().contains("vía no está autorizada"));
+    assert_eq!(runtime.effects.load(Ordering::SeqCst), 0);
+}
+
+#[test]
 fn upcoming_times_choose_the_earliest_current_policy_without_dispatch_or_writes() {
     let (c, _, runtime, reference) = setup();
     let id = reference.id;
@@ -346,6 +372,27 @@ fn changed_document_identity_or_authorization_prevents_dispatch() {
     assert_eq!(runtime.effects.load(Ordering::SeqCst), 0);
     assert_eq!(policies(&c, id)["policies"][0]["state"], "stale");
 }
+#[test]
+fn controlled_read_failure_is_recorded_without_requiring_effect_review() {
+    let (controller, clock, runtime, reference) = setup();
+    let policy = controller
+        .configure(configuration(reference.clone()))
+        .unwrap();
+    *runtime.response.lock().unwrap() = Some(
+        json!({"status":"timeout","review_required":false,"executed":true,"web_attempt_id":7,"attempt":{"observation_only":true,"state":"completed","id":7}}),
+    );
+    clock.fetch_add(60, Ordering::SeqCst);
+    assert!(controller.step().unwrap());
+    let page = runs(&controller, policy["id"].as_str().unwrap());
+    assert_eq!(page["runs"][0]["state"], "rejected");
+    assert_eq!(page["runs"][0]["code"], "controlled_read_failed");
+    assert_eq!(
+        policies(&controller, reference.id)["policies"][0]["state"],
+        "active"
+    );
+    assert!(!controller.step().unwrap());
+}
+
 #[test]
 fn result_uncertainty_blocks_other_arguments_and_requires_human_review() {
     let (c, clock, runtime, reference) = setup();

@@ -490,6 +490,32 @@ fn method_resolution_uses_current_evidence_and_permission_without_mutating_the_p
 }
 
 #[test]
+fn gmail_controlled_reads_still_require_web_authorization() {
+    for transport in ["gmail_inbox", "gmail_print", "gmail_importance"] {
+        let mut d = document();
+        d.method = Some(Method {
+            plugin_id: "mail".into(),
+            functions: vec!["leer_recibidos".into()],
+        });
+        d.authorization = Some(Authorization {
+            scope: "Leer Recibidos".into(),
+            allowed_routes: vec![],
+        });
+        let plugin = json!({"manifest":{"id":"mail","functions":[{"name":"leer_recibidos","transport":transport}]},"revision":1,"verified":{"leer_recibidos":{"revision":1,"verified_at":"2026-11-09T00:00:00Z"}}});
+        let denied = resolve_method(&d, std::slice::from_ref(&plugin)).unwrap();
+        assert_eq!(denied["routes"][0]["status"], "not_authorized");
+        d.authorization
+            .as_mut()
+            .unwrap()
+            .allowed_routes
+            .push(Route::Web);
+        let allowed = resolve_method(&d, &[plugin]).unwrap();
+        assert_eq!(allowed["routes"][0]["status"], "ready");
+        assert_eq!(allowed["execution_enabled"], false);
+    }
+}
+
+#[test]
 fn deletion_requires_current_revision_and_only_commits_on_success() {
     let store = store();
     let record = store.create("delete", document()).unwrap();
