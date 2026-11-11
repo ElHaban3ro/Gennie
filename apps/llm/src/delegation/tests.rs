@@ -85,6 +85,40 @@ fn fixture() -> (Receiver, Arc<Journal>, Update) {
     };
     (receiver, journal, update)
 }
+
+#[test]
+fn delivered_progress_emits_speech_once_after_commit() {
+    let (fixture_receiver, journal, mut update) = fixture();
+    update.state = State::Queued;
+    update.kind = Kind::Status;
+    let (sender, events) = std::sync::mpsc::channel();
+    let mut worker = Worker::start(
+        fixture_receiver.0.store.0.clone(),
+        Some(journal.clone()),
+        sender,
+        None,
+    )
+    .unwrap();
+    worker.receiver.accept(&update).unwrap();
+    let event = events
+        .recv_timeout(std::time::Duration::from_secs(2))
+        .unwrap();
+    match event {
+        crate::Event::DelegationMessage { origin, text } => {
+            assert_eq!(origin, update.origin);
+            assert_eq!(text, update.routine_message());
+            assert_eq!(messages(&worker.receiver), vec![text]);
+        }
+        _ => panic!("Falta la narración de la actualización confirmada"),
+    }
+    worker.receiver.accept(&update).unwrap();
+    assert!(
+        events
+            .recv_timeout(std::time::Duration::from_millis(100))
+            .is_err()
+    );
+    worker.stop().unwrap();
+}
 fn state(receiver: &Receiver, key: &str) -> String {
     receiver
         .0

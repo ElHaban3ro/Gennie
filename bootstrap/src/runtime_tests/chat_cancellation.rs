@@ -3,6 +3,41 @@ use super::*;
 use gennie_llm::{ReplyInterruption, SpeechEvent};
 
 #[test]
+fn delegation_voice_only_queues_for_visible_active_origin_and_not_during_dictation() {
+    let fixture = Fixture::new();
+    fixture.seed_selection();
+    let mut backend = fixture.open();
+    let first = append_conversation(&backend, "voice-first", "Primera")
+        .parse::<i64>()
+        .unwrap();
+    let second = append_conversation(&backend, "voice-second", "Segunda")
+        .parse::<i64>()
+        .unwrap();
+    backend.snapshot.selected_id = Some(second.to_string());
+    let origin = gennie_presence::delegation::origin(&backend.state.db, second)
+        .unwrap()
+        .unwrap();
+    let other = gennie_presence::delegation::origin(&backend.state.db, first)
+        .unwrap()
+        .unwrap();
+    backend.observe_delegation_message(&other, "Aviso anterior".into());
+    assert!(backend.speech_queue.is_empty());
+    backend.voice_suppressed = true;
+    backend.observe_delegation_message(&origin, "Durante dictado".into());
+    assert!(backend.speech_queue.is_empty());
+    backend.voice_suppressed = false;
+    backend.observe_delegation_message(&origin, "He delegado la preparación".into());
+    assert_eq!(
+        backend.speech_queue.pop_front(),
+        Some(("He delegado la preparación".into(), false))
+    );
+    backend.snapshot.selected_id = Some(first.to_string());
+    backend.observe_delegation_message(&origin, "Otro chat visible".into());
+    assert!(backend.speech_queue.is_empty());
+    backend.close().unwrap();
+}
+
+#[test]
 fn empty_dictation_allows_later_progress_messages_to_be_narrated() {
     let fixture = Fixture::new();
     fixture.seed_selection();
@@ -76,6 +111,7 @@ fn late_speech_events_cannot_erase_acknowledgement_or_text_of_a_new_turn() {
         SpeechEvent::Finished {
             cancelled: true,
             error: None,
+            error_recorded: false,
         },
     ] {
         assert!(!backend.observe_speech("old", event, &mut errors));
@@ -119,6 +155,7 @@ fn unsaved_interrupted_text_survives_refresh_and_is_not_narrated_or_confused_wit
         SpeechEvent::Finished {
             cancelled: true,
             error: None,
+            error_recorded: false,
         },
         &mut errors,
     );

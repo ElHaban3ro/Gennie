@@ -870,6 +870,8 @@ class _DesktopScreenState extends State<DesktopScreen> with WindowListener {
             Text(
               stopping
                   ? 'Deteniendo respuesta…'
+                  : s.turn != null && s.acknowledgedText == null
+                  ? 'Preparando envío…'
                   : s.busy
                   ? 'Gennie está respondiendo…'
                   : s.confirmation == 'Respuesta detenida'

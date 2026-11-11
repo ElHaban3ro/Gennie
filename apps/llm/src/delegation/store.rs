@@ -66,29 +66,32 @@ impl Store {
         })
     }
     /// El mensaje y el estado del inbox comparten la transacción y la conexión prestada.
-    pub fn deliver(&self, update: &Update, journal: &dyn ConversationJournal) -> Result<()> {
-        let changed=self.0.with_connection(|c| {
+    pub fn deliver(
+        &self,
+        update: &Update,
+        journal: &dyn ConversationJournal,
+    ) -> Result<Option<String>> {
+        let delivered_text=self.0.with_connection(|c| {
             let tx=c.transaction()?;
             let row={let mut s=tx.prepare("SELECT state,rendered_text,failure_code FROM llm_delegation_updates WHERE event_key=?1")?;s.query_map([&update.event_key],|r|Ok((r.get::<_,String>(0)?,r.get::<_,Option<String>>(1)?,r.get::<_,Option<String>>(2)?)))?.next().transpose()?};
             let Some((state,text,failure))=row else {return Err("Actualización del bot no disponible".into());};
-            if state!="ready" { return Ok(false); }
+            if state!="ready" { return Ok(None); }
             let newer:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM llm_delegation_updates WHERE delegation_id=?1 AND sequence>?2)",params![update.delegation_id,update.sequence],|r|r.get(0))?;
             let repeated = if update.kind==Kind::Progress || update.kind==Kind::Legacy {
                 let previous={let mut q=tx.prepare("SELECT document,rendered_text FROM llm_delegation_updates WHERE delegation_id=?1 AND state='delivered' ORDER BY sequence DESC LIMIT 1")?;q.query_map([&update.delegation_id],|r|Ok((r.get::<_,String>(0)?,r.get::<_,Option<String>>(1)?)))?.next().transpose()?};
                 previous.map(|(document,previous_text)| -> Result<bool> {let previous:Update=serde_json::from_str(&document)?;Ok(previous.state==update.state && previous.kind==update.kind && (update.kind==Kind::Legacy || (text.is_some() && previous_text==text)))}).transpose()?.unwrap_or(false)
             } else {false};
             let newer=newer || repeated;
-            let delivered=if newer { false } else {
-                let fallback=if failure.is_some(){update.explanation_unavailable_message()}else{update.routine_message()};
-                journal.deliver_delegation(&tx,update,text.as_deref().unwrap_or(&fallback))?
-            };
+            let fallback=if failure.is_some(){update.explanation_unavailable_message()}else{update.routine_message()};
+            let message=text.as_deref().unwrap_or(&fallback);
+            let delivered=if newer { false } else { journal.deliver_delegation(&tx,update,message)? };
             tx.execute("UPDATE llm_delegation_updates SET state=?2,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE event_key=?1",params![update.event_key,if newer {"superseded"} else if delivered {"delivered"} else {"discarded"}])?;
-            tx.commit()?;Ok(delivered)
+            tx.commit()?;Ok(delivered.then(|| message.to_owned()))
         })?;
-        if changed {
+        if delivered_text.is_some() {
             journal.committed();
         }
-        Ok(())
+        Ok(delivered_text)
     }
     pub fn discard(&self, update: &Update) -> Result<()> {
         self.0.with_connection(|c| {c.execute("UPDATE llm_delegation_updates SET state='discarded',updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE event_key=?1 AND state IN ('rendering','ready')",[&update.event_key])?;Ok(())})

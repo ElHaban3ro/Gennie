@@ -34,7 +34,7 @@ impl Worker {
             let mut recovering = false;
             while !thread_stopping.load(Ordering::Acquire) {
                 let recovery = if recovering { thread_receiver.0.store.recover().and_then(|()|crate::notices::Store(thread_receiver.0.store.0.clone()).recover()) } else { Ok(()) };
-                let result = recovery.and_then(|()| step(&thread_receiver, &|settings, prompt| {
+                let result = recovery.and_then(|()| step(&thread_receiver, Some(&events), &|settings, prompt| {
                     codex::Session::render_delegation(thread_process.clone(), settings, prompt)
                 })).and_then(|processed| {
                     if processed { return Ok(true); }
@@ -92,7 +92,11 @@ impl Drop for Worker {
         let _ = self.stop();
     }
 }
-fn step(receiver: &Receiver, render: &impl Fn(&Settings, &str) -> Result<String>) -> Result<bool> {
+fn step(
+    receiver: &Receiver,
+    events: Option<&Sender<Event>>,
+    render: &impl Fn(&Settings, &str) -> Result<String>,
+) -> Result<bool> {
     let Some((update, ready)) = receiver.0.store.next()? else {
         return Ok(false);
     };
@@ -102,7 +106,14 @@ fn step(receiver: &Receiver, render: &impl Fn(&Settings, &str) -> Result<String>
         .as_ref()
         .ok_or("El bot no tiene diario de conversaciones")?;
     if ready {
-        receiver.0.store.deliver(&update, journal.as_ref())?;
+        if let Some(text) = receiver.0.store.deliver(&update, journal.as_ref())?
+            && let Some(events) = events
+        {
+            let _ = events.send(Event::DelegationMessage {
+                origin: update.origin.clone(),
+                text,
+            });
+        }
         return Ok(true);
     }
     let Some(context) = journal.delegation_context(&update.origin)? else {
@@ -149,7 +160,14 @@ fn step(receiver: &Receiver, render: &impl Fn(&Settings, &str) -> Result<String>
     if closing {
         return Ok(true);
     }
-    receiver.0.store.deliver(&update, journal.as_ref())?;
+    if let Some(text) = receiver.0.store.deliver(&update, journal.as_ref())?
+        && let Some(events) = events
+    {
+        let _ = events.send(Event::DelegationMessage {
+            origin: update.origin.clone(),
+            text,
+        });
+    }
     Ok(true)
 }
 #[cfg(test)]
@@ -157,5 +175,5 @@ pub(super) fn test_step(
     receiver: &Receiver,
     render: &impl Fn(&Settings, &str) -> Result<String>,
 ) -> Result<bool> {
-    step(receiver, render)
+    step(receiver, None, render)
 }

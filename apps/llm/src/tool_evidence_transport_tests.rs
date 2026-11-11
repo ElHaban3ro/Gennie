@@ -439,6 +439,74 @@ printf '%s\n' '{"method":"turn/completed","params":{"threadId":"active","turn":{
 }
 
 #[test]
+fn streamed_intermediate_and_final_messages_both_emit_speech() {
+    use gennie_core::{AppModule, AppState};
+    use std::time::{Duration, Instant};
+    let journal = Arc::new(Journal::default());
+    let source = journal.clone();
+    let connector: crate::TestConnector = Arc::new(move |process| {
+        Ok(session_with_process(
+            source.clone(),
+            r#"
+printf '%s\n' '{"method":"item/agentMessage/delta","params":{"threadId":"active","turnId":"turn","itemId":"progress","delta":"<gennie_voice>\n[curious] Voy a revisar.\n<gennie_text>\nVoy a comprobarlo."}}' '{"method":"item/completed","params":{"threadId":"active","turnId":"turn","item":{"type":"agentMessage","id":"progress","text":"<gennie_voice>\n[curious] Voy a revisar.\n<gennie_text>\nVoy a comprobarlo."}}}' '{"method":"item/agentMessage/delta","params":{"threadId":"active","turnId":"turn","itemId":"final","delta":"<gennie_voice>\n[warmly] Ya revisé.\n<gennie_text>\nYa revisé."}}' '{"method":"item/completed","params":{"threadId":"active","turnId":"turn","item":{"type":"agentMessage","id":"final","text":"<gennie_voice>\n[warmly] Ya revisé.\n<gennie_text>\nYa revisé."}}}' '{"method":"turn/completed","params":{"turn":{"id":"turn","status":"completed"}}}'
+"#,
+            process,
+        ))
+    });
+    let module = crate::LlmModule {
+        test_connector: Mutex::new(Some(connector)),
+        ..Default::default()
+    };
+    let state = AppState {
+        config: Arc::new(gennie_config::Config {
+            database_path: PathBuf::from("unused.sqlite3"),
+            db_busy_timeout_ms: 50,
+        }),
+        db: Database::memory().unwrap(),
+        shutdown: Default::default(),
+    };
+    state
+        .db
+        .migrate(module.name(), module.migrations())
+        .unwrap();
+    module.start(&state).unwrap();
+    let controller = module.controller().unwrap();
+    controller
+        .speak_turn_for_voice("Entrada", None, Some(true))
+        .unwrap();
+    let mut events = Vec::new();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while Instant::now() < deadline {
+        events.extend(controller.poll());
+        if events.iter().any(|e| {
+            matches!(
+                e,
+                crate::Event::Speech {
+                    event: crate::SpeechEvent::Finished { .. },
+                    ..
+                }
+            )
+        }) {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let spoken = events
+        .iter()
+        .filter_map(|e| match e {
+            crate::Event::Speech {
+                event: crate::SpeechEvent::Spoken { text, .. },
+                ..
+            } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(spoken, ["[curious] Voy a revisar.", "[warmly] Ya revisé."]);
+    module.stop(&state).unwrap();
+    state.db.close().unwrap();
+}
+
+#[test]
 fn voice_fallback_waits_for_final_response_after_intermediate_message() {
     use gennie_core::{AppModule, AppState};
     use std::time::{Duration, Instant};
@@ -623,7 +691,8 @@ fi"#
         crate::Event::Speech {
             event: crate::SpeechEvent::Finished {
                 cancelled: true,
-                error: None
+                error: None,
+                ..
             },
             ..
         }

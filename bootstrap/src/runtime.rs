@@ -1689,7 +1689,11 @@ impl Backend {
                 refresh = true;
             }
             SpeechEvent::HistoryWarning(text) => errors.push((text, false)),
-            SpeechEvent::Finished { cancelled, error } => {
+            SpeechEvent::Finished {
+                cancelled,
+                error,
+                error_recorded,
+            } => {
                 self.snapshot.turn = None;
                 refresh = true;
                 if cancelled {
@@ -1703,11 +1707,29 @@ impl Backend {
                 } else if let Some(error) = error {
                     self.snapshot.connection = "Sin conectar".into();
                     self.failed_turn = true;
-                    errors.push((error, true));
+                    errors.push((error, error_recorded));
                 }
             }
         }
         refresh
+    }
+    fn observe_delegation_message(
+        &mut self,
+        origin: &gennie_llm::delegation::Origin,
+        text: String,
+    ) {
+        if self.voice_suppressed
+            || self.snapshot.selected_id.as_deref() != Some(&origin.conversation_id.to_string())
+        {
+            return;
+        }
+        let active = history::active_conversation(&self.state.db).ok().flatten();
+        let current = gennie_presence::delegation::origin(&self.state.db, origin.conversation_id)
+            .ok()
+            .flatten();
+        if active == Some(origin.conversation_id) && current.as_ref() == Some(origin) {
+            self.speech_queue.push_back((text, false));
+        }
     }
     fn observe_dictation_event(
         &mut self,
@@ -1777,6 +1799,9 @@ impl Backend {
                     Connecting => self.snapshot.connection = "Conectando…".into(),
                     Disconnected(_) => {
                         self.snapshot.connection = "Sin conectar".into();
+                    }
+                    DelegationMessage { origin, text } => {
+                        self.observe_delegation_message(&origin, text)
                     }
                     Speech { id, event } => {
                         refresh_history |= self.observe_speech(&id, event, &mut errors);

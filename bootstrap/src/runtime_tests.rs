@@ -713,6 +713,43 @@ fn desktop_resolves_relative_database_against_the_env_file_not_flutter_working_d
 }
 
 #[test]
+fn repeated_connection_failure_reports_each_unsent_attempt() {
+    let fixture = Fixture::new();
+    fixture.seed_selection();
+    let mut backend = fixture.open();
+    append_conversation(&backend, "missing-thread", "Chat activo");
+    for id in ["first", "second"] {
+        backend.snapshot.turn = Some(TurnProgress {
+            id: id.into(),
+            stopping: false,
+        });
+        let mut errors = Vec::new();
+        backend.observe_speech(
+            id,
+            gennie_llm::SpeechEvent::Finished {
+                cancelled: false,
+                error: Some("No se puede reanudar".into()),
+                error_recorded: false,
+            },
+            &mut errors,
+        );
+        for (error, saved) in errors {
+            backend.record_error(error, saved, true);
+        }
+    }
+    let history = history::load(&backend.state.db, None).unwrap();
+    assert_eq!(
+        history
+            .messages
+            .iter()
+            .filter(|m| m.text == "Error: No se puede reanudar")
+            .count(),
+        2
+    );
+    backend.close().unwrap();
+}
+
+#[test]
 fn system_notices_persist_without_duplicating_provider_errors_or_switching_read_selection() {
     let fixture = Fixture::new();
     fixture.seed_selection();

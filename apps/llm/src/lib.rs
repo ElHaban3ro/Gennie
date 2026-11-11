@@ -256,7 +256,14 @@ pub enum Event {
     Connecting,
     Disconnected(String),
     HistoryWarning(String),
-    Speech { id: String, event: SpeechEvent },
+    DelegationMessage {
+        origin: delegation::Origin,
+        text: String,
+    },
+    Speech {
+        id: String,
+        event: SpeechEvent,
+    },
     NewChatReady,
     Failed(String),
     SettingsSaved(Settings),
@@ -287,6 +294,7 @@ pub enum SpeechEvent {
     Finished {
         cancelled: bool,
         error: Option<String>,
+        error_recorded: bool,
     },
 }
 
@@ -697,14 +705,12 @@ impl AppModule for LlmModule {
                     if let Some(ticket) = ticket {
                         let cancelled = ticket.context.is_cancelled();
                         let mut error = result.err().map(|e| e.to_string());
-                        if !cancelled
-                            && let Some(message) = &mut error
-                            && let Some(current) = &session
-                            && let Err(save_error) = current.record_error(message)
-                        {
-                            *message = format!(
-                                "{message}. No se pudo guardar en el historial: {save_error}"
-                            );
+                        let mut error_recorded = false;
+                        if !cancelled && let Some(message) = &mut error && let Some(current) = &session {
+                            match current.record_error(message) {
+                                Ok(()) => error_recorded = journal.is_some(),
+                                Err(save_error) => *message = format!("{message}. No se pudo guardar en el historial: {save_error}"),
+                            }
                         }
                         if cancelled || error.is_some() {
                             session = None;
@@ -719,6 +725,7 @@ impl AppModule for LlmModule {
                             event: SpeechEvent::Finished {
                                 cancelled,
                                 error: if cancelled { None } else { error },
+                                error_recorded,
                             },
                         });
                         continue;
@@ -1228,6 +1235,54 @@ mod tests {
         assert!(!reply.trim().is_empty());
         drop(session);
         let _ = std::fs::remove_dir_all(base);
+    }
+
+    #[test]
+    #[ignore = "Usa el Codex instalado y la sesión ChatGPT; no envía turnos ni usa inferencia"]
+    fn real_empty_new_chat_survives_provider_restart() {
+        let db = Database::memory().unwrap();
+        let module = LlmModule::default();
+        db.migrate(module.name(), module.migrations()).unwrap();
+        let base = std::env::temp_dir().join(format!(
+            "gennie-empty-restart-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let result = (|| -> Result<()> {
+            let session = codex::Session::connect_new_in(
+                &db,
+                codex::ProcessHandle::default(),
+                base.clone(),
+                &Settings::default(),
+            )?;
+            let expected = session.thread_id().to_owned();
+            drop(session);
+            let mut resumed = codex::Session::connect_in(
+                &db,
+                codex::ProcessHandle::default(),
+                base.clone(),
+                &Settings::default(),
+            )?;
+            assert_eq!(resumed.thread_id(), expected);
+            resumed.new_chat(&db)?;
+            let next = resumed.thread_id().to_owned();
+            assert_ne!(next, expected);
+            drop(resumed);
+            let reopened = codex::Session::connect_in(
+                &db,
+                codex::ProcessHandle::default(),
+                base.clone(),
+                &Settings::default(),
+            )?;
+            assert_eq!(reopened.thread_id(), next);
+            Ok(())
+        })();
+        let _ = std::fs::remove_dir_all(base);
+        db.close().unwrap();
+        result.unwrap();
     }
 
     #[test]

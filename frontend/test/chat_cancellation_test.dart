@@ -49,6 +49,34 @@ Future<void> update(
 final stop = find.byKey(const ValueKey('stop-response'));
 
 void main() {
+  testWidgets('distingue preparación del envío de una respuesta confirmada', (
+    t,
+  ) async {
+    final b = StopBackend();
+    final (_, state) = await mount(t, backend: b);
+    await update(
+      t,
+      b,
+      state,
+      snapshot(
+        busy: true,
+        turn: const TurnProgress(id: 'pending', stopping: false),
+      ),
+    );
+    expect(find.text('Preparando envío…'), findsOneWidget);
+    await update(
+      t,
+      b,
+      state,
+      snapshot(
+        busy: true,
+        turn: const TurnProgress(id: 'pending', stopping: false),
+        acknowledged: 'Hola',
+      ),
+    );
+    expect(find.text('Gennie está respondiendo…'), findsOneWidget);
+    await update(t, b, state, snapshot());
+  });
   testWidgets(
     'detener envía solo la identidad activa, bloquea doble clic y conserva borrador',
     (t) async {

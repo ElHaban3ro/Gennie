@@ -49,6 +49,15 @@ fn retryable_provider_info(info: &Value) -> bool {
 }
 
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(30);
+const EMPTY_THREAD_NAME: &str = "Gennie · conversación sin título";
+
+fn visible_provider_title(title: &str) -> &str {
+    if title == EMPTY_THREAD_NAME {
+        ""
+    } else {
+        title
+    }
+}
 const TURN_IDLE_TIMEOUT: Duration = Duration::from_secs(180);
 const ACTIVE_TOOL_TIMEOUT: Duration = Duration::from_secs(gennie_mcp::MAX_TOOL_EXECUTION_SECS + 30);
 const MAX_REPLY_BYTES: usize = 32_000;
@@ -679,13 +688,16 @@ impl Session {
             return Err("El proveedor reanudó una conversación distinta".into());
         }
         if let ConnectionMode::Conversation { db, .. } = &mode {
+            if saved.is_none() {
+                session.persist_new_thread(thread_id)?;
+            }
             session.observe(|| {
                 save_recorded_thread(
                     db,
                     thread_id,
                     thread
                         .pointer("/thread/name")
-                        .map(|value| value.as_str().unwrap_or("")),
+                        .map(|value| visible_provider_title(value.as_str().unwrap_or(""))),
                     session.journal.as_deref(),
                 )
             })?;
@@ -712,6 +724,13 @@ impl Session {
         };
         self.send(json!({"jsonrpc":"2.0","id":3,"method":method,"params":params}))?;
         self.response(3, HANDSHAKE_TIMEOUT)
+    }
+
+    fn persist_new_thread(&mut self, thread_id: &str) -> Result<()> {
+        // Codex materializa el historial vacío al confirmar el nombre, antes del primer turno.
+        self.send(json!({"jsonrpc":"2.0","id":18,"method":"thread/name/set","params":{"threadId":thread_id,"name":EMPTY_THREAD_NAME}}))?;
+        self.response(18, HANDSHAKE_TIMEOUT)?;
+        Ok(())
     }
 
     pub(crate) fn connect_builder(
@@ -803,12 +822,13 @@ impl Session {
         if thread_id == self.thread_id {
             return Err("El proveedor no creó un chat distinto".into());
         }
+        self.persist_new_thread(thread_id)?;
         save_recorded_thread(
             db,
             thread_id,
             thread
                 .pointer("/thread/name")
-                .map(|value| value.as_str().unwrap_or("")),
+                .map(|value| visible_provider_title(value.as_str().unwrap_or(""))),
             self.journal.as_deref(),
         )?;
         self.thread_id = thread_id.into();
@@ -823,7 +843,9 @@ impl Session {
             && let Some(title) = value.as_str().or_else(|| value.is_null().then_some(""))
             && let Some(journal) = &self.journal
         {
-            self.observe(|| journal.update_title("codex", &self.thread_id, title))?;
+            self.observe(|| {
+                journal.update_title("codex", &self.thread_id, visible_provider_title(title))
+            })?;
         }
         Ok(())
     }
@@ -1418,7 +1440,7 @@ impl Session {
         if let Some(title) = notification_title(&event, &self.thread_id)
             && let Some(journal) = &self.journal
         {
-            journal.update_title("codex", &self.thread_id, title)?;
+            journal.update_title("codex", &self.thread_id, visible_provider_title(title))?;
         }
         Ok(event)
     }
@@ -1608,6 +1630,12 @@ mod tests {
     use super::{MessageCollector, StreamEvent, filesystem_config, turn_start_request};
     use crate::Settings;
     use serde_json::json;
+
+    #[test]
+    fn placeholder_is_not_a_provider_title() {
+        assert_eq!(super::visible_provider_title(super::EMPTY_THREAD_NAME), "");
+        assert_eq!(super::visible_provider_title("Título real"), "Título real");
+    }
 
     #[test]
     fn stored_profile_replaces_default_bot_instructions() {
@@ -1898,6 +1926,65 @@ mod tests {
                 .len(),
             2 * 1024 * 1024
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn new_chat_does_not_activate_before_provider_confirms_persistence() {
+        use super::*;
+        use gennie_core::AppModule;
+        let mut child = Command::new("sh")
+            .args([
+                "-c",
+                r#"
+IFS= read -r start || exit 1
+printf '%s\n' '{"id":6,"result":{"thread":{"id":"new-thread"}}}'
+IFS= read -r name || exit 2
+case "$name" in *'"method":"thread/name/set"'*'"threadId":"new-thread"'*) ;; *) exit 3 ;; esac
+printf '%s\n' '{"id":18,"error":{"code":-32603,"message":"fixture"}}'
+"#,
+            ])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .process_group(0)
+            .spawn()
+            .unwrap();
+        let stdin = child.stdin.take().unwrap();
+        let stdout = child.stdout.take().unwrap();
+        let process = ProcessHandle::default();
+        *process.0.lock().unwrap() = Some(child);
+        let (sender, lines) = mpsc::channel();
+        let reader = std::thread::spawn(move || {
+            for line in BufReader::new(stdout).lines() {
+                if sender.send(line.unwrap()).is_err() {
+                    break;
+                }
+            }
+        });
+        let mut session = Session {
+            stdin,
+            lines,
+            reader: Some(reader),
+            process,
+            thread_id: "old-thread".into(),
+            journal: None,
+            cwd: std::env::temp_dir(),
+            model: "fixture-model".into(),
+            effort: "medium".into(),
+            title_effort: None,
+            settings: Settings::default(),
+            tool_names: Vec::new(),
+            has_mcp: false,
+            cancellation: None,
+            ticket: None,
+        };
+        let db = Database::memory().unwrap();
+        let module = crate::LlmModule::default();
+        db.migrate(module.name(), module.migrations()).unwrap();
+        save_thread(&db, "old-thread").unwrap();
+        assert!(session.new_chat(&db).is_err());
+        assert_eq!(load_thread(&db).unwrap().as_deref(), Some("old-thread"));
+        assert_eq!(session.thread_id(), "old-thread");
     }
 
     #[cfg(unix)]
