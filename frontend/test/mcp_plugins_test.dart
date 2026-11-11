@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'capture_output.dart';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -94,6 +95,7 @@ Map<String, dynamic> pendingAttempt(
 };
 
 class McpBackend extends PluginsBackend {
+  bool sourceDeleted = false;
   Map<String, dynamic> server = source();
   Completer<String>? pendingMcp;
   bool failSave = false, failReview = false;
@@ -118,16 +120,17 @@ class McpBackend extends PluginsBackend {
         jsonDecode(await super.pluginRequest(text)) as Map,
       );
       result['mcp_sources'] = [
-        {
-          'id': 'notes',
-          'name': server['specification']['name'],
-          'enabled': server['enabled'],
-          'revision': server['revision'],
-          'tool_count': 3,
-          'allowed_count': (server['allowed_tools'] as List).length,
-          'pending_count': (server['pending_attempts'] as List).length,
-          'activity_revision': '$activity',
-        },
+        if (!sourceDeleted)
+          {
+            'id': 'notes',
+            'name': server['specification']['name'],
+            'enabled': server['enabled'],
+            'revision': server['revision'],
+            'tool_count': 3,
+            'allowed_count': (server['allowed_tools'] as List).length,
+            'pending_count': (server['pending_attempts'] as List).length,
+            'activity_revision': '$activity',
+          },
       ];
       return jsonEncode(result);
     }
@@ -229,6 +232,7 @@ class McpBackend extends PluginsBackend {
       case 'mcp_disconnect':
         return jsonEncode({'status': 'disconnected'});
       case 'mcp_delete':
+        sourceDeleted = true;
         return jsonEncode({'status': 'deleted'});
     }
     throw StateError('Petición inesperada');
@@ -274,6 +278,32 @@ Future<void> capture(WidgetTester t, GlobalKey boundary, String name) async {
 }
 
 void main() {
+  testWidgets('menú contextual elimina conexión MCP con intento pendiente', (
+    t,
+  ) async {
+    final b = McpBackend();
+    b.server['pending_attempts'] = [pendingAttempt(1)];
+    await mount(t, b);
+    final gesture = await t.createGesture(
+      kind: ui.PointerDeviceKind.mouse,
+      buttons: kSecondaryMouseButton,
+    );
+    await gesture.down(t.getCenter(find.text('Notas compartidas').first));
+    await gesture.up();
+    await t.pumpAndSettle();
+    await t.tap(find.text('Eliminar plugin'));
+    await t.pumpAndSettle();
+    await t.tap(find.text('Eliminar').last);
+    await t.pumpAndSettle();
+    expect(
+      b.requests.any(
+        (r) => r['action'] == 'mcp_delete' && r['server_id'] == 'notes',
+      ),
+      isTrue,
+    );
+    expect(find.text('Notas compartidas'), findsNothing);
+    expect((b.server['pending_attempts'] as List).length, 1);
+  });
   testWidgets('editar MCP se activa desde el botón accesible nombrado', (
     t,
   ) async {

@@ -254,6 +254,30 @@ impl BuildStrategy {
                 "Identifica en blocker.capability la capacidad concreta con un identificador técnico estable (ASCII minúsculas y guion bajo), no el objetivo completo. Cada impedimento necesita su propia revisión.",
             );
         }
+        if matches!(
+            blocker.kind,
+            BlockKind::UserActionRequired | BlockKind::PermissionRequired
+        ) {
+            if blocker
+                .required_outcome
+                .as_ref()
+                .is_none_or(|s| s.trim().is_empty())
+                || blocker.outcome_status.is_none()
+            {
+                return BlockDecision::Continue(
+                    "Antes de pedir intervención, identifica el resultado del encargo que depende de ella y su outcome_status. Continúa las capacidades independientes; no detengas el trabajo por una función opcional.",
+                );
+            }
+            if matches!(
+                blocker.outcome_status,
+                Some(OutcomeStatus::AlreadySatisfied | OutcomeStatus::NotRequired)
+            ) {
+                self.proposal = None;
+                return BlockDecision::Continue(
+                    "La intervención no es necesaria para el resultado solicitado. Continúa el trabajo independiente sin pedir una acción o permiso adicional.",
+                );
+            }
+        }
         if blocker.kind == BlockKind::ExhaustedAlternatives {
             if blocker
                 .required_outcome

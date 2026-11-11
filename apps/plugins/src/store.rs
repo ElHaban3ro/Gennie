@@ -33,6 +33,19 @@ pub struct BuildEvent {
 #[derive(Clone)]
 pub(crate) struct Store(pub Database);
 impl Store {
+    /// Reanuda solo pausas por revisión web ya resuelta, sin reenviar intentos inciertos.
+    pub fn resume_after_web_review(&self, id: i64) -> Result<bool> {
+        self.0.with_connection(|c| {
+            let tx = c.transaction()?;
+            let message = "La revisión quedó registrada. Continuaré con las operaciones permitidas, sin repetir efectos inciertos.";
+            let changed = tx.execute("UPDATE plugin_build_jobs AS j SET state='queued',summary=?2,retry_at=NULL,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE j.id=?1 AND j.state='waiting_user' AND j.summary LIKE 'Una prueba web quedó sin resultado confirmado.%' AND NOT EXISTS(SELECT 1 FROM plugin_builder_messages m WHERE m.job_id=j.id AND m.state='uncertain') AND NOT EXISTS(SELECT 1 FROM browser_web_attempts a WHERE a.plugin_id=j.plugin_id AND a.state IN ('running','uncertain')) AND EXISTS(SELECT 1 FROM browser_web_attempts a WHERE a.plugin_id=j.plugin_id AND (a.reviewed_at>=j.updated_at OR a.closed_unconfirmed_at>=j.updated_at))", params![id,message])?;
+            if changed == 1 {
+                tx.execute("INSERT INTO plugin_build_events(job_id,message,source_state,kind) VALUES(?1,?2,'queued','status')",params![id,message])?;
+            }
+            tx.commit()?;
+            Ok(changed == 1)
+        })
+    }
     pub fn hide_cancelled(&self, id: i64) -> Result<()> {
         self.0.with_connection(|c| {
             let changed = c.execute("INSERT OR IGNORE INTO plugin_hidden_jobs(job_id) SELECT id FROM plugin_build_jobs WHERE id=?1 AND state='cancelled'", [id])?;
@@ -416,6 +429,54 @@ mod tests {
             retry_of: None,
         }
     }
+    #[test]
+    fn reviewed_web_pause_recovers_after_reopening_without_replaying() {
+        use gennie_core::AppModule;
+        let path = std::env::temp_dir().join(format!(
+            "gennie-reviewed-web-{}-{}.sqlite3",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let db = Database::open(&path, 500).unwrap();
+        let store = fixture_db(db.clone());
+        let browser = gennie_browser::BrowserModule::new(path.with_extension("browser"));
+        db.migrate("browser", browser.migrations()).unwrap();
+        let job = store.create(&request("mail"), 7, 0).unwrap();
+        store.claim().unwrap();
+        store
+            .transition(
+                job.id,
+                "waiting_user",
+                "Una prueba web quedó sin resultado confirmado. Revisa el resultado.",
+            )
+            .unwrap();
+        db.with_connection(|c| { c.execute("INSERT INTO browser_web_attempts(plugin_id,plugin_name,function_name,plugin_revision,candidate_id,operation,state,reason,closed_unconfirmed_at) VALUES('mail','Mail','read',1,'job_1','verify','completed','reported_failure','9999-01-01T00:00:00.000Z')", [])?; Ok(()) }).unwrap();
+        drop(store);
+        db.close().unwrap();
+        let reopened = Database::open(&path, 500).unwrap();
+        let store = fixture_db(reopened.clone());
+        assert!(store.resume_after_web_review(job.id).unwrap());
+        assert!(!store.resume_after_web_review(job.id).unwrap());
+        assert_eq!(store.get(job.id).unwrap().state, "queued");
+        let (state, closed): (String, Option<String>) = reopened
+            .with_connection(|c| {
+                Ok(c.query_row(
+                    "SELECT state,closed_unconfirmed_at FROM browser_web_attempts WHERE id=1",
+                    [],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )?)
+            })
+            .unwrap();
+        assert_eq!(state, "completed");
+        assert!(closed.is_some());
+        drop(store);
+        reopened.close().unwrap();
+        std::fs::remove_file(path).unwrap();
+    }
+
     #[test]
     fn hide_only_cancelled_job_preserves_history() {
         let store = fixture();

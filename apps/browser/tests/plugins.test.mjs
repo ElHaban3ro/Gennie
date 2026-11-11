@@ -6,6 +6,192 @@ import path from 'node:path';
 import { createWebPlugins, validateWebPlugin } from '../src/plugins.mjs';
 
 const manifest = () => ({ id: 'mail', name: 'Correo de prueba', origin: 'https://example.com', login_url: 'https://example.com/login', login_urls: ['https://example.com/login'], functions: [{ name: 'list', description: 'Consulta de prueba', parameters: { after: 'string' }, transport: 'http', path: '/api/messages', query: { after: '{after}' }, result_type: 'array', result_pointer: '/messages', fields: { id: '/id', subject: '/subject' } }] });
+test('fallo antes de la primera interacción se distingue del fallo tras comenzar', async t => {
+  const directory=await mkdtemp(path.join(tmpdir(),'gennie-before-action-'));t.after(()=>rm(directory,{recursive:true,force:true}));
+  let failBefore=true;const page={route:async()=>{},goto:async()=>{throw new Error('private');},close:async()=>{}};
+  const plugins=createWebPlugins({directory,getContext:()=>({newPage:async()=>{if(failBefore)throw new Error('private');return page;}})});
+  await plugins.dispatch({action:'save',expected_revision:0,manifest:{id:'fixture',name:'Prueba',origin:'https://example.com',functions:[{name:'read',description:'Prueba',parameters:{},transport:'page',path:'/',selector:'main',result_type:'string'}]}});
+  const request={action:'verify',plugin_id:'fixture',function_name:'read',expected_revision:1,arguments:{}};
+  const before=await plugins.dispatch(request);assert.equal(before.executed,false);assert.equal(before.diagnostic.phase,'prepare');
+  failBefore=false;const after=await plugins.dispatch(request);assert.notEqual(after.executed,false);assert.equal(after.diagnostic.phase,'read');
+});
+test('fallo al crear la pestaña se clasifica como preparación en transportes controlados', async t => {
+  const directory=await mkdtemp(path.join(tmpdir(),'gennie-prepare-controlled-'));t.after(()=>rm(directory,{recursive:true,force:true}));
+  const plugins=createWebPlugins({directory,getContext:()=>({newPage:async()=>{throw new Error('private');}})});
+  const functions=[{name:'seq',description:'Prueba',parameters:{},transport:'sequence',path:'/',result_type:'object',steps:[{action:'navigate'}]},{name:'linkedin',description:'Prueba',parameters:{},transport:'linkedin_conversations',path:'/messaging/',result_type:'array'}];
+  await plugins.dispatch({action:'save',expected_revision:0,manifest:{id:'fixture',name:'Prueba',origin:'https://www.linkedin.com',functions}});
+  for(const fn of functions){const result=await plugins.dispatch({action:'verify',plugin_id:'fixture',function_name:fn.name,expected_revision:1,arguments:{},program_allowed:true});assert.equal(result.status,'execution_failed');assert.equal(result.executed,false);assert.equal(result.diagnostic.phase,'prepare');}
+});
+test('timeout de extracción identifica la fase sin exponer detalles privados', async t => {
+  const directory=await mkdtemp(path.join(tmpdir(),'gennie-page-timeout-'));t.after(()=>rm(directory,{recursive:true,force:true}));
+  const page={route:async()=>{},goto:async()=>({ok:()=>true,status:()=>200}),url:()=> 'https://example.com/',locator:()=>({first:()=>({waitFor:async()=>{const e=new Error('PRIVATE_SELECTOR');e.name='TimeoutError';throw e;}})}),close:async()=>{}};
+  const plugins=createWebPlugins({directory,getContext:()=>({newPage:async()=>page})});
+  await plugins.dispatch({action:'save',expected_revision:0,manifest:{id:'fixture',name:'Prueba',origin:'https://example.com',functions:[{name:'read',description:'Prueba',parameters:{},transport:'page',path:'/',selector:'main',ready_selector:'[role="textbox"]',result_type:'string'}]}});
+  const result=await plugins.dispatch({action:'verify',plugin_id:'fixture',function_name:'read',expected_revision:1,arguments:{}});
+  assert.equal(result.status,'timeout');assert.equal(result.diagnostic.code,'timeout');assert.equal(result.diagnostic.phase,'read');assert.equal(result.diagnostic.stage,'ready');assert.ok(!JSON.stringify(result).includes('PRIVATE_SELECTOR'));
+});
+test('lectura controlada de conversaciones de LinkedIn usa navegación mediada', async t => {
+  const directory=await mkdtemp(path.join(tmpdir(),'gennie-linkedin-controlled-'));t.after(()=>rm(directory,{recursive:true,force:true}));
+  const events=[];const page={goto:async url=>events.push(url),url:()=> 'https://www.linkedin.com/messaging/',waitForTimeout:async()=>{},getByRole:()=>({waitFor:async()=>{},locator:()=>({evaluateAll:async()=>[{conversacion:'fixture',fecha:null,vista_previa:null,estado:'fixture'}]})}),close:async()=>{}};
+  const plugins=createWebPlugins({directory,getContext:()=>({newPage:async()=>page}),interactionDelay:{wait:async ms=>events.push(['delay',ms]),choose:()=>100}});
+  const fn={name:'list',description:'Prueba',parameters:{},transport:'linkedin_conversations',path:'/messaging/',result_type:'array'};
+  await plugins.dispatch({action:'save',manifest:{id:'fixture',name:'Prueba',origin:'https://www.linkedin.com',functions:[fn]},expected_revision:0});
+  const result=await plugins.dispatch({action:'verify',plugin_id:'fixture',function_name:'list',expected_revision:1,arguments:{}});
+  assert.equal(result.status,'ok');assert.equal(result.data[0].conversacion,'fixture');assert.deepEqual(events,['https://www.linkedin.com/messaging/',['delay',100]]);
+  assert.throws(()=>validateWebPlugin({id:'fixture',name:'Prueba',origin:'https://example.com',functions:[fn]}),{code:'invalid_plugin'});
+});
+test('notificaciones controladas acumulan lotes y solo confirman final observado', async t => {
+  const directory=await mkdtemp(path.join(tmpdir(),'gennie-linkedin-pagination-'));t.after(()=>rm(directory,{recursive:true,force:true}));
+  const events=[], rows=[[{texto:'one',enlaces:[]}],[{texto:'one',enlaces:[]},{texto:'two',enlaces:[]}]];let index=0,listener;
+  const region={waitFor:async()=>{},innerText:async()=>'',getByRole:()=>({first:()=>({waitFor:async()=>{}}),evaluateAll:async()=>rows[index]})};
+  const page={on:(_event,cb)=>{listener=cb;},goto:async url=>events.push(url),url:()=> 'https://www.linkedin.com/notifications/',waitForTimeout:async()=>{},evaluate:async()=>true,mouse:{move:async()=>events.push('move'),wheel:async()=>{events.push('scroll');index=1;listener({url:()=> 'https://www.linkedin.com/flagship-web/rsc-action/actions/pagination',status:()=>200,request:()=>({postData:()=> 'startIndex=2'}),text:async()=>'{"modelStates":[],"isPartialPage":true,"x":"$undefined"}'});}},getByRole:(role)=>role==='region'?region:role==='link'?{first:()=>({getAttribute:async()=>null})}:{isVisible:async()=>false,first:()=>({waitFor:async()=>{}})},close:async()=>{}};
+  const plugins=createWebPlugins({directory,getContext:()=>({newPage:async()=>page}),interactionDelay:{choose:()=>0,wait:async()=>{}}});
+  const fn={name:'list',description:'Prueba',parameters:{},transport:'linkedin_notifications',path:'/notifications/',result_type:'object'};
+  await plugins.dispatch({action:'save',manifest:{id:'fixture',name:'Prueba',origin:'https://www.linkedin.com',functions:[fn]},expected_revision:0});
+  const result=await plugins.dispatch({action:'verify',plugin_id:'fixture',function_name:'list',expected_revision:1,arguments:{}});
+  assert.equal(result.status,'ok');assert.equal(result.data.fin_confirmado,true);assert.equal(result.data.continuidad_confirmada,true);assert.deepEqual(result.data.notificaciones,rows[1]);assert.deepEqual(events,['https://www.linkedin.com/notifications/','move','scroll']);
+});
+test('cancelar la lectura de LinkedIn durante la pausa impide desplazar', async t => {
+  const directory=await mkdtemp(path.join(tmpdir(),'gennie-linkedin-cancel-'));t.after(()=>rm(directory,{recursive:true,force:true}));
+  const events=[], controller=new AbortController();let entered;const waiting=new Promise(resolve=>{entered=resolve;});
+  const region={waitFor:async()=>{},getByRole:()=>({first:()=>({waitFor:async()=>{}}),evaluateAll:async()=>[]})};
+  const page={on:()=>{},goto:async()=>events.push('goto'),url:()=> 'https://www.linkedin.com/notifications/',mouse:{move:async()=>events.push('move'),wheel:async()=>events.push('scroll')},getByRole:role=>role==='region'?region:{first:()=>({getAttribute:async()=>null})},close:async()=>{}};
+  const plugins=createWebPlugins({directory,getContext:()=>({newPage:async()=>page}),interactionDelay:{choose:()=>5000,wait:(_ms,{signal})=>new Promise((resolve,reject)=>{entered();signal.addEventListener('abort',()=>reject(new Error('cancelled')),{once:true});})}});
+  await plugins.dispatch({action:'save',manifest:{id:'fixture',name:'Prueba',origin:'https://www.linkedin.com',functions:[{name:'list',description:'Prueba',parameters:{},transport:'linkedin_notifications',path:'/notifications/',result_type:'object'}]},expected_revision:0});
+  const running=plugins.dispatch({action:'verify',plugin_id:'fixture',function_name:'list',expected_revision:1,arguments:{}},controller.signal);
+  await waiting;controller.abort();assert.equal((await running).status,'result_uncertain');assert.deepEqual(events,['goto']);
+});
+test('las consultas HTTP comparten la pausa entre ejecuciones del plugin', async t => {
+  const directory=await mkdtemp(path.join(tmpdir(),'gennie-http-paced-'));t.after(()=>rm(directory,{recursive:true,force:true}));
+  const events=[];const context={request:{get:async()=>{events.push('get');return {status:()=>200,headers:()=>({'content-type':'application/json'}),body:async()=>Buffer.from('{"messages":[]}'),dispose:async()=>{}};}}};
+  const plugins=createWebPlugins({directory,getContext:()=>context,interactionDelay:{choose:()=>321,wait:async ms=>events.push(['delay',ms])}});
+  await plugins.dispatch({action:'save',manifest:manifest(),expected_revision:0});
+  const request={action:'verify',plugin_id:'mail',function_name:'list',expected_revision:1,arguments:{after:'today'}};
+  assert.equal((await plugins.dispatch(request)).status,'ok');assert.equal((await plugins.dispatch(request)).status,'ok');
+  assert.deepEqual(events,['get',['delay',321],'get']);
+});
+test('secuencia controlada ejecuta acciones de una en una con pausa', async t => {
+  const directory=await mkdtemp(path.join(tmpdir(),'gennie-sequence-'));t.after(()=>rm(directory,{recursive:true,force:true}));
+  const events=[];const page={goto:async()=>events.push('goto'),url:()=> 'https://example.com/',locator:()=>({click:async()=>events.push('click')}),close:async()=>{}};
+  const plugins=createWebPlugins({directory,getContext:()=>({newPage:async()=>page}),interactionDelay:{choose:()=>123,wait:async ms=>events.push(`delay:${ms}`)}});
+  const input={id:'fixture',name:'Prueba',origin:'https://example.com',functions:[{name:'act',description:'Prueba',parameters:{},transport:'sequence',path:'/',result_type:'object',steps:[{action:'navigate'},{action:'click',selector:'#one'},{action:'click',selector:'#two'}]}]};
+  assert.equal((await plugins.dispatch({action:'save',manifest:input,expected_revision:0})).status,'saved');
+  const result=await plugins.dispatch({action:'verify',plugin_id:'fixture',function_name:'act',expected_revision:1,arguments:{},program_allowed:true});
+  assert.equal(result.status,'ok');assert.deepEqual(result.data,{completed:3});assert.deepEqual(events,['goto','delay:123','click','delay:123','click']);
+});
+test('cancelar secuencia durante pausa no ejecuta el paso siguiente', async t => {
+  const directory=await mkdtemp(path.join(tmpdir(),'gennie-sequence-cancel-'));t.after(()=>rm(directory,{recursive:true,force:true}));
+  let entered;const waiting=new Promise(resolve=>{entered=resolve;});const controller=new AbortController(),events=[];
+  const page={goto:async()=>events.push('goto'),url:()=> 'https://example.com/',locator:()=>({click:async()=>events.push('click')}),close:async()=>{}};
+  const plugins=createWebPlugins({directory,getContext:()=>({newPage:async()=>page}),interactionDelay:{choose:()=>5000,wait:(_ms,{signal})=>new Promise((resolve,reject)=>{entered();signal.addEventListener('abort',()=>reject(new Error('cancelled')),{once:true});})}});
+  const input={id:'fixture',name:'Prueba',origin:'https://example.com',functions:[{name:'act',description:'Prueba',parameters:{},transport:'sequence',path:'/',result_type:'object',steps:[{action:'navigate'},{action:'click',selector:'#one'}]}]};
+  await plugins.dispatch({action:'save',manifest:input,expected_revision:0});
+  const running=plugins.dispatch({action:'verify',plugin_id:'fixture',function_name:'act',expected_revision:1,arguments:{},program_allowed:true},controller.signal);
+  await waiting;controller.abort();assert.equal((await running).status,'result_uncertain');assert.deepEqual(events,['goto']);
+});
+test('secuencia valida todos los pasos y exige permisos antes de abrir el navegador', async t => {
+  const directory=await mkdtemp(path.join(tmpdir(),'gennie-sequence-validation-'));t.after(()=>rm(directory,{recursive:true,force:true}));
+  let opened=0;const plugins=createWebPlugins({directory,getContext:()=>{opened++;return null;}});
+  const fn={name:'act',description:'Prueba',parameters:{},transport:'sequence',path:'/',result_type:'object',steps:[{action:'navigate'},{action:'click',selector:'#one'}]};
+  const input={id:'fixture',name:'Prueba',origin:'https://example.com',functions:[fn]};
+  for(const steps of [[{action:'click',selector:'#one'}],[{action:'navigate'},{action:'evaluate',code:'alert(1)'}],[{action:'navigate'},{action:'scroll',amount:6000}]]) {
+    await assert.rejects(plugins.dispatch({action:'save',manifest:{...input,functions:[{...fn,steps}]},expected_revision:0}),{code:'invalid_plugin'});
+  }
+  await assert.rejects(plugins.dispatch({action:'save',manifest:{...input,functions:[{...fn,parameters:{text:{type:'string',required:false}},steps:[{action:'navigate'},{action:'fill',selector:'#input',argument:'text'}]}]},expected_revision:0}),{code:'invalid_plugin'});
+  await plugins.dispatch({action:'save',manifest:input,expected_revision:0});
+  const result=await plugins.dispatch({action:'verify',plugin_id:'fixture',function_name:'act',expected_revision:1,arguments:{}});
+  assert.equal(result.status,'permission_required');assert.equal(opened,0);
+});
+test('secuencia usa argumentos para rellenar y ejecuta desplazamiento y tecla', async t => {
+  const directory=await mkdtemp(path.join(tmpdir(),'gennie-sequence-input-'));t.after(()=>rm(directory,{recursive:true,force:true}));
+  const events=[];const page={goto:async url=>events.push(url),url:()=> 'https://example.com/r/one',locator:selector=>({fill:async value=>events.push([selector,value]),press:async key=>events.push([selector,key])}),mouse:{wheel:async (x,y)=>events.push([x,y])},close:async()=>{}};
+  const plugins=createWebPlugins({directory,getContext:()=>({newPage:async()=>page}),interactionDelay:{wait:async()=>{}}});
+  const fn={name:'act',description:'Prueba',parameters:{room:'string',text:'string'},transport:'sequence',path:'/r/{room}',result_type:'object',steps:[{action:'navigate'},{action:'fill',selector:'#input',argument:'text'},{action:'press',selector:'#input',key:'Enter'},{action:'scroll',amount:-300}]};
+  await plugins.dispatch({action:'save',manifest:{id:'fixture',name:'Prueba',origin:'https://example.com',functions:[fn]},expected_revision:0});
+  const request={action:'verify',plugin_id:'fixture',function_name:'act',expected_revision:1,program_allowed:true};
+  assert.equal((await plugins.dispatch({...request,arguments:{room:'one'}})).status,'input_required');assert.deepEqual(events,[]);
+  assert.equal((await plugins.dispatch({...request,arguments:{room:'one',text:'fixture'}})).status,'ok');
+  assert.deepEqual(events,['https://example.com/r/one',['#input','fixture'],['#input','Enter'],[0,-300]]);
+});
+test('un programa puede delegar acciones dinámicas a runtime.steps', async t => {
+  const directory=await mkdtemp(path.join(tmpdir(),'gennie-runtime-steps-'));t.after(()=>rm(directory,{recursive:true,force:true}));
+  const events=[];const page={goto:async()=>events.push('goto'),url:()=> 'https://example.com/',mouse:{move:async(x,y)=>events.push(['move',x,y]),wheel:async(x,y)=>events.push(['scroll',x,y])},locator:()=>({click:async()=>events.push('click')}),close:async()=>{}};
+  const plugins=createWebPlugins({directory,getContext:()=>({newPage:async()=>page}),interactionDelay:{choose:()=>234,wait:async ms=>events.push(['delay',ms])}});
+  const code="await runtime.steps([{action:'navigate'}]); const n=1; await runtime.steps([{action:'move',x:10,y:20},{action:'scroll',amount:n*300},{action:'click',selector:'#one'}]); return {ok:true};";
+  await plugins.dispatch({action:'save',expected_revision:0,manifest:{id:'fixture',name:'Prueba',origin:'https://example.com',functions:[{name:'act',description:'Prueba',parameters:{},transport:'program',path:'/',result_type:'object',code}]}});
+  const result=await plugins.dispatch({action:'verify',plugin_id:'fixture',function_name:'act',expected_revision:1,arguments:{},program_allowed:true});
+  assert.equal(result.status,'ok');assert.deepEqual(events,['goto',['delay',234],['move',10,20],['delay',234],['scroll',0,300],['delay',234],'click']);
+});
+test('runtime.steps no ejecuta el segundo paso tras cancelar', async t => {
+  const directory=await mkdtemp(path.join(tmpdir(),'gennie-runtime-steps-cancel-'));t.after(()=>rm(directory,{recursive:true,force:true}));
+  let entered;const waiting=new Promise(resolve=>{entered=resolve;});const controller=new AbortController(),events=[];
+  const page={goto:async()=>events.push('goto'),url:()=> 'https://example.com/',locator:()=>({click:async()=>events.push('click')}),close:async()=>{}};
+  const plugins=createWebPlugins({directory,getContext:()=>({newPage:async()=>page}),interactionDelay:{choose:()=>5000,wait:(_ms,{signal})=>new Promise((resolve,reject)=>{entered();signal.addEventListener('abort',()=>reject(new Error('cancelled')),{once:true});})}});
+  const code="await runtime.steps([{action:'navigate'},{action:'click',selector:'#one'}]); return {};";
+  await plugins.dispatch({action:'save',expected_revision:0,manifest:{id:'fixture',name:'Prueba',origin:'https://example.com',functions:[{name:'act',description:'Prueba',parameters:{},transport:'program',path:'/',result_type:'object',code}]}});
+  const running=plugins.dispatch({action:'verify',plugin_id:'fixture',function_name:'act',expected_revision:1,arguments:{},program_allowed:true},controller.signal);
+  await waiting;controller.abort();assert.equal((await running).status,'result_uncertain');assert.deepEqual(events,['goto']);
+});
+test('interacciones del programa esperan valores aleatorios acotados entre pasos', async t => {
+  const directory=await mkdtemp(path.join(tmpdir(),'gennie-paced-'));
+  t.after(()=>rm(directory,{recursive:true,force:true}));
+  const events=[], delays=[];
+  const page={goto:async()=>events.push('goto'),getByRole:()=>({click:async()=>events.push('click')}),mouse:{wheel:async()=>events.push('wheel')},close:async()=>{}};
+  const context={newPage:async()=>page};
+  const plugins=createWebPlugins({directory,getContext:()=>context,interactionDelay:{wait:async ms=>{delays.push(ms);events.push('delay');}}});
+  await plugins.dispatch({action:'save',expected_revision:0,manifest:{id:'paced',name:'Prueba',origin:'https://example.com',functions:[{name:'act',description:'Prueba',parameters:{},transport:'program',path:'/',result_type:'object',code:"await page.goto(origin); await page.getByRole('button').click(); await page.mouse.wheel(0,100); return {};"}]}});
+  const result=await plugins.dispatch({action:'verify',plugin_id:'paced',function_name:'act',expected_revision:1,arguments:{},program_allowed:true});
+  assert.equal(result.status,'ok');
+  assert.deepEqual(events,['goto','delay','click','delay','wheel']);
+  assert.equal(delays.length,2);
+  assert.ok(delays.every(ms=>Number.isInteger(ms)&&ms>=0&&ms<=5000));
+  events.length=0;
+  assert.equal((await plugins.dispatch({action:'run',plugin_id:'paced',function_name:'act',expected_revision:1,arguments:{},program_allowed:true})).status,'ok');
+  assert.deepEqual(events,['delay','goto','delay','click','delay','wheel']);
+});
+test('cancelar durante la pausa impide la siguiente interacción', async t => {
+  const directory=await mkdtemp(path.join(tmpdir(),'gennie-paced-cancel-'));
+  t.after(()=>rm(directory,{recursive:true,force:true}));
+  let entered; const waiting=new Promise(resolve=>{entered=resolve;});
+  const events=[], controller=new AbortController();
+  const page={goto:async()=>events.push('goto'),click:async()=>events.push('click'),close:async()=>{}};
+  const plugins=createWebPlugins({directory,getContext:()=>({newPage:async()=>page}),interactionDelay:{choose:()=>5000,wait:(_ms,{signal})=>new Promise((resolve,reject)=>{entered();signal.addEventListener('abort',()=>reject(new Error('cancelled')),{once:true});})}});
+  await plugins.dispatch({action:'save',expected_revision:0,manifest:{id:'paced',name:'Prueba',origin:'https://example.com',functions:[{name:'act',description:'Prueba',parameters:{},transport:'program',path:'/',result_type:'object',code:"await page.goto(origin); await page.click('button'); return {};"}]}});
+  const running=plugins.dispatch({action:'verify',plugin_id:'paced',function_name:'act',expected_revision:1,arguments:{},program_allowed:true},controller.signal);
+  await waiting; controller.abort();
+  assert.equal((await running).status,'result_uncertain');
+  assert.deepEqual(events,['goto']);
+});
+test('una lectura terminada después de cancelar no continúa el programa', async t => {
+  const directory=await mkdtemp(path.join(tmpdir(),'gennie-cancel-read-'));
+  t.after(()=>rm(directory,{recursive:true,force:true}));
+  let enter, finish; const entered=new Promise(resolve=>{enter=resolve;});
+  const controller=new AbortController(), state={continued:false};
+  const context={state,read:()=>new Promise(resolve=>{finish=resolve;enter();}),newPage:async()=>({close:async()=>{}})};
+  const plugins=createWebPlugins({directory,getContext:()=>context});
+  await plugins.dispatch({action:'save',expected_revision:0,manifest:{id:'paced',name:'Prueba',origin:'https://example.com',functions:[{name:'act',description:'Prueba',parameters:{},transport:'program',path:'/',result_type:'object',code:"await runtime.read('load',()=>context.read()); context.state.continued=true; return {};"}]}});
+  const running=plugins.dispatch({action:'verify',plugin_id:'paced',function_name:'act',expected_revision:1,arguments:{},program_allowed:true},controller.signal);
+  await entered; controller.abort(); finish();
+  assert.equal((await running).status,'result_uncertain');
+  assert.equal(state.continued,false);
+});
+test('una página lenta puede cargar sin agotar un plazo demasiado corto', async t => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'gennie-page-timeout-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const page = {
+    route: async () => {},
+    goto: async (_url, options) => { if (options.timeout < 10000) { const error = new Error('fixture'); error.name = 'TimeoutError'; throw error; } return {status:()=>200,ok:()=>true}; },
+    url: () => 'https://example.com/chat',
+    locator: () => ({first:()=>({waitFor:async()=>{}}),evaluateAll:async()=>({data:'contenido',truncated:false})}),
+    close: async () => {},
+  };
+  const plugins = createWebPlugins({ directory, getContext: () => ({newPage: async () => page}) });
+  const input = {id:'mail',name:'Prueba',origin:'https://example.com',functions:[{name:'read',description:'Leer',parameters:{},transport:'page',path:'/chat',selector:'main',result_type:'string'}]};
+  await plugins.dispatch({action:'save',manifest:input,expected_revision:0});
+  const result = await plugins.dispatch({action:'verify',plugin_id:'mail',function_name:'read',expected_revision:1,arguments:{}});
+  assert.equal(result.status, 'ok');
+  assert.equal(result.data, 'contenido');
+});
 async function fixture(t) {
   const directory = await mkdtemp(path.join(tmpdir(), 'gennie-plugin-test-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
@@ -244,6 +430,16 @@ test('copiar un candidato a otro trabajo no copia verificaciones', async t => {
   assert.deepEqual(copied.verified, {});
   assert.equal((await f.plugins.dispatch({action:'promote',candidate_id:'job_2',plugin_id:'mail',expected_revision:0})).status,'verification_required');
 });
+test('candidato heredado se conserva para migración sin publicarse por evidencia anterior', async t => {
+  const f=await fixture(t);
+  const candidate=createWebPlugins({directory:path.join(f.directory,'candidates','job_1'),getContext:()=>({newPage:async()=>({close:async()=>{}})})});
+  const old={id:'mail',name:'Prueba',origin:'https://example.com',functions:[{name:'act',description:'Prueba',parameters:{},transport:'program',path:'/',result_type:'object',code:'return {};'}]};
+  assert.equal((await candidate.dispatch({action:'save',manifest:old,expected_revision:0})).status,'saved');
+  assert.equal((await candidate.dispatch({action:'verify',plugin_id:'mail',function_name:'act',expected_revision:1,arguments:{},program_allowed:true})).status,'ok');
+  const published=await f.plugins.dispatch({action:'promote',candidate_id:'job_1',plugin_id:'mail',expected_revision:0});
+  assert.equal(published.status,'migration_required');assert.equal(published.executed,false);
+  assert.equal((await candidate.dispatch({action:'get',plugin_id:'mail'})).plugin.manifest.functions[0].code,old.functions[0].code);
+});
 test('eliminar y recrear no permite sobrescribir con una revisión antigua', async t=>{
   const f=await fixture(t);await f.save();
   assert.equal((await f.plugins.dispatch({action:'delete',plugin_id:'mail',expected_revision:2})).status,'revision_conflict');
@@ -458,7 +654,7 @@ test('evidencia de Gmail exige misma cuenta y estado de lectura para confirmar a
     evaluate:async (_fn,id)=>id ? {found:decodeURIComponent(url).includes('#search/in:inbox ') ? mode==='inbox' : mode==='archived',no_leida:unread} : account,
     close:async()=>{closed++;}
   };}};
-  const plugins=createWebPlugins({directory,getContext:()=>context});
+  const plugins=createWebPlugins({directory,getContext:()=>context,interactionDelay:{wait:async()=>{}}});
   const manifest={id:'archive',name:'Gmail',origin:'https://mail.google.com',functions:[{name:'archive',description:'Archivar',parameters:{id:'string'},transport:'gmail_archive',path:'/mail/u/0/',result_type:'object'}]};
   await plugins.dispatch({action:'save',expected_revision:0,manifest});
   const call={plugin_id:'archive',function_name:'archive',expected_revision:1,arguments:{id:'abcdef'}};
@@ -484,7 +680,7 @@ test('importancia exige resultados excluyentes y no abre mensajes', async t => {
     waitForFunction:async()=>{},evaluate:async()=>{const negative=decodeURIComponent(url).includes('-is:important');return {found:mode==='both'||(mode==='ordinary'&&negative),no_leida:true};},
     close:async()=>{closed++;}
   };}};
-  const plugins=createWebPlugins({directory,getContext:()=>context});
+  const plugins=createWebPlugins({directory,getContext:()=>context,interactionDelay:{wait:async()=>{}}});
   const manifest={id:'importance',name:'Gmail',origin:'https://mail.google.com',functions:[{name:'check',description:'Importancia',parameters:{id:'string'},transport:'gmail_importance',path:'/mail/u/0/',result_type:'object'}]};
   await plugins.dispatch({action:'save',expected_revision:0,manifest});
   const call={action:'verify',plugin_id:'importance',function_name:'check',expected_revision:1,arguments:{id:'abcdef'}};

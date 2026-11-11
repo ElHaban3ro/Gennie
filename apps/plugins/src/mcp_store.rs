@@ -139,8 +139,8 @@ impl Store {
     }
     pub fn delete(&self, id: &str, revision: i64) -> Result<()> {
         self.0.with_connection(|c| {
-        let changed=c.execute("UPDATE plugin_mcp_sources SET deleted=1,enabled=0,document=json_object('id',id,'name','Eliminado','connection',json_object('type','http','url','https://invalid.example'),'timeout_seconds',60),tools='{}',allowed_tools='[]',checked_at=NULL,revision=revision+1,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?1 AND revision=?2 AND deleted=0 AND NOT EXISTS(SELECT 1 FROM plugin_mcp_attempts WHERE source_id=?1 AND state IN ('running','uncertain'))",params![id,revision])?;
-        if changed!=1 {return Err("La conexión MCP cambió o tiene resultados pendientes; revísalos antes de eliminar".into());} Ok(())
+        let changed=c.execute("UPDATE plugin_mcp_sources SET deleted=1,enabled=0,document=json_object('id',id,'name','Eliminado','connection',json_object('type','http','url','https://invalid.example'),'timeout_seconds',60),tools='{}',allowed_tools='[]',checked_at=NULL,revision=revision+1,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?1 AND revision=?2 AND deleted=0",params![id,revision])?;
+        if changed!=1 {return Err("La conexión MCP cambió; recarga antes de eliminar".into());} Ok(())
     })
     }
 }

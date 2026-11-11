@@ -326,13 +326,13 @@ for await(const line of createInterface({input:process.stdin})) {try{console.log
 }
 
 #[test]
-fn program_claiming_read_phase_stays_blocked() {
+fn sequence_claiming_read_phase_stays_blocked() {
     let (controller, db, dir) = fixture();
     let log = dir.0.join("calls");
     let script = SCRIPT
         .replace(
             "\"revision\":1}",
-            "\"revision\":1,\"transport\":\"program\"}",
+            "\"revision\":1,\"transport\":\"sequence\"}",
         )
         .replace(
             "\"message\":\"PRIVATE_FAILURE\"",
@@ -541,6 +541,54 @@ esac
 done"#;
 fn request() -> Value {
     json!({"method":"plugin_run","action":"verify","plugin_id":"fixture","function_name":"send","expected_revision":1,"arguments":{"secret":"PRIVATE_ARGUMENT"}})
+}
+#[test]
+fn controlled_failure_before_first_interaction_does_not_require_review() {
+    let (controller, db, dir) = fixture();
+    let log = dir.0.join("calls");
+    let script = SCRIPT.replace("\"revision\":1}", "\"revision\":1,\"transport\":\"page\"}").replace("{\"status\":\"result_uncertain\",\"message\":\"PRIVATE_FAILURE\"}", "{\"status\":\"execution_failed\",\"executed\":false,\"diagnostic\":{\"phase\":\"prepare\",\"code\":\"program_error\"}}");
+    *controller.inner.session.lock().unwrap() = Some(process::Session::scripted(&script, &log));
+    let result = controller.automate(request()).unwrap();
+    assert_eq!(result["executed"], false);
+    assert_eq!(result["review_required"], false);
+    assert_eq!(
+        controller.web_attempts("fixture", None).unwrap()["total"],
+        0
+    );
+    controller.stop().unwrap();
+    db.close().unwrap();
+}
+#[test]
+fn legacy_program_is_rejected_before_execution_and_without_attempt() {
+    let (controller, db, dir) = fixture();
+    let log = dir.0.join("calls");
+    let program = SCRIPT.replace(
+        "\"revision\":1}",
+        "\"revision\":1,\"transport\":\"program\"}",
+    );
+    *controller.inner.session.lock().unwrap() = Some(process::Session::scripted(&program, &log));
+    let result = controller.automate(request()).unwrap();
+    assert_eq!(result["status"], "migration_required");
+    assert_eq!(result["executed"], false);
+    assert!(!log.exists());
+    assert_eq!(
+        controller.web_attempts("fixture", None).unwrap()["total"],
+        0
+    );
+    controller.stop().unwrap();
+    db.close().unwrap();
+}
+#[test]
+fn legacy_candidate_can_be_saved_for_incremental_migration() {
+    let (controller, db, dir) = fixture();
+    let log = dir.0.join("calls");
+    let script = r#"while IFS= read -r line; do printf '%s\n' 'save' >> "$GENNIE_WEB_FIXTURE_LOG"; printf '%s\n' '{"status":"saved"}'; done"#;
+    *controller.inner.session.lock().unwrap() = Some(process::Session::scripted(script, &log));
+    let result = controller.call(json!({"method":"candidate","action":"save","candidate_id":"job_1","manifest":{"functions":[{"transport":"program"}]}})).unwrap();
+    assert_eq!(result["status"], "saved");
+    assert_eq!(std::fs::read_to_string(log).unwrap(), "save\n");
+    controller.stop().unwrap();
+    db.close().unwrap();
 }
 #[test]
 fn gmail_review_uses_saved_evidence_and_never_resends_archive() {
@@ -1767,7 +1815,8 @@ fn scoped_requests_overlap_and_cancelling_one_preserves_the_other() {
     let script = r#"
 import { createInterface } from 'node:readline';
 for await (const line of createInterface({input:process.stdin})) {
-  const {request_id,request} = JSON.parse(line);
+  const {request_id,request,cancel_request_id} = JSON.parse(line);
+  if (cancel_request_id !== undefined) continue;
   setTimeout(() => console.log(JSON.stringify({request_id,result:{scope:request.scope}})), request.scope === 'chat:slow' ? 800 : 0);
 }
 

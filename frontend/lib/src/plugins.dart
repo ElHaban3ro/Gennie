@@ -35,7 +35,7 @@ bool _webReviewResolved(Map job) {
 }
 
 String _jobStateLabel(Map job) => _webReviewResolved(job)
-    ? 'Revisión resuelta · construcción pausada'
+    ? 'Revisión registrada · reanudación pendiente'
     : (pluginJobStates[job['state']] ?? '${job['state']}');
 
 typedef PluginCall =
@@ -486,14 +486,14 @@ class _PluginsViewState extends State<PluginsView> {
     }
   }
 
-  Future<void> removeCancelledJob(Map<String, dynamic> job) async {
+  Future<void> removeJob(Map<String, dynamic> job) async {
     if (deleting) return;
     final confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Eliminar trabajo'),
+        title: const Text('Eliminar plugin'),
         content: const Text(
-          'Se retirará este trabajo de la lista. El resultado pendiente se conservará sin revisar y seguirá bloqueando la función hasta que se compruebe.',
+          'Se cancelará la construcción y se retirará de la lista. Los resultados sin confirmar se conservarán sin revisar.',
         ),
         actions: [
           TextButton(
@@ -513,6 +513,28 @@ class _PluginsViewState extends State<PluginsView> {
       error = null;
     });
     try {
+      final related = jobs
+          .where(
+            (item) =>
+                item['plugin_id'] == job['plugin_id'] &&
+                const {
+                  'queued',
+                  'running',
+                  'waiting_user',
+                  'interrupted',
+                  'blocked',
+                }.contains(item['state']),
+          )
+          .toList();
+      for (final item in related) {
+        final cancelled = await call({
+          'action': 'cancel',
+          'job_id': item['id'],
+        });
+        if ((cancelled['job'] as Map?)?['state'] != 'cancelled') {
+          throw StateError('El trabajo cambió. Recarga antes de eliminarlo.');
+        }
+      }
       final result = await call({
         'action': 'hide_cancelled_job',
         'job_id': job['id'],
@@ -535,9 +557,62 @@ class _PluginsViewState extends State<PluginsView> {
     }
   }
 
+  Future<void> removeMcp(Map<String, dynamic> source) async {
+    if (deleting) return;
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Eliminar plugin'),
+        content: Text(
+          'Se retirarán la conexión y los permisos de ${source['name']}. Los resultados sin confirmar se conservarán.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Eliminar'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true || !mounted) return;
+    setState(() {
+      deleting = true;
+      error = null;
+    });
+    try {
+      final result = await call({
+        'action': 'mcp_delete',
+        'server_id': source['id'],
+        'expected_revision': source['revision'],
+      });
+      if (result['status'] != 'deleted') {
+        throw StateError('No se confirmó la eliminación.');
+      }
+      if (!mounted) return;
+      setState(() {
+        catalogueGeneration++;
+        mcpSources.removeWhere((item) => item['id'] == source['id']);
+        if (selected == 'mcp:${source['id']}') {
+          selected = null;
+          widget.onSelectionChanged?.call(null);
+        }
+      });
+      await refresh();
+    } catch (e) {
+      if (mounted) setState(() => error = '$e');
+    } finally {
+      if (mounted) setState(() => deleting = false);
+    }
+  }
+
   Future<void> _menu(
     Map<String, dynamic>? record,
     Map<String, dynamic>? job,
+    Map<String, dynamic>? mcp,
     Offset position,
   ) async {
     final overlay =
@@ -556,7 +631,9 @@ class _PluginsViewState extends State<PluginsView> {
       if (record != null) {
         await remove(record);
       } else if (job != null) {
-        await removeCancelledJob(job);
+        await removeJob(job);
+      } else if (mcp != null) {
+        await removeMcp(mcp);
       }
     }
   }
@@ -674,9 +751,12 @@ class _PluginsViewState extends State<PluginsView> {
                                 entry['record'] as Map<String, dynamic>?;
                             final itemJob =
                                 entry['job'] as Map<String, dynamic>?;
+                            final itemMcp =
+                                entry['mcp'] as Map<String, dynamic>?;
                             final canDelete =
                                 itemRecord != null ||
-                                itemJob?['state'] == 'cancelled';
+                                itemJob != null ||
+                                itemMcp != null;
                             final origin =
                                 (itemRecord?['manifest'] as Map?)?['origin'] ??
                                 (entry['job'] as Map?)?['origin'] ??
@@ -688,6 +768,7 @@ class _PluginsViewState extends State<PluginsView> {
                               _menu(
                                 itemRecord,
                                 itemJob,
+                                itemMcp,
                                 box.localToGlobal(box.size.center(Offset.zero)),
                               );
                             }
@@ -712,7 +793,9 @@ class _PluginsViewState extends State<PluginsView> {
                                           if (itemRecord != null) {
                                             remove(itemRecord);
                                           } else if (itemJob != null) {
-                                            removeCancelledJob(itemJob);
+                                            removeJob(itemJob);
+                                          } else if (itemMcp != null) {
+                                            removeMcp(itemMcp);
                                           }
                                         },
                                       },
@@ -722,6 +805,7 @@ class _PluginsViewState extends State<PluginsView> {
                                       : (details) => _menu(
                                           itemRecord,
                                           itemJob,
+                                          itemMcp,
                                           details.globalPosition,
                                         ),
                                   child: SidebarTile(
@@ -982,7 +1066,7 @@ class _PluginsViewState extends State<PluginsView> {
                                     const Padding(
                                       padding: EdgeInsets.only(bottom: 8),
                                       child: Text(
-                                        'La revisión web pendiente ya se resolvió. La construcción sigue pausada.',
+                                        'La revisión quedó registrada. Gennie continuará cuando el constructor esté disponible.',
                                       ),
                                     ),
                                   SelectableText(
@@ -1067,7 +1151,7 @@ class _PluginsViewState extends State<PluginsView> {
                                     const Padding(
                                       padding: EdgeInsets.only(bottom: 8),
                                       child: Text(
-                                        'La revisión web pendiente ya se resolvió. La construcción sigue pausada.',
+                                        'La revisión quedó registrada. Gennie continuará cuando el constructor esté disponible.',
                                       ),
                                     ),
                                   if (!(record == null &&
@@ -1612,6 +1696,9 @@ class _FunctionProbeState extends State<FunctionProbe> {
             '${switch (fn['transport']) {
               'http' => 'GET',
               'program' => 'Programa',
+              'sequence' => 'Secuencia',
+              'linkedin_notifications' => 'Lectura de notificaciones',
+              'linkedin_conversations' => 'Lectura de conversaciones',
               'observe' => 'Lectura de pestaña',
               'gmail_inbox' => 'Lectura de Recibidos',
               'mcp' => 'MCP',

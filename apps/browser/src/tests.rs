@@ -208,6 +208,14 @@ fn plugin_mcp_schema_accepts_program_blocks() {
 }
 
 #[test]
+fn plugin_mcp_schema_accepts_controlled_sequence() {
+    crate::validate_arguments(&crate::tools::plugin_schema(), &json!({
+        "id":"fixture", "name":"Prueba", "origin":"https://example.com",
+        "functions":[{"name":"act","description":"Prueba","parameters":{},"transport":"sequence","path":"/","result_type":"object","steps":[{"action":"navigate"},{"action":"scroll","amount":-400},{"action":"click","selector":"#button"}]}]
+    })).unwrap();
+}
+
+#[test]
 fn plugin_mcp_schema_accepts_described_inputs_and_rejects_wrong_shapes() {
     let schema = crate::tools::plugin_schema();
     let mut manifest = json!({"id":"fixture","name":"Mensajes","origin":"https://example.com",

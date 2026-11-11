@@ -303,6 +303,20 @@ impl Session {
                         .lock()
                         .map_err(|_| "Canal de navegador inválido")?
                         .take();
+                } else if let Ok(mut input) = self.input.lock()
+                    && let Some(stream) = input.as_ref()
+                {
+                    let line = format!("{{\"cancel_request_id\":{id}}}\n");
+                    if gennie_mcp::write_cancellable(
+                        stream,
+                        line.as_bytes(),
+                        &gennie_mcp::CallContext::default(),
+                        Duration::from_secs(1),
+                    )
+                    .is_err()
+                    {
+                        input.take();
+                    }
                 }
                 return Err(Box::new(gennie_mcp::Cancelled));
             }
@@ -315,6 +329,20 @@ impl Session {
                         .lock()
                         .map_err(|_| "Canal de navegador inválido")?
                         .take();
+                } else if let Ok(mut input) = self.input.lock()
+                    && let Some(stream) = input.as_ref()
+                {
+                    let line = format!("{{\"cancel_request_id\":{id}}}\n");
+                    if gennie_mcp::write_cancellable(
+                        stream,
+                        line.as_bytes(),
+                        &gennie_mcp::CallContext::default(),
+                        Duration::from_secs(1),
+                    )
+                    .is_err()
+                    {
+                        input.take();
+                    }
                 }
                 return Err("El navegador dejó de responder; comprueba el efecto antes de repetir la operación".into());
             }
@@ -398,12 +426,67 @@ impl Drop for Session {
 mod tests {
     use super::*;
     #[test]
+    fn cancellation_is_forwarded_to_the_browser_process() {
+        let session = Session::multiplex_fixture(
+            r#"
+import {createInterface} from 'node:readline';
+let pending, cancelled = false;
+for await (const line of createInterface({input:process.stdin})) {
+  const data=JSON.parse(line);
+  if (data.cancel_request_id !== undefined) { cancelled = data.cancel_request_id === pending; continue; }
+  if (data.request.value === 'slow') { pending=data.request_id; continue; }
+  console.log(JSON.stringify({request_id:data.request_id,result:{cancelled,ready:pending !== undefined}}));
+}
+"#,
+        );
+        let first = session.clone();
+        let context = gennie_mcp::CallContext::default();
+        let cancel = context.clone();
+        let thread = std::thread::spawn(move || {
+            first.request_with_context(&json!({"value":"slow"}), &context)
+        });
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let response = session
+                .request_with_context(
+                    &json!({"value":"check"}),
+                    &gennie_mcp::CallContext::default(),
+                )
+                .unwrap();
+            if response["ready"] == true {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "La petición no llegó al navegador"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        cancel.cancel();
+        assert!(
+            thread
+                .join()
+                .unwrap()
+                .unwrap_err()
+                .is::<gennie_mcp::Cancelled>()
+        );
+        let result = session
+            .request_with_context(
+                &json!({"value":"check"}),
+                &gennie_mcp::CallContext::default(),
+            )
+            .unwrap();
+        assert_eq!(result["cancelled"], true);
+        session.close().unwrap();
+    }
+    #[test]
     fn multiplex_matches_out_of_order_results_and_cancellation_keeps_session_usable() {
         let session = Session::multiplex_fixture(
             r#"
 import {createInterface} from 'node:readline';
 for await (const line of createInterface({input:process.stdin})) {
-  const {request_id,request} = JSON.parse(line);
+  const {request_id,request,cancel_request_id} = JSON.parse(line);
+  if (cancel_request_id !== undefined) continue;
   if (request.value === 'notify') { console.log(JSON.stringify({event:'restore_failed'})); console.log(JSON.stringify({event:'cleanup_pending'})); }
   setTimeout(() => console.log(JSON.stringify({request_id,result:{value:request.value}})), request.delay);
 }

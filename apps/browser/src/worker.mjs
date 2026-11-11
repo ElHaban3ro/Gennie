@@ -475,7 +475,7 @@ export function createBrowserSession({ runtime, profile, headless = false, homep
     }
     return tabs;
   }
-  async function executeScoped(request) {
+  async function executeScoped(request, signal) {
     const owner = request.scope;
     if (typeof owner !== 'string' || !owner || owner.length > 200) fail('invalid_arguments');
     let scope = scopes.get(owner);
@@ -532,11 +532,11 @@ export function createBrowserSession({ runtime, profile, headless = false, homep
       return { open: true, page_id: scope.selected || null, tabs: await scopedTabs(scope) };
     }
     if (!scope.selected && !request.page_id) fail('closed');
-    const response = await execute({ ...request, scope: owner, page_id: request.page_id || scope.selected, background_scope: true });
+    const response = await execute({ ...request, scope: owner, page_id: request.page_id || scope.selected, background_scope: true }, signal);
     if (response.tabs) response.tabs = await scopedTabs(scope);
     return response;
   }
-  async function execute(request) {
+  async function execute(request, signal) {
     if (!request || typeof request !== 'object') fail('invalid_arguments');
     if (request.method === 'open') return open(request);
     if (request.method === 'background') {
@@ -594,14 +594,14 @@ export function createBrowserSession({ runtime, profile, headless = false, homep
       if (!/^job_[0-9]+$/.test(request.candidate_id || '')) fail('invalid_arguments');
       const base = (await plugins.dispatch({ action: 'get', plugin_id: request.plugin_id || request.manifest?.id })).plugin;
       const candidate = createWebPlugins({ directory: path.join(path.dirname(profile), 'plugins', 'candidates', request.candidate_id), verificationBase: base, getContext: async () => { if (!context) await open({ background: true }); return context; } });
-      return candidate.dispatch(request);
+      return candidate.dispatch(request, signal);
     }
     if (request.method === 'plugin_run' && !request.scope && ['run', 'verify'].includes(request.action)) {
       const scope = `manual:${randomUUID()}`;
-      try { return await executeScoped({ ...request, scope }); }
+      try { return await executeScoped({ ...request, scope }, signal); }
       finally { await executeScoped({ method: 'scope_end', scope }); }
     }
-    if (request.method === 'plugins' || request.method === 'plugin_run') return plugins.dispatch(request);
+    if (request.method === 'plugins' || request.method === 'plugin_run') return plugins.dispatch(request, signal);
     if (request.method === 'network') {
       const networkOwner = request.scope || (request.background_scope ? pages.get(request.page_id)?.owner : null);
       if (request.action === 'start') {
@@ -872,7 +872,7 @@ export function createBrowserSession({ runtime, profile, headless = false, homep
     await Promise.all(states.map(state => state.pendingAction).filter(Boolean));
   }
   return {
-    async dispatch(request) {
+    async dispatch(request, signal) {
       clearTimeout(idleTimer);
       clearTimeout(restoreTimer);
       if (idleClosing) await idleClosing;
@@ -884,9 +884,9 @@ export function createBrowserSession({ runtime, profile, headless = false, homep
           const prepared = await plugins.dispatch({ ...request, operation: request.action, action: 'preflight' });
           if (prepared.status !== 'ready') return prepared;
         }
-        if (request?.scope && !(request.method === 'plugin_run' && request.action === 'preflight')) return await executeScoped(request);
-        if (['open', 'background', 'task_page'].includes(request?.method)) return await withLifecycle(() => execute(request));
-        return await execute(request);
+        if (request?.scope && !(request.method === 'plugin_run' && request.action === 'preflight')) return await executeScoped(request, signal);
+        if (['open', 'background', 'task_page'].includes(request?.method)) return await withLifecycle(() => execute(request, signal));
+        return await execute(request, signal);
       }
       catch (error) { return { error: errorMessage(error), code: error.code || (error.name === 'TimeoutError' ? 'timeout' : 'playwright_error') }; }
       finally { activeRequests--; if (!activeRequests) scheduleIdle(); }
@@ -929,11 +929,12 @@ async function runWorker() {
   async function stop() {
     if (stopping) return;
     stopping = true;
+    for (const cancellation of cancellations.values()) cancellation.abort();
     setTimeout(() => process.exit(1), 30000).unref();
     try { await session.close(); } finally { process.exit(0); }
   }
   const input = createInterface({ input: process.stdin, crlfDelay: Infinity });
-  const queues = new Map(), running = new Set();
+  const queues = new Map(), running = new Set(), cancellations = new Map();
   function emit(response, id) {
     let encoded = JSON.stringify(id === undefined ? response : { request_id: id, result: response });
     if (Buffer.byteLength(encoded) >= RESPONSE_LIMIT) encoded = JSON.stringify(id === undefined ? { error: 'La respuesta supera el límite del navegador' } : { request_id: id, result: { error: 'La respuesta supera el límite del navegador' } });
@@ -947,6 +948,10 @@ async function runWorker() {
       if (Buffer.byteLength(line) > 128 * 1024) break;
       let parsed;
       try { parsed = JSON.parse(line); } catch { emit({ error: 'Petición JSON inválida' }); continue; }
+      if (Number.isSafeInteger(parsed?.cancel_request_id)) {
+        cancellations.get(parsed.cancel_request_id)?.abort();
+        continue;
+      }
       if (!Number.isSafeInteger(parsed?.request_id) || !parsed.request || typeof parsed.request !== 'object') {
         await Promise.all(running);
         emit(await session.dispatch(parsed));
@@ -954,12 +959,17 @@ async function runWorker() {
       }
       const { request_id: id, request } = parsed;
       if (running.size >= 64) { emit({ error: 'El navegador tiene demasiadas peticiones pendientes', code: 'busy' }, id); continue; }
+      const cancellation = new AbortController();
+      cancellations.set(id, cancellation);
       const key = request.scope ? `scope:${request.scope}` : (request.background_scope || (request.method === 'task_page' && request.action === 'close')) && request.page_id ? `page:${request.page_id}` : 'global';
       const previous = queues.get(key) || Promise.resolve();
-      const task = previous.then(() => session.dispatch(request)).then(response => emit(response, id), () => emit({ error: 'El navegador no pudo completar la operación.' }, id));
+      const task = previous.then(() => {
+        if (cancellation.signal.aborted) return { error:'Operación cancelada',code:'cancelled' };
+        return session.dispatch(request, cancellation.signal);
+      }).then(response => emit(response, id), () => emit({ error: 'El navegador no pudo completar la operación.' }, id));
       queues.set(key, task);
       running.add(task);
-      task.finally(() => { running.delete(task); if (queues.get(key) === task) queues.delete(key); });
+      task.finally(() => { cancellations.delete(id); running.delete(task); if (queues.get(key) === task) queues.delete(key); });
     }
   } finally { await stop(); }
 }

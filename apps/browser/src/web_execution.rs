@@ -201,6 +201,12 @@ impl Controller {
                 false,
             ));
         }
+        if prepared["transport"] == "program" {
+            return Ok((
+                json!({"status":"migration_required","executed":false,"message":"Esta función anterior debe convertirse a pasos controlados antes de ejecutarse."}),
+                false,
+            ));
+        }
         if prepared["transport"] == "gmail_archive" {
             let mut observation = request.clone();
             observation["action"] = json!("gmail_evidence");
@@ -250,12 +256,7 @@ impl Controller {
             && result.as_ref().is_ok_and(|v| {
                 v["executed"] == false
                     && v["diagnostic"]["phase"] == "prepare"
-                    && (v["status"] == "browser_unavailable"
-                        || (prepared["transport"] == "gmail_archive"
-                            && matches!(
-                                v["status"].as_str(),
-                                Some("archive_not_started" | "authentication_required")
-                            )))
+                    && prepared["transport"] != "program"
             });
         let saved = store.finish_with_outcome(
             reserved["id"].as_i64().unwrap(),

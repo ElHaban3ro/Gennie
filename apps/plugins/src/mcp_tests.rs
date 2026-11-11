@@ -501,11 +501,6 @@ fn pending_effects_survive_reopen_permissions_and_config_changes_without_implici
     assert_eq!(saved["pending_attempts"][0]["id"], attempt.id);
     assert!(
         service
-            .delete("fixture", saved["revision"].as_i64().unwrap())
-            .is_err()
-    );
-    assert!(
-        service
             .reconcile("fixture", revision, attempt.id, "not_applied")
             .is_err()
     );
@@ -521,6 +516,28 @@ fn pending_effects_survive_reopen_permissions_and_config_changes_without_implici
     assert_eq!(checked["recent_reviews"][0]["resolution"], "applied");
     assert!(checked["revision"].as_i64().unwrap() > saved["revision"].as_i64().unwrap());
     assert!(!checked.to_string().contains("CHANGED_PRIVATE_ARGUMENT"));
+    service.stop().unwrap();
+    db.close().unwrap();
+}
+
+#[test]
+fn delete_preserves_uncertain_attempt_and_blocks_recreated_source() {
+    let dir = Directory::new();
+    std::fs::create_dir_all(&dir.0).unwrap();
+    let db = Database::open(&dir.0.join("delete.sqlite3"), 50).unwrap();
+    db.migrate("plugins", crate::MIGRATIONS).unwrap();
+    let service = test_service(db.clone(), dir.0.join("client"));
+    let revision = allowed_source(&service);
+    let attempt = reserve(&service, revision);
+    service.attempts.recover().unwrap();
+    assert_eq!(
+        service.delete("fixture", revision).unwrap()["status"],
+        "deleted"
+    );
+    assert!(service.list().unwrap().as_array().unwrap().is_empty());
+    let restored = service.save(specification(), 0).unwrap();
+    assert_eq!(restored["pending_attempts"][0]["id"], attempt.id);
+    assert_eq!(restored["pending_attempts"][0]["state"], "uncertain");
     service.stop().unwrap();
     db.close().unwrap();
 }

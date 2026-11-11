@@ -165,10 +165,13 @@ void main() {
     ];
     await mount(t, b);
     await select(t);
-    expect(find.text('Revisión resuelta · construcción pausada'), findsWidgets);
+    expect(
+      find.text('Revisión registrada · reanudación pendiente'),
+      findsWidgets,
+    );
     expect(
       find.text(
-        'La revisión web pendiente ya se resolvió. La construcción sigue pausada.',
+        'La revisión quedó registrada. Gennie continuará cuando el constructor esté disponible.',
       ),
       findsOneWidget,
     );
@@ -226,7 +229,7 @@ void main() {
     await mouse.up();
     await t.pumpAndSettle();
     await click(t, 'Eliminar plugin');
-    expect(find.text('Eliminar trabajo'), findsOneWidget);
+    expect(find.text('Eliminar plugin'), findsOneWidget);
     await click(t, 'Eliminar');
     expect(find.text('example.com'), findsNothing);
     expect(b.pendingRows, hasLength(1));

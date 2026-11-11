@@ -94,7 +94,9 @@ class PluginsBackend extends FakeBackend implements PluginBackend {
             job['summary'] = 'Construcción cancelada.';
           }
         }
-        return jsonEncode({'status': 'cancelled'});
+        return jsonEncode({
+          'job': jobs.singleWhere((j) => j['id'] == request['job_id']),
+        });
       case 'hide_cancelled_job':
         jobs.singleWhere((j) => j['id'] == request['job_id'])['hidden'] = true;
         return jsonEncode({'status': 'hidden'});
@@ -464,6 +466,53 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Correo de prueba'), findsOneWidget);
   });
+  testWidgets(
+    'el menú elimina un trabajo pendiente y conserva su resultado incierto',
+    (tester) async {
+      final backend = PluginsBackend()..records = [];
+      backend.jobs = [
+        {
+          'id': 9,
+          'plugin_id': 'linkedin',
+          'origin': 'https://www.linkedin.com',
+          'state': 'queued',
+        },
+        {
+          'id': 10,
+          'plugin_id': 'linkedin',
+          'origin': 'https://www.linkedin.com',
+          'state': 'waiting_user',
+          'summary': 'Resultado sin confirmar',
+          'objective': 'Revisar mensajes',
+          'trigger_conversation_id': 7,
+          'attempts': 1,
+          'max_attempts': 4,
+          'web_pending': {'total': 1},
+        },
+      ];
+      await mount(tester, backend);
+      final gesture = await tester.createGesture(
+        kind: PointerDeviceKind.mouse,
+        buttons: kSecondaryMouseButton,
+      );
+      await gesture.down(tester.getCenter(find.text('www.linkedin.com').first));
+      await gesture.up();
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Eliminar plugin'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Eliminar').last);
+      await tester.pumpAndSettle();
+      expect(backend.requests.where((r) => r['action'] == 'cancel').length, 2);
+      expect(
+        backend.requests
+            .where((r) => r['action'] == 'hide_cancelled_job')
+            .length,
+        1,
+      );
+      expect(backend.jobs.last['web_pending']['total'], 1);
+      expect(find.text('www.linkedin.com'), findsNothing);
+    },
+  );
   testWidgets(
     'cancelar sin plugin publicado retira la fila y conserva el trabajo',
     (tester) async {

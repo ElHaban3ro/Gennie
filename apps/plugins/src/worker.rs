@@ -10,6 +10,9 @@ pub(crate) fn run(controller: Controller) {
     while !controller.0.stopping.load(Ordering::Acquire) {
         if Instant::now() >= next_reconciliation {
             next_reconciliation = Instant::now() + Duration::from_secs(5);
+            if controller.permitted().is_ok() {
+                let _ = reconcile_reviewed_builds(&controller);
+            }
             let source = controller.0.assignments.lock().ok().and_then(|s| s.clone());
             if let Some(source) = source
                 && let Ok((assignments, Some(chat))) = source()
@@ -353,9 +356,6 @@ fn build(controller: &Controller, job: &Job) -> Result<()> {
         if current.state != "running" || controller.0.stopping.load(Ordering::Acquire) {
             break;
         }
-        if pause_for_web_review(controller, &current)? {
-            break;
-        }
         if session.is_some() && !tool_transport_available(&controller.0.store, job.id, &server)? {
             controller.notify();
             break;
@@ -440,7 +440,7 @@ fn build(controller: &Controller, job: &Job) -> Result<()> {
             .browser
             .web_attempts(&current.plugin_id, None)
             .ok();
-        let prompt=json!({"plugin_id":current.plugin_id,"origin":current.origin,"objective":current.objective,"base_revision":current.base_revision,"execution_state":"running","user_corrections":messages.iter().map(|(_,message)|message).collect::<Vec<_>>(),"corrections_instruction":"Las correcciones proceden del usuario a través de su bot: incorpóralas antes de continuar; prevalecen sobre instrucciones anteriores incompatibles, sin ampliar permisos.","web_attempt_status":web_status,"web_attempt_instruction":"Este estado viene del diario actual y prevalece sobre mensajes antiguos. Si total es 0, no hay revisiones pendientes. Una revisión unknown está cerrada sin resolver el efecto pasado: el host permite guardar el candidato y probar una lectura controlada, pero rechaza repetir el programa antiguo. Usa gmail_print para leer una conversación de Gmail sin abrirla ni cambiar su estado. No pidas otra revisión del intento cerrado.","continuation":"El host autoriza continuar este trabajo ahora. El Goal nativo permanece paused exclusivamente para impedir turnos automáticos de Codex; no representa una pausa solicitada por el usuario. Esta petición reanuda el trabajo frente a mensajes anteriores de pausa. Consulta el candidato y la interfaz con tus herramientas y ejecuta el siguiente experimento autorizado; no respondas únicamente que el trabajo sigue pausado.","construction_scope":"Construye y verifica capacidades reutilizables. La ejecución periódica futura es independiente y su ausencia no bloquea por sí sola el plugin; no declares verificadas funciones que aún falten.","instruction":instruction,"stop_review":review}).to_string();
+        let prompt=json!({"plugin_id":current.plugin_id,"origin":current.origin,"objective":current.objective,"base_revision":current.base_revision,"execution_state":"running","user_corrections":messages.iter().map(|(_,message)|message).collect::<Vec<_>>(),"corrections_instruction":"Las correcciones proceden del usuario a través de su bot: incorpóralas antes de continuar; prevalecen sobre instrucciones anteriores incompatibles, sin ampliar permisos.","web_attempt_status":web_status,"web_attempt_instruction":"Este estado viene del diario actual y prevalece sobre mensajes antiguos. Si hay intentos inciertos, no repitas ni cambies la operación afectada: el host protege las interacciones con posibles efectos. Investiga otras capacidades con observaciones independientes autorizadas; no declares listo el candidato con intentos pendientes. Solo después de agotar alternativas útiles presenta un bloqueo con evidencia y explica la intervención indispensable. Una revisión unknown ya cerrada conserva el efecto desconocido: no pidas otra revisión del mismo intento.","continuation":"El host autoriza continuar este trabajo ahora. El Goal nativo permanece paused exclusivamente para impedir turnos automáticos de Codex; no representa una pausa solicitada por el usuario. Esta petición reanuda el trabajo frente a mensajes anteriores de pausa. Consulta el candidato y la interfaz con tus herramientas y ejecuta el siguiente experimento autorizado; no respondas únicamente que el trabajo sigue pausado.","construction_scope":"Construye y verifica capacidades reutilizables. La ejecución periódica futura es independiente y su ausencia no bloquea por sí sola el plugin; no declares verificadas funciones que aún falten.","instruction":instruction,"stop_review":review}).to_string();
         let mut steering_disabled = !messages.is_empty();
         let mut feedback = |event| -> Result<Option<String>> {
             use gennie_llm::builder::FeedbackEvent;
@@ -608,6 +608,21 @@ fn pause_for_web_review(controller: &Controller, job: &Job) -> Result<bool> {
     );
     controller.transition(job.id, "waiting_user", &summary)?;
     Ok(true)
+}
+fn reconcile_reviewed_builds(controller: &Controller) -> Result<bool> {
+    let mut changed = false;
+    for job in controller.0.store.list()?.into_iter().filter(|job| {
+        job.state == "waiting_user"
+            && job
+                .summary
+                .starts_with("Una prueba web quedó sin resultado confirmado.")
+    }) {
+        changed |= controller.0.store.resume_after_web_review(job.id)?;
+    }
+    if changed {
+        controller.notify();
+    }
+    Ok(changed)
 }
 fn prior_candidate(
     job: &Job,
@@ -781,11 +796,15 @@ fn scoped_tools(
             .clone();
         definition["name"] = json!(name);
         definition["description"] = json!(if name == "plugin_candidate" {
-            "Lee/guarda únicamente el candidato de este trabajo (action get/save). Incluye cobertura en description, capacidades en capabilities y límites en limitations. No modifica el plugin publicado; expected_revision=0 si no existe candidato. El transporte http exige una respuesta JSON y extrae con JSON Pointer; no sirve para HTML o texto sin JSON. Para una página HTML utiliza transport page con selector CSS observado y result_type string o array. Para leer la bandeja de Gmail, usa gmail_inbox (origin https://mail.google.com, path /mail/u/0/, parameters pagina entero 1..100, result_type object); busca in:inbox y pagina sin editar mensajes; cada conversación indica no_leida true/false o null si no se conoce, y sus fallos no requieren revisión. Si ya hay una pestaña abierta con URL exacta y basta extraer texto, usa observe: no navega ni hace clic, y los fallos no necesitan revisión humana. Usa program solo si necesitas lógica que page no puede expresar. Su code es directamente el cuerpo JavaScript async, no una función flecha: por ejemplo `await page.goto(origin + '/'); return {valor: args.valor};`. Se inyectan args, page, context, origin y runtime; runtime solo ofrece read(etapa, callback) y action(etapa, acción, verificación). Navega con page.goto, no con runtime.open. Comprueba el tipo real de respuesta antes de guardar y verificar."
+            "Lee/guarda únicamente el candidato de este trabajo (action get/save). Incluye cobertura en description, capacidades en capabilities y límites en limitations. No modifica el plugin publicado; expected_revision=0 si no existe candidato. El transporte http exige una respuesta JSON y extrae con JSON Pointer; no sirve para HTML o texto sin JSON. Para una página HTML utiliza transport page con selector CSS observado y result_type string o array. Para leer la bandeja de Gmail, usa gmail_inbox (origin https://mail.google.com, path /mail/u/0/, parameters pagina entero 1..100, result_type object); busca in:inbox y pagina sin editar mensajes; cada conversación indica no_leida true/false o null si no se conoce, y sus fallos no requieren revisión. Si ya hay una pestaña abierta con URL exacta y basta extraer texto, usa observe: no navega ni hace clic, y los fallos no necesitan revisión humana. Usa sequence para pasos fijos controlados. Las funciones antiguas program pueden guardarse durante la migración, pero no ejecutarse ni publicarse: sustitúyelas por transportes controlados compatibles con el objetivo; si ninguno lo cubre, explica la limitación. Comprueba el tipo real de respuesta antes de guardar y verificar."
         } else {
             "Ejecuta y verifica una función del candidato (action verify/run). Solo verify satisfactorio deja evidencia. Usa plugin_id y revisión del candidato. runtime.read y runtime.action son funciones inyectadas en code, no herramientas MCP separadas. runtime.read ejecuta su bloque una sola vez y no garantiza que carezca de efectos. En Gmail conserva el estado de lectura: abrir conversaciones puede marcarlas como leídas; usa una vía de solo lectura comprobada y, si no está disponible, informa la limitación sin ejecutar esa navegación. authentication_required necesita acceso humano; no lo confundas con 403 o fallo de transporte."
         });
         if name == "plugin_candidate" {
+            definition["description"] = json!(format!(
+                "{} Para recorridos fijos usa sequence con steps declarados: navigate primero y luego click, fill, press o scroll; completed cuenta pasos pero no demuestra el efecto. No sustituye bucles o lecturas dinámicas.",
+                definition["description"].as_str().unwrap_or_default()
+            ));
             definition["description"] = json!(format!(
                 "{} Para el detalle de Gmail usa gmail_print: origin https://mail.google.com, path /mail/u/0/, parameters {{id:\"string\"}}, result_type object, sin code ni selectores. Para comprobar si una conversación en Recibidos es importante usa gmail_importance con el mismo origin, path y parámetros; devuelve importante y no_leida sin abrirla. Para archivar usa gmail_archive con el mismo origin, path y parámetros: selecciona por identidad sin abrir, pulsa Archivar una vez y verifica el estado de lectura. Solo verifica una escritura sobre la conversación autorizada; ya_archivada no prueba una acción nueva. Para comprobar paginación bastan dos páginas cuando existen; no recorras toda la bandeja durante la preparación salvo petición expresa. Una revisión unknown conserva un resultado anterior desconocido: no repitas aquel programa; sustitúyelo por una lectura controlada. quarantined_recipe significa que el host rechazó la ejecución antes de empezar, sin necesitar otra revisión del usuario.",
                 definition["description"].as_str().unwrap_or_default()
@@ -819,7 +838,7 @@ fn scoped_tools(
             let saving = name == "plugin_candidate" && args["action"] == "save";
             let mut response=controller.0.browser.automate_with_context(args,context.clone())?;
             if response["review_required"] == true {
-                pause_for_web_review(&controller, &job)?;
+                response["instruction"] = json!("El resultado anterior sigue incierto y la función afectada permanece bloqueada. Investiga primero las capacidades independientes mediante observaciones controladas; no repitas la operación ni uses navegación, clics o consultas para sortear el bloqueo. Si después de agotar las alternativas aún necesitas una decisión humana, informa un bloqueo con la evidencia disponible.");
             }
             if saving && response["status"] == "saved" {
                 strategy.lock().map_err(|_| "Estrategia de construcción inválida")?.candidate_changed();
@@ -869,6 +888,7 @@ _context.check()?;
     });
     let scope_controller = controller.clone();
     let scope_job_id = job.id;
+    let scope_plugin_id = job.plugin_id.clone();
     let repeated = Arc::new(Mutex::new(RepeatedFailures::default()));
     let controller = controller.clone();
     let job = job.clone();
@@ -881,12 +901,19 @@ _context.check()?;
             if args.get("recommended_route").is_some() && args["state"] != "blocked" { return Err("La vía propuesta solo se admite al comunicar un bloqueo".into()); }
             if args.get("recommended_route").is_some() && !matches!(args["recommended_route"].as_str(),Some("http"|"web"|"computer_use")) { return Err("Vía propuesta inválida".into()); }
             match args["state"].as_str() {
-                Some("ready")=>{ready.store(true,Ordering::Release);controller.0.store.report(job.id,"El constructor terminó el candidato; comprobaré las verificaciones antes de publicarlo.")?;controller.notify();}
+                Some("ready")=>{
+                    if controller.0.browser.web_attempts(&job.plugin_id,None)?["total"].as_i64().unwrap_or(0)>0 {
+                        return Ok(json!({"status":"pending_effect","instruction":"El resultado anterior sigue incierto. No se puede publicar todavía; continúa investigando alternativas independientes o presenta un bloqueo con evidencia."}));
+                    }
+                    ready.store(true,Ordering::Release);controller.0.store.report(job.id,"El constructor terminó el candidato; comprobaré las verificaciones antes de publicarlo.")?;controller.notify();}
                 Some("progress")=>{controller.0.store.report(job.id,message)?;controller.notify();}
                 Some("blocked" | "waiting_user")=>{
                     let mut strategy = strategy.lock().map_err(|_| "Estrategia de construcción inválida")?;
                     let response = report_block(&controller.0.store,job.id,&args,&mut strategy,calls.load(Ordering::Acquire) >= 80)?;
                     drop(strategy);
+                    if response["status"] == "recorded" {
+                        pause_for_web_review(&controller, &job)?;
+                    }
                     controller.notify();
                     return Ok(response);
                 },
@@ -910,6 +937,7 @@ _context.check()?;
             let guarded_controller = scope_controller.clone();
             let guarded_job = scope_job_id;
             let guarded_name = name.to_owned();
+            let guarded_plugin = scope_plugin_id.clone();
             let repeated = repeated.clone();
             Tool {
                 definition: tool.definition,
@@ -926,6 +954,18 @@ _context.check()?;
                     if guarded_controller.0.feedback_inflight.load(Ordering::Acquire)
                         || guarded_controller.0.store.has_pending_messages(guarded_job)? {
                         return Err("Hay una nueva instrucción del usuario pendiente. Termina este turno para recibirla antes de continuar con las herramientas.".into());
+                    }
+                    let pending = guarded_controller.0.browser.web_attempts(&guarded_plugin, None)?;
+                    if pending["total"].as_i64().unwrap_or(0) > 0 {
+                        let allowed = if guarded_name == "plugin_candidate_test" {
+                            let candidate = guarded_controller.0.browser.call_with_context(json!({"method":"candidate","action":"get","candidate_id":format!("job_{guarded_job}"),"plugin_id":guarded_plugin}),context.clone())?;
+                            independent_candidate_allowed(&pending, &candidate, &args)
+                        } else {
+                            independent_observation_allowed(&guarded_name, &args)
+                        };
+                        if !allowed {
+                            return Ok(json!({"status":"pending_effect","executed":false,"message":"Hay un resultado anterior incierto. Esta operación queda protegida; continúa con observaciones independientes y no repitas la acción."}));
+                        }
                     }
                     let observed_args = args.clone();
                     let result = (tool.call)(args, context);
@@ -953,6 +993,42 @@ _context.check()?;
             }
         })
         .collect()
+}
+fn independent_observation_allowed(name: &str, args: &Value) -> bool {
+    matches!(
+        name,
+        "browser_snapshot"
+            | "browser_screenshot"
+            | "browser_find"
+            | "browser_read"
+            | "plugin_build_findings"
+    ) || (name == "plugin_candidate" && args["action"] == "get")
+}
+fn independent_candidate_allowed(pending: &Value, candidate: &Value, args: &Value) -> bool {
+    let Some(function) = args["function_name"].as_str() else {
+        return false;
+    };
+    let Some(rows) = pending["attempts"].as_array() else {
+        return false;
+    };
+    if pending["total"]
+        .as_i64()
+        .is_none_or(|total| total > rows.len() as i64)
+        || rows.iter().any(|row| row["tool"] == function)
+    {
+        return false;
+    }
+    candidate["plugin"]["manifest"]["functions"]
+        .as_array()
+        .is_some_and(|rows| {
+            rows.iter().any(|row| {
+                row["name"] == function
+                    && matches!(
+                        row["transport"].as_str(),
+                        Some("observe" | "gmail_inbox" | "gmail_print" | "gmail_importance")
+                    )
+            })
+        })
 }
 fn validate_task_url(name: &str, origin: &str, args: &Value) -> Result<()> {
     let Some(raw) = args["url"].as_str() else {
@@ -990,9 +1066,11 @@ fn validate_task_url(name: &str, origin: &str, args: &Value) -> Result<()> {
 }
 fn candidate_permissions(settings: &Settings, manifest: &Value) -> Result<()> {
     if (!settings.read_files || !settings.write_files)
-        && manifest["functions"]
-            .as_array()
-            .is_some_and(|functions| functions.iter().any(|f| f["transport"] == "program"))
+        && manifest["functions"].as_array().is_some_and(|functions| {
+            functions
+                .iter()
+                .any(|f| matches!(f["transport"].as_str(), Some("program" | "sequence")))
+        })
     {
         return Err("Las funciones programables requieren lectura y escritura tanto en el helper como en el bot".into());
     }
@@ -1044,7 +1122,12 @@ mod retry_tests {
     fn repeated_real_scoped_tool_failures_interrupt_without_exposing_arguments() {
         let (store, _, job) = running_build();
         let root = std::env::temp_dir().join("gennie-repeated-failure-test");
-        let browser = gennie_browser::BrowserModule::new(root.clone());
+        let browser =
+            gennie_browser::BrowserModule::new(root.clone()).with_database(store.0.clone());
+        store
+            .0
+            .migrate("browser", gennie_core::AppModule::migrations(&browser))
+            .unwrap();
         let module = PluginsModule::new(
             store.0.clone(),
             browser.controller(),
@@ -1138,6 +1221,10 @@ mod retry_tests {
         );
         assert!(
             candidate_permissions(&settings, &json!({"functions":[{"transport":"program"}]}))
+                .is_err()
+        );
+        assert!(
+            candidate_permissions(&settings, &json!({"functions":[{"transport":"sequence"}]}))
                 .is_err()
         );
         assert!(
@@ -1281,7 +1368,94 @@ mod retry_tests {
         (store, request, job)
     }
     #[test]
-    fn unresolved_web_attempt_pauses_only_its_plugin_before_another_turn() {
+    fn uncertain_attempt_allows_independent_findings_but_blocks_actions_and_ready() {
+        let (store, _, job) = running_build();
+        let root = std::env::temp_dir().join("gennie-independent-uncertainty-test");
+        let browser =
+            gennie_browser::BrowserModule::new(root.clone()).with_database(store.0.clone());
+        store
+            .0
+            .migrate("browser", gennie_core::AppModule::migrations(&browser))
+            .unwrap();
+        store.0.with_connection(|c| { c.execute("INSERT INTO browser_web_attempts(plugin_id,plugin_name,function_name,plugin_revision,candidate_id,operation,state,reason) VALUES('mail','Mail','read',1,'job_1','verify','uncertain','reported_failure')", [])?; Ok(()) }).unwrap();
+        let module = PluginsModule::new(
+            store.0.clone(),
+            browser.controller(),
+            Arc::new(TestJournal),
+            crate::AgentSettings::shared(Arc::new(|| Ok(Settings::default()))),
+            root.join("helper"),
+            root,
+        );
+        let controller = module.controller();
+        controller.0.enabled.store(true, Ordering::Release);
+        controller.0.mcp.start().unwrap();
+        let tools = scoped_tools(
+            &controller,
+            &job,
+            "page",
+            Arc::new(AtomicU64::new(0)),
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(Mutex::new(strategy::BuildStrategy::default())),
+        );
+        let find = |name: &str| tools.iter().find(|t| t.definition["name"] == name).unwrap();
+        let ctx = gennie_mcp::CallContext::default();
+        assert_eq!(
+            (find("plugin_build_findings").call)(json!({"action":"list"}), ctx.clone()).unwrap()["jobs"],
+            json!([])
+        );
+        for (name, args) in [
+            ("browser_navigate", json!({"url":"https://example.com/"})),
+            ("browser_click", json!({"selector":"button"})),
+            ("browser_request", json!({"url":"https://example.com/"})),
+            ("plugin_candidate", json!({"action":"save"})),
+        ] {
+            let result = (find(name).call)(args, ctx.clone()).unwrap();
+            assert_eq!(result["status"], "pending_effect");
+            assert_eq!(result["executed"], false);
+        }
+        let result =
+            (find("plugin_build_report").call)(json!({"state":"ready","message":"Listo"}), ctx)
+                .unwrap();
+        assert_eq!(result["status"], "pending_effect");
+        assert_eq!(store.get(job.id).unwrap().state, "running");
+        assert_eq!(
+            browser.controller().web_attempts("mail", None).unwrap()["total"],
+            1
+        );
+        controller.0.mcp.stop().unwrap();
+    }
+    #[test]
+    fn independent_candidate_requires_known_distinct_observation_and_complete_pending_page() {
+        let pending = json!({"total":1,"attempts":[{"tool":"write"}]});
+        let candidate = json!({"plugin":{"manifest":{"functions":[{"name":"read","transport":"observe"},{"name":"write","transport":"gmail_archive"},{"name":"other","transport":"page"}]}}});
+        assert!(independent_candidate_allowed(
+            &pending,
+            &candidate,
+            &json!({"function_name":"read"})
+        ));
+        assert!(!independent_candidate_allowed(
+            &pending,
+            &candidate,
+            &json!({"function_name":"write"})
+        ));
+        assert!(!independent_candidate_allowed(
+            &pending,
+            &candidate,
+            &json!({"function_name":"other"})
+        ));
+        assert!(!independent_candidate_allowed(
+            &json!({"total":2,"attempts":[{"tool":"write"}]}),
+            &candidate,
+            &json!({"function_name":"read"})
+        ));
+        assert!(!independent_candidate_allowed(
+            &pending,
+            &candidate,
+            &json!({})
+        ));
+    }
+    #[test]
+    fn unresolved_web_attempt_can_pause_its_plugin_after_exhaustion() {
         use gennie_core::{AppModule, AppState};
         let (store, _, job) = running_build();
         let root = std::env::temp_dir().join("gennie-web-review-unit");
@@ -1321,6 +1495,40 @@ mod retry_tests {
         assert!(saved.summary.contains("resultado pendiente en Plugins"));
         assert!(!saved.summary.contains("Revisa su efecto en el servicio"));
         assert_eq!(saved.attempts, 1);
+        assert!(!reconcile_reviewed_builds(&controller).unwrap());
+        assert_eq!(store.get(job.id).unwrap().state, "waiting_user");
+        store.0.with_connection(|c| { c.execute("INSERT INTO browser_web_attempts(plugin_id,plugin_name,function_name,plugin_revision,candidate_id,operation,state,reason) VALUES('mail','Mail','another',1,'job_1','verify','uncertain','interrupted')", [])?; Ok(()) }).unwrap();
+        controller
+            .0
+            .browser
+            .close_unconfirmed_web("mail", 2, 1)
+            .unwrap();
+        assert!(!reconcile_reviewed_builds(&controller).unwrap());
+        assert_eq!(store.get(job.id).unwrap().state, "waiting_user");
+        controller
+            .0
+            .browser
+            .close_unconfirmed_web("mail", 3, 1)
+            .unwrap();
+        store.0.with_connection(|c| { c.execute("INSERT INTO plugin_builder_messages(job_id,request_key,origin,message,state) VALUES(?1,'uncertain-fixture','{}','instrucción','uncertain')", [job.id])?; Ok(()) }).unwrap();
+        assert!(!reconcile_reviewed_builds(&controller).unwrap());
+        assert_eq!(store.get(job.id).unwrap().state, "waiting_user");
+        store
+            .0
+            .with_connection(|c| {
+                c.execute(
+                    "UPDATE plugin_builder_messages SET state='delivered' WHERE job_id=?1",
+                    [job.id],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+        assert!(reconcile_reviewed_builds(&controller).unwrap());
+        assert_eq!(store.get(job.id).unwrap().state, "queued");
+        assert!(!reconcile_reviewed_builds(&controller).unwrap());
+        let attempts = controller.0.browser.web_attempts("mail", None).unwrap();
+        assert_eq!(attempts["total"], 0);
+        assert_eq!(attempts["recent_reviews"][0]["resolution"], "unknown");
         browser.stop(&state).unwrap();
     }
     fn block_args(capability: &str) -> Value {
@@ -1529,6 +1737,29 @@ mod retry_tests {
             );
             assert_eq!(store.get(job.id).unwrap().state, "running");
             assert!(strategy.review_context().is_null());
+        }
+    }
+    #[test]
+    fn unrequested_human_action_does_not_pause_other_work() {
+        let (store, _, job) = running_build();
+        let mut strategy = strategy::BuildStrategy::default();
+        strategy.begin_turn();
+        let mut args = block_args("send_message");
+        args["state"] = json!("waiting_user");
+        for kind in ["user_action_required", "permission_required"] {
+            args["blocker"]["kind"] = json!(kind);
+            for status in [
+                Value::Null,
+                json!("not_required"),
+                json!("already_satisfied"),
+            ] {
+                args["blocker"]["outcome_status"] = status;
+                assert_eq!(
+                    report_block(&store, job.id, &args, &mut strategy, false).unwrap()["status"],
+                    "continue"
+                );
+                assert_eq!(store.get(job.id).unwrap().state, "running");
+            }
         }
     }
     #[test]
@@ -1861,7 +2092,12 @@ mod retry_tests {
     fn scoped_service_request_reaches_browser_without_expanding_page_navigation() {
         let (store, _, job) = running_build();
         let root = std::env::temp_dir().join("gennie-service-no-runtime");
-        let browser = gennie_browser::BrowserModule::new(root.clone());
+        let browser =
+            gennie_browser::BrowserModule::new(root.clone()).with_database(store.0.clone());
+        store
+            .0
+            .migrate("browser", gennie_core::AppModule::migrations(&browser))
+            .unwrap();
         browser.controller().set_automation_allowed(true);
         let module = PluginsModule::new(
             store.0.clone(),
@@ -1962,7 +2198,12 @@ mod retry_tests {
     fn report_tool_reviews_human_intervention_and_does_not_pause_for_pending_work() {
         let (store, _, job) = running_build();
         let root = std::env::temp_dir().join("gennie-report-no-runtime");
-        let browser = gennie_browser::BrowserModule::new(root.clone());
+        let browser =
+            gennie_browser::BrowserModule::new(root.clone()).with_database(store.0.clone());
+        store
+            .0
+            .migrate("browser", gennie_core::AppModule::migrations(&browser))
+            .unwrap();
         let module = PluginsModule::new(
             store.0.clone(),
             browser.controller(),
@@ -2011,6 +2252,8 @@ mod retry_tests {
         );
         assert_eq!(store.get(job.id).unwrap().state, "running");
         prepare_interface(&mut strategy.lock().unwrap(), &mut args);
+        args["blocker"]["required_outcome"] = json!("Resultado solicitado");
+        args["blocker"]["outcome_status"] = json!("unmet");
         for kind in ["permission_required", "user_action_required"] {
             args["blocker"]["kind"] = json!(kind);
             gennie_browser::validate_arguments(&report.definition["inputSchema"], &args).unwrap();

@@ -1,7 +1,8 @@
 // Recetas y bloques ejecutables reutilizables de plugins.
 import * as pluginFs from 'node:fs/promises';
 import pluginPath from 'node:path';
-import { randomUUID as pluginUUID, createHash as pluginHash } from 'node:crypto';
+import { randomUUID as pluginUUID, createHash as pluginHash, randomInt } from 'node:crypto';
+import { setTimeout as delayTimer } from 'node:timers/promises';
 
 const PLUGIN_LIMIT = 128 * 1024;
 const pluginId = value => typeof value === 'string' && /^[a-z][a-z0-9_]{0,63}$/.test(value);
@@ -62,6 +63,24 @@ function validateParameter(value) {
     for (const item of value.enum) if (parameterIssue({ ...spec, enum: undefined }, item)) pluginFail('invalid_plugin');
   }
 }
+function validateSequenceSteps(fn, steps, requireNavigate) {
+  if (!Array.isArray(steps) || !steps.length || steps.length > 100 || (requireNavigate && steps[0]?.action !== 'navigate')) pluginFail('invalid_plugin');
+  const used = new Set();
+  for (const step of steps) {
+    pluginKeys(step, ['action','selector','argument','key','amount','x','y'], ['action']);
+    if (step.action === 'navigate') { if (Object.keys(step).length !== 1) pluginFail('invalid_plugin'); }
+    else if (step.action === 'scroll') { if (Object.keys(step).length !== 2 || !Number.isSafeInteger(step.amount) || step.amount === 0 || Math.abs(step.amount) > 5000) pluginFail('invalid_plugin'); }
+    else if (step.action === 'move') { if (Object.keys(step).length !== 3 || !Number.isSafeInteger(step.x) || !Number.isSafeInteger(step.y) || step.x < 0 || step.y < 0 || step.x > 10000 || step.y > 10000) pluginFail('invalid_plugin'); }
+    else if (step.action === 'click') { if (Object.keys(step).length !== 2) pluginFail('invalid_plugin'); pluginText(step.selector,1000); }
+    else if (step.action === 'fill') {
+      if (Object.keys(step).length !== 3) pluginFail('invalid_plugin'); pluginText(step.selector,1000);
+      if (!Object.hasOwn(fn.parameters, step.argument) || parameterSpec(fn.parameters[step.argument]).type !== 'string' || !parameterSpec(fn.parameters[step.argument]).required) pluginFail('invalid_plugin');
+      used.add(step.argument);
+    } else if (step.action === 'press') { if (Object.keys(step).length !== 3) pluginFail('invalid_plugin'); pluginText(step.selector,1000);pluginText(step.key,40); }
+    else pluginFail('invalid_plugin');
+  }
+  return used;
+}
 function pluginArguments(fn, args) {
   if (!pluginObject(args) || Object.keys(args).some(key => !Object.hasOwn(fn.parameters, key))) return { status: 'invalid_arguments', executed: false, fields: [], message: 'Usa únicamente los parámetros declarados en la función.' };
   const fields = [];
@@ -91,7 +110,7 @@ export function validateWebPlugin(manifest) {
   if (!Array.isArray(manifest.functions) || !manifest.functions.length) pluginFail('invalid_plugin');
   const names = new Set();
   for (const fn of manifest.functions) {
-    pluginKeys(fn, ['name', 'description', 'parameters', 'transport', 'path', 'query', 'result_type', 'result_pointer', 'fields', 'selector', 'ready_selector', 'login_selector', 'code'], ['name', 'description', 'parameters', 'transport', 'path', 'result_type']);
+    pluginKeys(fn, ['name', 'description', 'parameters', 'transport', 'path', 'query', 'result_type', 'result_pointer', 'fields', 'selector', 'ready_selector', 'login_selector', 'code', 'steps'], ['name', 'description', 'parameters', 'transport', 'path', 'result_type']);
     if (!pluginId(fn.name) || names.has(fn.name)) pluginFail('invalid_plugin');
     names.add(fn.name); pluginText(fn.description, 1000);
     if (!pluginObject(fn.parameters)) pluginFail('invalid_plugin');
@@ -115,7 +134,8 @@ export function validateWebPlugin(manifest) {
       if (/[{}]/u.test(remaining)) pluginFail('invalid_plugin');
     }
     for (const match of fn.path.matchAll(/\{([a-z][a-z0-9_]{0,63})\}/g)) if (!parameterSpec(fn.parameters[match[1]]).required) pluginFail('invalid_plugin');
-    if (!['program','gmail_inbox','gmail_print','gmail_archive','gmail_importance'].includes(fn.transport) && Object.keys(fn.parameters).some(key => !used.has(key))) pluginFail('invalid_plugin');
+    if (!['program','sequence','gmail_inbox','gmail_print','gmail_archive','gmail_importance','linkedin_notifications','linkedin_conversations'].includes(fn.transport) && Object.keys(fn.parameters).some(key => !used.has(key))) pluginFail('invalid_plugin');
+    if (fn.transport !== 'sequence' && fn.steps !== undefined) pluginFail('invalid_plugin');
     if (fn.transport === 'program') {
       pluginText(fn.code, 48000);
       if (!['array', 'object', 'string', 'number', 'boolean'].includes(fn.result_type) || fn.query !== undefined || fn.fields !== undefined || fn.selector !== undefined || fn.ready_selector !== undefined || fn.result_pointer !== undefined) pluginFail('invalid_plugin');
@@ -126,10 +146,17 @@ export function validateWebPlugin(manifest) {
         catch (error) { if (error.code === 'invalid_program_body') throw error; }
       }
       try { new (Object.getPrototypeOf(async function(){}).constructor)('context', 'page', 'args', 'origin', 'runtime', fn.code); } catch { pluginFail('invalid_plugin'); }
+    } else if (fn.transport === 'sequence') {
+      if (fn.result_type !== 'object' || ['code','query','fields','selector','ready_selector','login_selector','result_pointer'].some(key => fn[key] !== undefined)) pluginFail('invalid_plugin');
+      for (const key of validateSequenceSteps(fn,fn.steps,true)) used.add(key);
+      if (Object.keys(fn.parameters).some(key => !used.has(key))) pluginFail('invalid_plugin');
     } else if (fn.transport === 'http') {
       if (fn.code !== undefined) pluginFail('invalid_plugin');
       if (!['array', 'object', 'string', 'number', 'boolean'].includes(fn.result_type) || fn.selector !== undefined || fn.ready_selector !== undefined || fn.login_selector !== undefined) pluginFail('invalid_plugin');
       if (fn.result_pointer !== undefined) pluginPointer(fn.result_pointer);
+    } else if (fn.transport === 'linkedin_notifications' || fn.transport === 'linkedin_conversations') {
+      const expectedPath = fn.transport === 'linkedin_notifications' ? '/notifications/' : '/messaging/';
+      if (manifest.origin !== 'https://www.linkedin.com' || fn.path !== expectedPath || fn.result_type !== (fn.transport === 'linkedin_notifications' ? 'object' : 'array') || Object.keys(fn.parameters).length || ['code','query','fields','selector','ready_selector','login_selector','result_pointer'].some(key => fn[key] !== undefined)) pluginFail('invalid_plugin');
     } else if (fn.transport === 'gmail_inbox') {
       const keys=Object.keys(fn.parameters);
       if (manifest.origin !== 'https://mail.google.com' || fn.path !== '/mail/u/0/' || fn.result_type !== 'object' || keys.length !== 1 || keys[0] !== 'pagina' || parameterSpec(fn.parameters.pagina).type !== 'integer' || !parameterSpec(fn.parameters.pagina).required || ['code','query','fields','selector','ready_selector','login_selector','result_pointer'].some(key => fn[key] !== undefined)) pluginFail('invalid_plugin');
@@ -330,7 +357,7 @@ async function gmailArchive(context, id, evidence) {
   } finally { if (initial) await initial.page.close().catch(()=>{}); }
 }
 
-function programRuntime() {
+function programRuntime(signal) {
   // Solo etiquetas técnicas cerradas: nunca incluir mensajes, selectores ni contenido del sitio.
   const diagnostic = { stage:'program', phase:'prepare', action_status:'unknown', read_attempts:0 };
   function stage(name) {
@@ -338,12 +365,15 @@ function programRuntime() {
     diagnostic.stage = name;
   }
   async function read(name, operation) {
+    if (signal?.aborted) { const error = new Error('cancelled'); error.name = 'AbortError'; throw error; }
     stage(name);
     diagnostic.phase = 'read';
     // El callback puede contener navegación o escrituras. El nombre no demuestra
     // que sea seguro repetirlo; una sola invocación conserva esa incertidumbre.
     diagnostic.read_attempts = 1;
-    return await operation();
+    const result = await operation();
+    if (signal?.aborted) { const error = new Error('cancelled'); error.name = 'AbortError'; throw error; }
+    return result;
   }
   return {
     diagnostic,
@@ -380,14 +410,135 @@ function programRuntime() {
   };
 }
 
-async function executeProgram(context, manifest, fn, args) {
-  const { api, diagnostic } = programRuntime();
+// Un reloj por contexto compartido ordena también ejecuciones concurrentes de
+// distintos plugins. No modifica el catálogo ni almacena valores en disco.
+const interactionClocks = new WeakMap();
+function pacedContext(context, signal, override = {}) {
+  const choose = override.choose || (() => randomInt(5001));
+  const wait = override.wait || ((ms, options) => delayTimer(ms, undefined, options));
+  const interactions = new Set(['goto','reload','goBack','goForward','click','dblclick','tap','fill','press','type','pressSequentially','check','uncheck','setChecked','selectOption','setInputFiles','hover','focus','blur','dragTo','scrollIntoViewIfNeeded','wheel','move','down','up','insertText','dispatchEvent','evaluate','evaluateAll','$eval','$$eval','get','head','post','put','patch','delete','fetch']);
+  const factories = new Set(['locator','getByRole','getByText','getByLabel','getByPlaceholder','getByAltText','getByTitle','getByTestId','frameLocator','first','last','nth','filter','and','or','contentFrame','owner','frame','mainFrame','context','page','$','$$','elementHandle','elementHandles','waitForSelector','all']);
+  const properties = new Set(['mouse','keyboard','touchscreen','request']);
+  const cache = new WeakMap();
+  let clock = interactionClocks.get(context);
+  if (!clock) { clock = {previous:Promise.resolve(),started:false}; interactionClocks.set(context,clock); }
+  function check() { if (signal?.aborted) { const error = new Error('cancelled'); error.name = 'AbortError'; throw error; } }
+  function wrap(value) {
+    if (!value || (typeof value !== 'object' && typeof value !== 'function')) return value;
+    if (cache.has(value)) return cache.get(value);
+    const proxy = new Proxy(value, { get(target, key) {
+      const member = Reflect.get(target, key, target);
+      if (properties.has(key)) return wrap(member);
+      if (typeof member !== 'function') return member;
+      if (key === 'newPage') return async (...args) => { check(); return wrap(await member.apply(target,args)); };
+      if (key === 'pages' || key === 'frames') return (...args) => member.apply(target,args).map(wrap);
+      if (factories.has(key)) return (...args) => {
+        const result = member.apply(target,args);
+        const wrapResult = item => Array.isArray(item) ? item.map(wrap) : wrap(item);
+        return result instanceof Promise ? result.then(wrapResult) : wrapResult(result);
+      };
+      if (interactions.has(key)) return (...args) => {
+        const next = clock.previous.then(async () => {
+          check();
+          if (clock.started) await wait(choose(), {signal});
+          check();
+          clock.started = true;
+          override.onInteraction?.();
+          return member.apply(target,args);
+        });
+        clock.previous = next.catch(() => {});
+        return next;
+      };
+      return member.bind(target);
+    }});
+    cache.set(value,proxy);
+    return proxy;
+  }
+  return wrap(context);
+}
+
+async function runSequenceSteps(page, manifest, fn, args, signal, steps, requireNavigate) {
+  // Copiar antes de validar evita cambios del llamador durante una espera.
+  const checked = structuredClone(steps);
+  validateSequenceSteps(fn,checked,requireNavigate);
+  const target = pluginTarget(manifest, fn, args);
+  let completed=0;
+  for (const step of checked) {
+    if (signal?.aborted) throw new Error('cancelled');
+    if (step.action === 'navigate') await page.goto(target,{waitUntil:'domcontentloaded'});
+    else {
+      if (new URL(page.url()).origin !== manifest.origin) throw new Error('origin_changed');
+      if (step.action === 'click') await page.locator(step.selector).click();
+      else if (step.action === 'fill') await page.locator(step.selector).fill(args[step.argument]);
+      else if (step.action === 'press') await page.locator(step.selector).press(step.key);
+      else if (step.action === 'scroll') await page.mouse.wheel(0,step.amount);
+      else if (step.action === 'move') await page.mouse.move(step.x,step.y);
+    }
+    if (new URL(page.url()).origin !== manifest.origin) throw new Error('origin_changed');
+    completed++;
+  }
+  if (signal?.aborted) throw new Error('cancelled');
+  return {completed};
+}
+
+// Estas lecturas usan código propio de Gennie: las recetas no aportan JavaScript.
+async function linkedinRead(context, manifest, fn, args, signal) {
+  let page;
+  try {
+    page=await context.newPage();
+    if (fn.transport === 'linkedin_conversations') {
+      await runSequenceSteps(page,manifest,fn,args,signal,[{action:'navigate'}],true);
+      const lista=page.getByRole('list',{name:'Lista de conversaciones'});
+      await lista.waitFor({state:'visible',timeout:30000});
+      await page.waitForTimeout(2000);
+      const data=await lista.locator('li').evaluateAll(items=>items.filter(x=>x.querySelector('h3')).map(x=>({conversacion:x.querySelector('h3')?.innerText,fecha:x.querySelector('time')?.innerText||null,vista_previa:x.querySelector('p')?.innerText||null,estado:x.innerText})));
+      if (signal?.aborted) throw new Error('cancelled');
+      return {status:'ok',data};
+    }
+    const respuestas=[], pendientes=[];
+    page.on('response',r=>{
+      let url;try{url=new URL(r.url());}catch{return;}
+      if(url.origin!==manifest.origin || !url.pathname.includes('/flagship-web/rsc-action/actions/pagination'))return;
+      pendientes.push((async()=>{const body=await r.text().catch(()=>null),req=r.request().postData()||'',match=req.match(/startIndex[^0-9]{0,15}([0-9]+)/);respuestas.push({status:r.status(),indice:match?Number(match[1]):null,vacia:!!body&&body.length<1000&&/"modelStates":\[\]/.test(body)&&/"isPartialPage":true/.test(body)&&body.includes('"$undefined"')});})());
+    });
+    await runSequenceSteps(page,manifest,fn,args,signal,[{action:'navigate'}],true);
+    const region=page.getByRole('region',{name:'Contenido principal'});await region.waitFor({state:'visible',timeout:20000});
+    await region.getByRole('button',{name:'Más opciones',exact:true}).first().waitFor({timeout:20000});
+    const perfil=await page.getByRole('link',{name:/Ver perfil de/}).first().getAttribute('href').catch(()=>null);
+    let filas=[],anterior=[],continuidad=true,fin=false,quieto=0,vueltas=0;
+    for(;vueltas<60;vueltas++){
+      if(signal?.aborted)throw new Error('cancelled');
+      const lote=await region.getByRole('button',{name:'Más opciones',exact:true}).evaluateAll(bs=>bs.map(b=>{let p=b;for(let i=0;i<4;i++)p=p.parentElement;return {texto:p.innerText.trim(),enlaces:Array.from(p.querySelectorAll('a[href]')).map(a=>a.href)}}));
+      if(lote.length){let solape=0;for(let n=Math.min(filas.length,lote.length);n>0;n--)if(JSON.stringify(filas.slice(-n))===JSON.stringify(lote.slice(0,n))){solape=n;break;}
+        if(!filas.length)filas=lote;else if(solape)filas.push(...lote.slice(solape));else if(JSON.stringify(anterior)!==JSON.stringify(lote)){continuidad=false;filas.push(...lote);}}
+      const texto=await region.innerText();await Promise.all(pendientes);
+      const ultima=respuestas.at(-1);if(/no hay m[aá]s notificaciones|has llegado al final/i.test(texto)){fin=true;break;}
+      const enBorde=await page.evaluate(()=>window.scrollY+window.innerHeight>=document.documentElement.scrollHeight-5);
+      if(enBorde&&ultima?.status===200&&ultima.vacia&&ultima.indice!==null&&!await page.getByRole('progressbar').isVisible().catch(()=>false)){fin=true;break;}
+      quieto=JSON.stringify(lote)===JSON.stringify(anterior)?quieto+1:0;anterior=lote;if(quieto>=8)break;
+      await runSequenceSteps(page,manifest,fn,args,signal,[{action:'move',x:600,y:500},{action:'scroll',amount:1200}],false);
+      await page.waitForTimeout(1400);await page.getByRole('progressbar').first().waitFor({state:'hidden',timeout:10000}).catch(()=>{});await page.waitForTimeout(900);
+    }
+    await Promise.all(pendientes);if(signal?.aborted)throw new Error('cancelled');
+    return {status:'ok',data:{perfil,notificaciones:filas,fin_confirmado:fin,continuidad_confirmada:continuidad,paginas_observadas:respuestas.map(r=>({indice:r.indice,estado:r.status,vacia:r.vacia})),desplazamientos:vueltas}};
+  } catch {
+    return {status:'result_uncertain',message:'No terminó la lectura de LinkedIn; comprueba su estado antes de repetirla.'};
+  } finally {await page?.close().catch(()=>{});}
+}
+
+async function executeProgram(context, manifest, fn, args, signal) {
+  const { api, diagnostic } = programRuntime(signal);
   let page, result;
   try {
     page = await context.newPage();
     diagnostic.phase = 'execute';
+    api.steps = async steps => {
+      diagnostic.phase='action'; diagnostic.action_status='uncertain';
+      return runSequenceSteps(page,manifest,fn,args,signal,steps,false);
+    };
     const fnBody = new (Object.getPrototypeOf(async function(){}).constructor)('context', 'page', 'args', 'origin', 'runtime', fn.code);
     const data = await fnBody(context, page, args, manifest.origin, api);
+    if (signal?.aborted) { const error = new Error('cancelled'); error.name = 'AbortError'; throw error; }
     if (pluginType(data) !== fn.result_type) {
       result = { status:'result_uncertain', diagnostic:{ ...diagnostic, code:'result_type_mismatch' }, message:'El resultado no coincide con el contrato; comprueba el efecto antes de repetir la acción.' };
     } else result = { status:'ok', data };
@@ -400,7 +551,7 @@ async function executeProgram(context, manifest, fn, args) {
   return result;
 }
 
-export function createWebPlugins({ directory, getContext, verificationBase }) {
+export function createWebPlugins({ directory, getContext, verificationBase, interactionDelay }) {
   async function prepare() {
     await pluginFs.mkdir(directory, { recursive: true, mode: 0o700 });
     const info = await pluginFs.lstat(directory);
@@ -447,14 +598,27 @@ export function createWebPlugins({ directory, getContext, verificationBase }) {
       await pluginFs.rename(temporary, filename(record.manifest?.id || record.id));
     } finally { await pluginFs.unlink(temporary).catch(error => { if (error.code !== 'ENOENT') throw error; }); }
   }
-  async function execute(manifest, fn, args, evidence) {
+  async function execute(manifest, fn, args, evidence, signal, interaction) {
     const target = pluginTarget(manifest, fn, args);
     let context;
     try { context = await getContext(); }
     catch (error) { return {status:'browser_unavailable',executed:false,diagnostic:{code:programErrorCode(error),phase:'prepare'},message:'No se pudo preparar el navegador; la función no se ejecutó.'}; }
     if (!context) return { status: 'browser_unavailable', executed:false, diagnostic:{code:'program_error',phase:'prepare'}, message:'El navegador no está disponible; la función no se ejecutó.' };
+    if (signal?.aborted) return {status:'cancelled',executed:false};
+    context = pacedContext(context, signal, {...interactionDelay,onInteraction:()=>{interaction.started=true;}});
+    if (['linkedin_notifications','linkedin_conversations'].includes(fn.transport)) return linkedinRead(context,manifest,fn,args,signal);
+    if (fn.transport === 'sequence') {
+      let page;
+      try {
+        page=await context.newPage();
+        const data=await runSequenceSteps(page,manifest,fn,args,signal,fn.steps,true);
+        return {status:'ok',data};
+      } catch {
+        return {status:'result_uncertain',message:'La secuencia no terminó; comprueba su efecto antes de repetirla.'};
+      } finally { await page?.close().catch(()=>{}); }
+    }
     if (fn.transport === 'program') {
-      return executeProgram(context, manifest, fn, args);
+      return executeProgram(context, manifest, fn, args, signal);
     }
     if (fn.transport === 'gmail_archive') return gmailArchive(context,args.id,evidence);
     if (fn.transport === 'gmail_importance') return gmailImportance(context,args.id);
@@ -557,7 +721,8 @@ export function createWebPlugins({ directory, getContext, verificationBase }) {
       const data = values.slice(0,200).map(value => value.trim().slice(0,2000));
       return { status:'ok', data:fn.result_type === 'string' ? data[0] : data, truncated:values.length>200 || values.some(value=>value.length>2000) };
     }
-    const deadline = Date.now() + 6500;
+    // Las interfaces dinámicas pueden necesitar más tiempo que una consulta HTTP.
+    const deadline = Date.now() + (fn.transport === 'page' ? 30000 : 6500);
     const timeout = () => Math.max(1, deadline - Date.now());
     if (fn.transport === 'http') {
       let url = target;
@@ -594,6 +759,7 @@ export function createWebPlugins({ directory, getContext, verificationBase }) {
       return { status: 'redirect_limit' };
     }
     const page = await context.newPage();
+    let stage = 'navigate';
     try {
       // La extracción usa una pestaña propia, sin cambiar la seleccionada por el usuario.
       await page.route('**/*', async route => {
@@ -607,7 +773,9 @@ export function createWebPlugins({ directory, getContext, verificationBase }) {
       if (new URL(page.url()).origin !== manifest.origin) return { status: 'redirect_blocked' };
       if (response && !response.ok()) return { status: 'http_error', http_status: response.status() };
       if (fn.login_selector && await page.locator(fn.login_selector).first().isVisible()) return pluginAuth(manifest);
+      stage = 'ready';
       await page.locator(fn.ready_selector || fn.selector).first().waitFor({ state: 'attached', timeout: timeout() });
+      stage = 'extract';
       const extracted = await page.locator(fn.selector).evaluateAll((nodes, spec) => {
         let truncated = false;
         const text = node => {
@@ -627,6 +795,8 @@ export function createWebPlugins({ directory, getContext, verificationBase }) {
       if (Array.isArray(data) && data.some(row => pluginObject(row) && Object.values(row).includes(null))) return { status: 'site_changed' };
       if (Buffer.byteLength(JSON.stringify(data)) > 100000) return { status: 'response_too_large' };
       return { status: 'ok', data, truncated };
+    } catch (error) {
+      return { status: error?.name === 'TimeoutError' ? 'timeout' : 'execution_failed', diagnostic:{code:programErrorCode(error),phase:'read',stage}, message:'No se completó la extracción de la página.' };
     } finally { await page.close(); }
   }
   async function catalogueRecords() {
@@ -641,7 +811,7 @@ export function createWebPlugins({ directory, getContext, verificationBase }) {
     if ((!previous || previous.deleted) && (await catalogueRecords()).length >= 50) pluginFail('plugin_storage_error');
   }
   return {
-    async dispatch(request) {
+    async dispatch(request, signal) {
       if (request.action === 'list') return { plugins: await catalogueRecords() };
       if (request.action === 'promote') {
         if (!pluginId(request.candidate_id)) pluginFail('invalid_plugin_arguments');
@@ -649,6 +819,7 @@ export function createWebPlugins({ directory, getContext, verificationBase }) {
         if (request.expected_revision !== (previous?.revision || 0)) return { status: 'revision_conflict' };
         const candidateStore = createWebPlugins({ directory: pluginPath.join(directory, 'candidates', request.candidate_id), getContext, verificationBase: previous });
         const candidate = (await candidateStore.dispatch({ action: 'get', plugin_id: request.plugin_id })).plugin;
+        if (candidate?.manifest.functions.some(fn => fn.transport === 'program')) return { status:'migration_required', executed:false, message:'Convierte las funciones anteriores a pasos controlados antes de publicar.' };
         if (!candidate || candidate.manifest.functions.some(fn => candidate.verified[fn.name]?.revision !== candidate.revision)) return { status: 'verification_required' };
         await capacity(previous);
         const revision = (previous?.revision || 0) + 1;
@@ -677,7 +848,7 @@ export function createWebPlugins({ directory, getContext, verificationBase }) {
       if (request.action === 'preflight' && !['run','verify'].includes(request.operation)) pluginFail('invalid_plugin_arguments');
       const fn = record.manifest.functions.find(fn => fn.name === request.function_name);
       if (!fn) return { status: 'function_not_found' };
-      if (fn.transport === 'program' && request.program_allowed !== true) return { status: 'permission_required', message: 'El bloque programable requiere activar lectura y escritura de archivos, comandos y control de aplicaciones.' };
+      if (['program','sequence'].includes(fn.transport) && request.program_allowed !== true) return { status: 'permission_required', message: 'La automatización requiere activar lectura y escritura de archivos, comandos y control de aplicaciones.' };
       if (request.expected_revision !== record.revision) return { status: 'revision_conflict' };
       if (request.checked_transport !== undefined && request.checked_transport !== fn.transport) return { status: 'revision_conflict', executed: false };
       const args = request.arguments === undefined ? {} : request.arguments;
@@ -686,17 +857,30 @@ export function createWebPlugins({ directory, getContext, verificationBase }) {
       if ((fn.transport === 'gmail_print' && !/^[a-f0-9]{1,128}$/i.test(args.id)) || (['gmail_archive','gmail_importance'].includes(fn.transport) && !/^[a-f0-9]{1,16}$/i.test(args.id))) return {status:'invalid_arguments',executed:false,message:'La identidad de la conversación de Gmail no es válida.'};
       if (request.action === 'gmail_evidence' || request.action === 'gmail_review') {
         if (fn.transport !== 'gmail_archive') return {status:'inconclusive'};
-        const context=await getContext();
-        if (!context) return {status:'inconclusive'};
+        let context=await getContext();
+        if (!context || signal?.aborted) return {status:'inconclusive'};
+        context=pacedContext(context, signal, interactionDelay);
         return request.action==='gmail_evidence' ? gmailEvidence(context,args.id) : gmailReview(context,request.gmail_evidence);
       }
       if (request.action !== 'verify' && !(request.action === 'preflight' && request.operation === 'verify') && record.verified[fn.name]?.revision !== record.revision) return { status: 'verification_required', executed: false };
       if (['prepare','preflight'].includes(request.action)) return { status: 'ready', executed: false, plugin_id: record.manifest.id, plugin_name: record.manifest.name, function_name: fn.name, revision: record.revision, transport: fn.transport };
       let result;
-      try { result = await execute(record.manifest, fn, args, request.gmail_evidence); }
+      const interaction={started:false};
+      try { result = await execute(record.manifest, fn, args, request.gmail_evidence, signal, interaction); }
       catch (error) {
         if (error.code === 'invalid_plugin_arguments') throw error;
         result = fn.transport === 'program' ? { status: 'result_uncertain', message: 'El bloque pudo realizar cambios antes de fallar. Comprueba el resultado antes de repetirlo.' } : { status: error.code === 'site_changed' ? 'site_changed' : error.name === 'TimeoutError' ? 'timeout' : 'execution_failed' };
+      }
+      if (fn.transport !== 'program' && result.status !== 'ok' && !interaction.started) {
+        result.executed=false;
+        result.diagnostic={...result.diagnostic,code:result.diagnostic?.code || 'program_error',phase:'prepare'};
+        if (result.status === 'result_uncertain') {
+          result.status='execution_failed';
+          result.message='No se pudo preparar la función; no empezó ninguna interacción.';
+        }
+      }
+      if (!result.diagnostic && result.status === 'timeout') {
+        result.diagnostic={code:'timeout',phase:fn.transport === 'sequence' ? 'action' : 'read'};
       }
       if (request.action === 'verify') {
         delete record.verified[fn.name];

@@ -159,3 +159,7 @@ SidebarSearch: focusedBorder y el icono Limpiar usan tinta 65 % en claro, conser
 La confirmación para eliminar un plugin web indica que los resultados sin confirmar permanecen registrados y los trabajos propios se cancelan. No reconciliar ni repetir el intento automáticamente. Mientras espera, deshabilitar otra eliminación e indicar progreso. Ver [D-044](../decisions/web-attempts.md).
 
 Si la ficha de plugin informa resultados web pendientes, ofrecer acceso a esa sección junto a Eliminar sin resolver ni repetir el intento. Ver [D-044](../decisions/web-attempts.md).
+
+El menú contextual de cada fila ofrece eliminar también construcciones sin publicación y conexiones MCP. Cancelar una construcción y ocultar su fila conserva los resultados inciertos; eliminar una conexión MCP conserva sus recibos. La confirmación explica el efecto antes de aplicarlo.
+
+En conversación, un turno sin acuse de guardado presenta «Preparando envío…»; solo tras el acuse presenta que Gennie responde. El borrador se conserva hasta que el backend confirma su guardado.

@@ -11,11 +11,13 @@ import { createBrowserSession } from '../../apps/browser/src/worker.mjs';
 const browserRoot = path.join(process.env.HOME, 'Library/Application Support/Gennie/browser');
 process.env.PLAYWRIGHT_BROWSERS_PATH = path.join(browserRoot, 'browsers');
 const directory = await mkdtemp(path.join(tmpdir(), 'gennie-web-plugins-'));
-let protectedCalls = 0, publicCalls = 0, writes = 0, authenticated = true;
+let protectedCalls = 0, publicCalls = 0, writes = 0, sequenceWrites = 0, authenticated = true, cancelReady;
 const server = createServer((request, response) => {
   const url = new URL(request.url, 'http://fixture');
   const json = (status, body) => { response.writeHead(status, { 'Content-Type': 'application/json' }); response.end(JSON.stringify(body)); };
   if (url.pathname === '/api/action' && request.method === 'POST') { writes++; json(200, { writes }); }
+  else if (url.pathname === '/api/sequence' && request.method === 'POST') { sequenceWrites++; json(200, { sequenceWrites }); }
+  else if (url.pathname === '/cancel-page') { response.writeHead(200, {'Content-Type':'text/html'});response.end('<button onclick="fetch(\'/api/action\',{method:\'POST\'})">Action fixture</button>');cancelReady?.(); }
   else if (url.pathname === '/api/public') { publicCalls++; json(200, { messages: [{ id: 'public', subject: 'Dato público' }] }); }
   else if (url.pathname === '/api/private') {
     protectedCalls++;
@@ -30,7 +32,7 @@ const server = createServer((request, response) => {
   else if (url.pathname === '/private-page' && !request.headers.cookie?.includes('fixture_session=valid')) { response.writeHead(302, { Location: '/login' }); response.end(); }
   else {
     response.writeHead(200, { 'Content-Type': 'text/html' });
-    response.end(`<title>Lista local</title><main id="ready"><article class="message"><b>uno</b><p>Asunto DOM</p></article></main><script>fetch('/api/public?cursor=do-not-expose').then(()=>document.body.dataset.loaded='yes')</script>`);
+    response.end(`<title>Lista local</title><main id="ready"><article class="message"><b>uno</b><p>Asunto DOM</p></article><button onclick="this.dataset.clicked='yes'">Action fixture</button><button id="sequence" onclick="navigator.sendBeacon('/api/sequence')">Sequence fixture</button></main><script>fetch('/api/public?cursor=do-not-expose').then(()=>document.body.dataset.loaded='yes')</script>`);
   }
 });
 server.listen(0, '127.0.0.1');
@@ -45,6 +47,11 @@ async function call(method, args = {}) {
 }
 const http = (name, path) => ({ name, description: 'Consulta fixture', parameters: {}, transport: 'http', path, result_type: 'array', result_pointer: '/messages', fields: { id: '/id', subject: '/subject' } });
 const manifest = { id: 'fixture', name: 'Web de prueba', origin, login_url: origin + '/login', login_urls: [origin + '/login'], functions: [
+  { name:'sequence_action', description:'Secuencia local', parameters:{}, transport:'sequence', path:'/', result_type:'object', steps:[{action:'navigate'},{action:'click',selector:'#sequence'}] },
+  { name:'sequence_cancel', description:'Cancelación local', parameters:{}, transport:'sequence', path:'/cancel-page', result_type:'object', steps:[{action:'navigate'},{action:'click',selector:'button'}] },
+  { name:'runtime_sequence', description:'Pasos en programa local', parameters:{}, transport:'program', path:'/', result_type:'object', code:"await runtime.steps([{action:'navigate'},{action:'click',selector:'#sequence'}]); return {ok:true};" },
+  { name:'paced_action', description:'Navegación y clic locales', parameters:{}, transport:'program', path:'/', result_type:'object', code:"await page.goto(origin); const button=page.getByRole('button',{name:'Action fixture'}); await button.click(); return {clicked:await button.getAttribute('data-clicked')};" },
+  { name:'cancel_action', description:'Cancelación de clic local', parameters:{}, transport:'program', path:'/', result_type:'object', code:"await page.goto(origin+'/cancel-page'); await page.waitForTimeout(1500); await page.getByRole('button').click(); return {};" },
   { name:'write_action', description:'Acción local', parameters:{note:{type:'string',label:'Mensaje',description:'Dato ficticio',required:false,maxLength:50}}, transport:'program', path:'/', result_type:'object', code:"const r = await context.request.post(origin + '/api/action'); return await r.json();" },
   { ...http('typed_messages','/api/public'), parameters:{after:{type:'string',label:'Desde',required:false},limit:{type:'integer',label:'Cantidad',minimum:1,maximum:10}},query:{after:'{after}',limit:'{limit}'} },
   http('public_messages', '/api/public'), http('private_messages', '/api/private'), http('redirect', '/api/redirect'), http('denied', '/api/denied'), http('changed', '/api/changed'),
@@ -69,6 +76,26 @@ try {
   assert.equal((await call('snapshot')).open, false);
   assert.equal((await run('public_messages')).status, 'ok'); // Abre headless sin pedir cuenta.
   assert.equal((await run('write_action')).data.writes, 1);
+  const sequenceResult=await run('sequence_action');
+  assert.equal(sequenceResult.status,'ok');assert.equal(sequenceResult.data.completed,2);
+  for(let i=0;i<20 && sequenceWrites===0;i++) await new Promise(resolve=>setTimeout(resolve,50));
+  assert.equal(sequenceWrites,1);
+  assert.equal((await run('runtime_sequence')).data.ok,true);
+  for(let i=0;i<20 && sequenceWrites<2;i++) await new Promise(resolve=>setTimeout(resolve,50));
+  assert.equal(sequenceWrites,2);
+  const cancellation=new AbortController();
+  const entered=new Promise(resolve=>{cancelReady=resolve;});
+  let timeout;
+  const pendingSequence=session.dispatch({method:'plugin_run',action:'verify',plugin_id:'fixture',function_name:'sequence_cancel',expected_revision:1,arguments:{},program_allowed:true},cancellation.signal);
+  try { await Promise.race([entered,new Promise((_,reject)=>{timeout=setTimeout(()=>reject(new Error('No cargó la página ficticia')),20000);})]); }
+  finally { clearTimeout(timeout); }
+  cancellation.abort();
+  assert.equal((await pendingSequence).status,'result_uncertain');
+  assert.equal(writes,1);cancelReady=undefined;checks++;
+  const pacedResult = await run('paced_action');
+  if (pacedResult.status !== 'ok') console.error('Diagnóstico de la acción ficticia:', pacedResult.status, pacedResult.diagnostic);
+  assert.equal(pacedResult.status, 'ok');
+  assert.equal(pacedResult.data.clicked, 'yes');
   assert.equal((await run('write_action', 'run')).data.writes, 2);
   assert.equal(writes, 2);
   assert.equal((await call('open', { background: true })).background, true);
@@ -117,7 +144,7 @@ try {
   // Ejecutar también el formato embebido utilizado por el helper Rust/release.
   const worker = await readFile(new URL('../../apps/browser/src/worker.mjs', import.meta.url), 'utf8');
   const pluginSource = await readFile(new URL('../../apps/browser/src/plugins.mjs', import.meta.url), 'utf8');
-  const embedded = worker.replace("import { createWebPlugins } from './plugins.mjs';", pluginSource);
+  const embedded = worker.replace("import { createWebPlugins } from './plugins.mjs';", () => pluginSource);
   const child = spawn(path.join(browserRoot, 'runtime-patchright-1.64.2/node'), ['--input-type=module', '--eval', embedded, '--', path.join(browserRoot, 'runtime-patchright-1.64.2'), path.join(directory, 'embedded-profile'), '--gennie-browser-worker'], { stdio: ['pipe', 'pipe', 'ignore'] });
   const exited = once(child, 'exit');
   const lines = createInterface({ input: child.stdout });
@@ -130,6 +157,14 @@ try {
     child.stdin.write(JSON.stringify({ method: 'plugin_run', action: 'verify', plugin_id: 'fixture', function_name: 'write_action', expected_revision: 2, arguments: {}, program_allowed:true }) + '\n');
     const result = JSON.parse((await reply)[0]);
     assert.equal(result.status, 'ok'); assert.equal(result.data.writes, 3); checks++;
+    const entered = new Promise(resolve => { cancelReady = resolve; });
+    const cancelledReply = once(lines, 'line');
+    child.stdin.write(JSON.stringify({request_id:42,request:{method:'plugin_run',action:'verify',plugin_id:'fixture',function_name:'cancel_action',expected_revision:2,arguments:{},program_allowed:true}})+'\n');
+    await Promise.race([entered, exited.then(([code]) => { throw new Error(`El worker terminó antes de la cancelación (código ${code})`); })]);
+    child.stdin.write(JSON.stringify({cancel_request_id:42})+'\n');
+    const cancelled = JSON.parse((await cancelledReply)[0]);
+    assert.equal(cancelled.request_id,42); assert.equal(cancelled.result.status,'result_uncertain');
+    assert.equal(writes,3); checks++;
   } finally {
     child.stdin.end();
     const [code] = await exited;
